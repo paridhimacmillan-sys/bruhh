@@ -70,7 +70,7 @@ export async function initDb(): Promise<void> {
 
     pool = new Pool({
       connectionString: resolvedUrl,
-      ssl: isLocalhost ? { rejectUnauthorized: false } : undefined,
+      ssl: { rejectUnauthorized: false },
     });
 
     console.log("[db] Pool created, testing connection...");
