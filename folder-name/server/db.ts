@@ -10,6 +10,20 @@ if (!process.env.DATABASE_URL) {
   throw new Error("DATABASE_URL must be set. Did you forget to provision a database?");
 }
 
+// Debug: Log the DATABASE_URL format (without password)
+console.log("[db] DATABASE_URL format check:", 
+  process.env.DATABASE_URL ? "Present" : "Missing");
+if (process.env.DATABASE_URL) {
+  const url = new URL(process.env.DATABASE_URL);
+  console.log("[db] Connection info:", {
+    protocol: url.protocol,
+    hostname: url.hostname,
+    port: url.port,
+    database: url.pathname,
+    hasSSL: url.searchParams.has('sslmode')
+  });
+}
+
 export let pool: pg.Pool;
 export let db: NodePgDatabase<typeof schema>;
 
