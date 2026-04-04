@@ -52,16 +52,47 @@ async function resolveConnectionString(url: string): Promise<string> {
 }
 
 export async function initDb(): Promise<void> {
-  const resolvedUrl = await resolveConnectionString(process.env.DATABASE_URL!);
+  try {
+    console.log("[db] Starting database initialization...");
+    const resolvedUrl = await resolveConnectionString(process.env.DATABASE_URL!);
+    console.log("[db] URL resolved successfully");
 
-  // Parse the URL to detect if it's a localhost connection (needs ssl rejectUnauthorized: false
-  // because Replit's local Neon proxy presents a Neon cert that won't match 'localhost').
-  const parsed = new URL(resolvedUrl);
-  const isLocalhost = parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1";
+    // Parse the URL to detect if it's a localhost connection (needs ssl rejectUnauthorized: false
+    // because Replit's local Neon proxy presents a Neon cert that won't match 'localhost').
+    const parsed = new URL(resolvedUrl);
+    const isLocalhost = parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1";
 
-  pool = new Pool({
-    connectionString: resolvedUrl,
-    ssl: isLocalhost ? { rejectUnauthorized: false } : undefined,
+    console.log("[db] Creating pool with config:", {
+      hostname: parsed.hostname,
+      isLocalhost,
+      hasSSL: !isLocalhost
+    });
+
+    pool = new Pool({
+      connectionString: resolvedUrl,
+      ssl: isLocalhost ? { rejectUnauthorized: false } : undefined,
+    });
+
+    console.log("[db] Pool created, testing connection...");
+    
+    // Test the connection
+    const testResult = await pool.query('SELECT 1 as test');
+    console.log("[db] Connection test successful:", testResult.rows[0]);
+
+    db = drizzle(pool, { schema });
+    console.log("[db] Drizzle ORM initialized");
+  } catch (error: any) {
+    console.error("[db] Database initialization failed:", error);
+    console.error("[db] Error details:", {
+      message: error.message,
+      code: error.code,
+      severity: error.severity,
+      detail: error.detail,
+      hint: error.hint
+    });
+    throw error;
+  }
+}
     keepAlive: true,
     keepAliveInitialDelayMillis: 10000,
     idleTimeoutMillis: 0,
