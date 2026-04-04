@@ -85,7 +85,9 @@ httpServer.listen(
     log("Database ready", "startup");
   } catch (err: any) {
     console.error("[startup] Database initialization failed:", err.message || err);
-    // Continue anyway — routes will fail gracefully if DB is down
+    console.error("[startup] Full error:", err);
+    // Exit with error code if DB fails - don't continue
+    process.exit(1);
   }
 
   try {
