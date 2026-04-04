@@ -27,7 +27,7 @@ import {
 import {
   TrendingUp,
   TrendingDown,
-  TrendingRight,
+  Minus,
   AlertTriangle,
   Target,
   MapPin,
@@ -35,18 +35,10 @@ import {
   Lightbulb,
   ArrowUp,
   ArrowDown,
-  Minus,
   Download,
   Calendar,
   FileText,
 } from "lucide-react";
-
-// Export AnalyticsFilters interface locally since it's not exported
-interface AnalyticsFilters {
-  startDate?: string;
-  endDate?: string;
-  type?: string;
-}
 
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8'];
 
@@ -100,7 +92,7 @@ export default function AnalyticsDashboard() {
       case 'decreasing':
         return <TrendingDown className="h-4 w-4 text-green-500" />;
       default:
-        return <TrendingRight className="h-4 w-4 text-gray-500" />;
+        return <Minus className="h-4 w-4 text-gray-500" />;
     }
   };
 
