@@ -1,11 +1,4 @@
-export default function ReportsPage() {
-  return (
-    <div className="p-6">
-      <h1 className="text-2xl font-bold mb-4">Reports</h1>
-      <p className="text-muted-foreground">Reports will be available here.</p>
-    </div>
-  );
-}
+
 import { useState } from "react";
 import { useUser } from "@/hooks/use-auth";
 import { useQuery } from "@tanstack/react-query";
