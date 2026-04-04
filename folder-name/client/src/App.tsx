@@ -19,6 +19,8 @@ import RecentEntries from "@/pages/recent-entries";
 import TeamPage from "@/pages/team";
 import ImportData from "@/pages/import-data";
 import ManageZones from "@/pages/manage-zones";
+import ReportsPage from "@/pages/reports";
+import AlertsPage from "@/pages/alerts";
 
 function AuthenticatedApp() {
   const { data: user, isLoading } = useUser();
@@ -54,6 +56,8 @@ function AuthenticatedApp() {
       <Switch>
         <Route path="/" component={Dashboard} />
         <Route path="/analytics" component={AnalyticsDashboard} />
+        <Route path="/reports" component={ReportsPage} />
+        <Route path="/alerts" component={AlertsPage} />
         <Route path="/log" component={LogEntry} />
         <Route path="/parts" component={ManageParts} />
         <Route path="/reasons" component={ManageReasons} />
