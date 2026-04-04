@@ -20,6 +20,9 @@ import {
   EyeOff,
   FolderUp,
   MapPin,
+  LineChart,
+  FileText,
+  Bell,
 } from "lucide-react";
 import {
   Sidebar,
@@ -51,8 +54,11 @@ import { apiRequest } from "@/lib/queryClient";
 
 const mainItems = [
   { title: "Dashboard", url: "/", icon: BarChart3 },
+  { title: "Analytics", url: "/analytics", icon: LineChart },
   { title: "Log Entry", url: "/log", icon: ClipboardList },
   { title: "Recent Entries", url: "/entries", icon: ListOrdered },
+  { title: "Reports", url: "/reports", icon: FileText },
+  { title: "Alerts", url: "/alerts", icon: Bell },
 ];
 
 const dataItems = [
