@@ -133,7 +133,7 @@ export function useAnalyticsOverview(filters?: AnalyticsFilters) {
       if (filters?.startDate) params.append('from', filters.startDate);
       if (filters?.endDate) params.append('to', filters.endDate);
       
-      const response = await fetch(`/api/analytics/overview/${user.organizationId}?${params}`);
+      const response = await fetch(`/api/analytics/overview/${user.organizationId}?${params}`, { credentials: "include" });
       if (!response.ok) {
         throw new Error("Failed to fetch analytics overview");
       }
@@ -155,7 +155,7 @@ export function useAnalyticsStats(filters?: AnalyticsFilters) {
       if (filters?.startDate) params.append('from', filters.startDate);
       if (filters?.endDate) params.append('to', filters.endDate);
       
-      const response = await fetch(`/api/analytics/stats/${user.organizationId}?${params}`);
+      const response = await fetch(`/api/analytics/stats/${user.organizationId}?${params}`, { credentials: "include" });
       if (!response.ok) {
         throw new Error("Failed to fetch analytics stats");
       }
@@ -173,7 +173,7 @@ export function useAnalyticsTrends() {
     queryFn: async () => {
       if (!user?.organizationId) throw new Error("No organization ID");
       
-      const response = await fetch(`/api/analytics/trends/${user.organizationId}`);
+      const response = await fetch(`/api/analytics/trends/${user.organizationId}`, { credentials: "include" });
       if (!response.ok) {
         throw new Error("Failed to fetch trend data");
       }
@@ -196,7 +196,7 @@ export function useTopCategories(limit: number = 10, filters?: AnalyticsFilters)
       if (filters?.startDate) params.append('from', filters.startDate);
       if (filters?.endDate) params.append('to', filters.endDate);
       
-      const response = await fetch(`/api/analytics/top-categories/${user.organizationId}?${params}`);
+      const response = await fetch(`/api/analytics/top-categories/${user.organizationId}?${params}`, { credentials: "include" });
       if (!response.ok) {
         throw new Error("Failed to fetch top categories");
       }
@@ -219,7 +219,7 @@ export function useTopItems(limit: number = 10, filters?: AnalyticsFilters) {
       if (filters?.startDate) params.append('from', filters.startDate);
       if (filters?.endDate) params.append('to', filters.endDate);
       
-      const response = await fetch(`/api/analytics/top-items/${user.organizationId}?${params}`);
+      const response = await fetch(`/api/analytics/top-items/${user.organizationId}?${params}`, { credentials: "include" });
       if (!response.ok) {
         throw new Error("Failed to fetch top items");
       }
@@ -242,7 +242,7 @@ export function useTopIssueTypes(limit: number = 10, filters?: AnalyticsFilters)
       if (filters?.startDate) params.append('from', filters.startDate);
       if (filters?.endDate) params.append('to', filters.endDate);
       
-      const response = await fetch(`/api/analytics/top-issue-types/${user.organizationId}?${params}`);
+      const response = await fetch(`/api/analytics/top-issue-types/${user.organizationId}?${params}`, { credentials: "include" });
       if (!response.ok) {
         throw new Error("Failed to fetch top issue types");
       }
@@ -264,7 +264,7 @@ export function useDailyTrend(filters?: AnalyticsFilters) {
       if (filters?.startDate) params.append('from', filters.startDate);
       if (filters?.endDate) params.append('to', filters.endDate);
       
-      const response = await fetch(`/api/analytics/daily-trend/${user.organizationId}?${params}`);
+      const response = await fetch(`/api/analytics/daily-trend/${user.organizationId}?${params}`, { credentials: "include" });
       if (!response.ok) {
         throw new Error("Failed to fetch daily trend");
       }
@@ -286,7 +286,7 @@ export function useAnalyticsInsights(filters?: AnalyticsFilters) {
       if (filters?.startDate) params.append('from', filters.startDate);
       if (filters?.endDate) params.append('to', filters.endDate);
       
-      const response = await fetch(`/api/analytics/insights/${user.organizationId}?${params}`);
+      const response = await fetch(`/api/analytics/insights/${user.organizationId}?${params}`, { credentials: "include" });
       if (!response.ok) {
         throw new Error("Failed to fetch insights");
       }
@@ -304,7 +304,7 @@ export function useFieldLabels() {
     queryFn: async () => {
       if (!user?.organizationId) throw new Error("No organization ID");
       
-      const response = await fetch(`/api/analytics/field-labels/${user.organizationId}`);
+      const response = await fetch(`/api/analytics/field-labels/${user.organizationId}`, { credentials: "include" });
       if (!response.ok) {
         throw new Error("Failed to fetch field labels");
       }
