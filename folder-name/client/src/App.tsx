@@ -1,5 +1,5 @@
-import { useEffect } from "react";
-import { Switch, Route } from "wouter";
+import { useEffect, useState } from "react";
+import { Switch, Route, useRoute } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -8,6 +8,7 @@ import { useUser } from "@/hooks/use-auth";
 import NotFound from "@/pages/not-found";
 import LoginPage from "@/pages/login";
 
+// Existing pages
 import { Layout } from "@/components/layout";
 import Dashboard from "@/pages/dashboard";
 import AnalyticsDashboard from "@/pages/analytics-dashboard";
@@ -21,6 +22,40 @@ import ImportData from "@/pages/import-data";
 import ManageZones from "@/pages/manage-zones";
 import ReportsPage from "@/pages/reports";
 import AlertsPage from "@/pages/alerts";
+
+// Jira pages
+import BoardPage from "@/pages/board";
+import BacklogPage from "@/pages/backlog";
+import IssuesPage from "@/pages/issues";
+import CreateProjectPage from "@/pages/create-project";
+import AnalyticsPage from "@/pages/analytics";
+import { JiraSidebar } from "@/components/jira-sidebar";
+
+// Workspace ID — replace with real workspace lookup
+const WORKSPACE_ID = 1;
+const WORKSPACE_NAME = "My Workspace";
+
+function JiraLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex h-screen overflow-hidden">
+      <JiraSidebar workspaceId={WORKSPACE_ID} workspaceName={WORKSPACE_NAME} />
+      <main className="flex-1 overflow-hidden flex flex-col">
+        {children}
+      </main>
+    </div>
+  );
+}
+
+function JiraProjectRoute({ component: Component }: { component: React.ComponentType<{ projectId: number }> }) {
+  const [, params] = useRoute("/projects/:id/:view*");
+  const projectId = parseInt((params as any)?.id ?? "0");
+  if (!projectId) return <NotFound />;
+  return (
+    <JiraLayout>
+      <Component projectId={projectId} />
+    </JiraLayout>
+  );
+}
 
 function AuthenticatedApp() {
   const { data: user, isLoading } = useUser();
@@ -52,23 +87,65 @@ function AuthenticatedApp() {
   }
 
   return (
-    <Layout>
-      <Switch>
-        <Route path="/" component={Dashboard} />
-        <Route path="/analytics" component={AnalyticsDashboard} />
-        <Route path="/reports" component={ReportsPage} />
-        <Route path="/alerts" component={AlertsPage} />
-        <Route path="/log" component={LogEntry} />
-        <Route path="/parts" component={ManageParts} />
-        <Route path="/reasons" component={ManageReasons} />
-        <Route path="/rework-types" component={ManageReworkTypes} />
-        <Route path="/entries" component={RecentEntries} />
-        <Route path="/team" component={TeamPage} />
-        <Route path="/import" component={ImportData} />
-        <Route path="/zones" component={ManageZones} />
-        <Route component={NotFound} />
-      </Switch>
-    </Layout>
+    <Switch>
+      {/* ── Jira routes ── */}
+      <Route path="/projects/new">
+        <JiraLayout>
+          <CreateProjectPage workspaceId={WORKSPACE_ID} />
+        </JiraLayout>
+      </Route>
+      <Route path="/projects/:id/board">
+        <JiraProjectRoute component={BoardPage} />
+      </Route>
+      <Route path="/projects/:id/backlog">
+        <JiraProjectRoute component={BacklogPage} />
+      </Route>
+      <Route path="/projects/:id/issues">
+        <JiraProjectRoute component={IssuesPage} />
+      </Route>
+      <Route path="/projects/:id/analytics">
+        <JiraProjectRoute component={AnalyticsPage} />
+      </Route>
+
+      {/* ── Existing routes ── */}
+      <Route path="/">
+        <Layout><Dashboard /></Layout>
+      </Route>
+      <Route path="/analytics">
+        <Layout><AnalyticsDashboard /></Layout>
+      </Route>
+      <Route path="/reports">
+        <Layout><ReportsPage /></Layout>
+      </Route>
+      <Route path="/alerts">
+        <Layout><AlertsPage /></Layout>
+      </Route>
+      <Route path="/log">
+        <Layout><LogEntry /></Layout>
+      </Route>
+      <Route path="/parts">
+        <Layout><ManageParts /></Layout>
+      </Route>
+      <Route path="/reasons">
+        <Layout><ManageReasons /></Layout>
+      </Route>
+      <Route path="/rework-types">
+        <Layout><ManageReworkTypes /></Layout>
+      </Route>
+      <Route path="/entries">
+        <Layout><RecentEntries /></Layout>
+      </Route>
+      <Route path="/team">
+        <Layout><TeamPage /></Layout>
+      </Route>
+      <Route path="/import">
+        <Layout><ImportData /></Layout>
+      </Route>
+      <Route path="/zones">
+        <Layout><ManageZones /></Layout>
+      </Route>
+      <Route component={NotFound} />
+    </Switch>
   );
 }
 
