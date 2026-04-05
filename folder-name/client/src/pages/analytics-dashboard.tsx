@@ -317,49 +317,71 @@ export default function AnalyticsDashboard() {
         </Card>
       </div>
 
-      {/* AI Insights */}
+      {/* Key Insights */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center space-x-2">
             <Lightbulb className="h-5 w-5" />
             <span>Key Insights</span>
           </CardTitle>
-          <CardDescription>Actionable insights based on your data</CardDescription>
+          <CardDescription>Top rejection reasons, rework types, and trends based on your data</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {(insights || []).slice(0, 3).map((insight, index) => (
-              <Card key={index} className="border-l-4 border-l-blue-500">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-lg flex items-center justify-between">
-                    {insight.title}
-                    <Badge variant="secondary">
-                      {(insight.confidence * 100).toFixed(0)}% confidence
-                    </Badge>
-                  </CardTitle>
-                  <CardDescription>{insight.description}</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-2">
-                    <div className="flex items-center space-x-2">
-                      <span className="text-2xl font-bold">{insight.value}</span>
-                      {insight.change && (
-                        <span className={`text-sm font-medium ${getTrendColor(
-                          insight.change === '↑' ? 'increasing' : 'decreasing'
-                        )}`}>
-                          {insight.change}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {(insights || []).map((insight, index) => {
+              const isRejection = insight.title === 'Top Rejection Reason';
+              const isRework = insight.title === 'Top Rework Type';
+              const isTrend = insight.type === 'trend_change';
+              const borderColor = isRejection
+                ? 'border-l-red-500'
+                : isRework
+                ? 'border-l-blue-500'
+                : isTrend
+                ? (insight.change === '↑' ? 'border-l-orange-500' : 'border-l-green-500')
+                : 'border-l-yellow-500';
+              const icon = isRejection
+                ? <AlertTriangle className="h-4 w-4 text-red-500" />
+                : isRework
+                ? <Target className="h-4 w-4 text-blue-500" />
+                : isTrend
+                ? (insight.change === '↑' ? <TrendingUp className="h-4 w-4 text-orange-500" /> : <TrendingDown className="h-4 w-4 text-green-500" />)
+                : <MapPin className="h-4 w-4 text-yellow-500" />;
+              return (
+                <Card key={index} className={`border-l-4 ${borderColor}`}>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium flex items-center gap-2">
+                      {icon}
+                      {insight.title}
+                    </CardTitle>
+                    <CardDescription className="text-xs">{insight.description}</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xl font-bold truncate" title={insight.value}>
+                          {insight.value}
                         </span>
-                      )}
+                        {insight.change && (
+                          <span className={`text-sm font-bold ${getTrendColor(
+                            insight.change === '↑' ? 'increasing' : 'decreasing'
+                          )}`}>
+                            {insight.change}
+                          </span>
+                        )}
+                      </div>
+                      <Badge variant="outline" className="text-xs">
+                        {(insight.confidence * 100).toFixed(0)}% confidence
+                      </Badge>
                     </div>
-                    <p className="text-sm text-muted-foreground">
-                      {insight.type === 'top_issue' && 'Focus on reducing this issue type'}
-                      {insight.type === 'problem_area' && 'Investigate this area for process improvements'}
-                      {insight.type === 'trend_change' && 'Monitor this trend closely'}
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+                  </CardContent>
+                </Card>
+              );
+            })}
+            {(!insights || insights.length === 0) && (
+              <div className="col-span-4 text-center py-8 text-muted-foreground text-sm">
+                No insights available yet. Add more entries to see patterns.
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>
