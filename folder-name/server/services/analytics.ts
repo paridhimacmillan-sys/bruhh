@@ -130,7 +130,7 @@ export class AnalyticsService {
       db.select({
         partNumber: parts.partNumber,
         zone: zones.name,
-        type: reworkTypes.type,
+        type: sql<string>`'rework'`,
         quantity: reworkEntries.quantity,
         date: reworkEntries.date,
         remarks: reworkEntries.remarks,
@@ -141,7 +141,6 @@ export class AnalyticsService {
       .from(reworkEntries)
       .leftJoin(parts, eq(reworkEntries.partId, parts.id))
       .leftJoin(zones, eq(reworkEntries.zoneId, zones.id))
-      .leftJoin(reworkTypes, eq(reworkEntries.reworkTypeId, reworkTypes.id))
       .where(eq(reworkEntries.organizationId, organizationId))
     ]);
 
