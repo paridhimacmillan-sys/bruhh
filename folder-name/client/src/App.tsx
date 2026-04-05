@@ -28,7 +28,6 @@ import BoardPage from "@/pages/board";
 import BacklogPage from "@/pages/backlog";
 import IssuesPage from "@/pages/issues";
 import CreateProjectPage from "@/pages/create-project";
-import AnalyticsPage from "@/pages/analytics";
 import { JiraSidebar } from "@/components/jira-sidebar";
 
 // Workspace ID — replace with real workspace lookup
@@ -102,9 +101,6 @@ function AuthenticatedApp() {
       </Route>
       <Route path="/projects/:id/issues">
         <JiraProjectRoute component={IssuesPage} />
-      </Route>
-      <Route path="/projects/:id/analytics">
-        <JiraProjectRoute component={AnalyticsPage} />
       </Route>
 
       {/* ── Existing routes ── */}
