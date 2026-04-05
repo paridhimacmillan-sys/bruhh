@@ -1,654 +1,193 @@
-import { issueEntries, organizations, templates, rejectionEntries, reworkEntries, parts, rejectionTypes, reworkTypes, zones } from "@shared/schema";
-import { eq, and, gte, lte, desc, count, sum, sql, inArray } from "drizzle-orm";
+import { useIssues } from "@/hooks/use-jira";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from "recharts";
 
-/**
- * Advanced Analytics Service
- * Works with unified issue_entries and template system
- * Template-aware analytics for manufacturing, bakery, food service, etc.
- */
+const STATUS_COLORS: Record<string, string> = {
+  backlog: "#B4B2A9",
+  todo: "#378ADD",
+  in_progress: "#EF9F27",
+  in_review: "#7F77DD",
+  done: "#639922",
+  cancelled: "#E24B4A",
+};
 
-export interface AnalyticsPeriod {
-  from: Date;
-  to: Date;
+const PRIORITY_COLORS: Record<string, string> = {
+  urgent: "#E24B4A",
+  high: "#EF9F27",
+  medium: "#378ADD",
+  low: "#B4B2A9",
+};
+
+interface AnalyticsPageProps {
+  projectId: number;
 }
 
-export interface OverviewStats {
-  totalIssues: number;
-  totalQuantity: number;
-  avgQuantityPerIssue: number;
-  uniqueCategories: number;
-  uniqueItems: number;
-  uniqueIssueTypes: number;
+export default function AnalyticsPage({ projectId }: AnalyticsPageProps) {
+  const { data: issues = [], isLoading } = useIssues(projectId);
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+        Loading analytics...
+      </div>
+    );
+  }
+
+  // Status breakdown
+  const statusData = Object.entries(
+    issues.reduce((acc, issue) => {
+      acc[issue.status] = (acc[issue.status] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>)
+  ).map(([status, count]) => ({
+    name: status.replace("_", " "),
+    value: count,
+    color: STATUS_COLORS[status] ?? "#B4B2A9",
+  }));
+
+  // Priority breakdown
+  const priorityData = Object.entries(
+    issues.reduce((acc, issue) => {
+      acc[issue.priority] = (acc[issue.priority] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>)
+  ).map(([priority, count]) => ({
+    name: priority,
+    count,
+    color: PRIORITY_COLORS[priority] ?? "#B4B2A9",
+  }));
+
+  // Type breakdown
+  const typeData = Object.entries(
+    issues.reduce((acc, issue) => {
+      acc[issue.type] = (acc[issue.type] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>)
+  ).map(([type, count]) => ({ name: type, count }));
+
+  const total = issues.length;
+  const done = issues.filter((i) => i.status === "done").length;
+  const inProgress = issues.filter((i) => i.status === "in_progress").length;
+  const completion = total > 0 ? Math.round((done / total) * 100) : 0;
+
+  return (
+    <div className="flex flex-col h-full overflow-y-auto">
+      <div className="flex items-center justify-between px-5 py-3 border-b border-border bg-background">
+        <h1 className="text-sm font-medium">Analytics</h1>
+      </div>
+
+      <div className="p-5 space-y-5">
+        {/* Summary cards */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <MetricCard label="Total issues" value={total} />
+          <MetricCard label="Completed" value={done} />
+          <MetricCard label="In progress" value={inProgress} />
+          <MetricCard label="Completion" value={`${completion}%`} />
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          {/* Status pie chart */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">Issues by status</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {statusData.length === 0 ? (
+                <EmptyState />
+              ) : (
+                <ResponsiveContainer width="100%" height={220}>
+                  <PieChart>
+                    <Pie
+                      data={statusData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={55}
+                      outerRadius={85}
+                      dataKey="value"
+                      paddingAngle={2}
+                    >
+                      {statusData.map((entry, i) => (
+                        <Cell key={i} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip formatter={(v) => [`${v} issues`]} />
+                    <Legend
+                      formatter={(value) => (
+                        <span className="text-xs capitalize">{value}</span>
+                      )}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Priority bar chart */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">Issues by priority</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {priorityData.length === 0 ? (
+                <EmptyState />
+              ) : (
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={priorityData} barSize={32}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--color-border-tertiary)" />
+                    <XAxis dataKey="name" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
+                    <Tooltip formatter={(v) => [`${v} issues`]} />
+                    <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                      {priorityData.map((entry, i) => (
+                        <Cell key={i} fill={entry.color} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Type breakdown */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Issues by type</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {typeData.length === 0 ? (
+              <EmptyState />
+            ) : (
+              <ResponsiveContainer width="100%" height={180}>
+                <BarChart data={typeData} barSize={40}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--color-border-tertiary)" />
+                  <XAxis dataKey="name" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
+                  <Tooltip formatter={(v) => [`${v} issues`]} />
+                  <Bar dataKey="count" fill="#378ADD" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
 }
 
-export interface TrendData {
-  period: string;
-  current: {
-    count: number;
-    quantity: number;
-  };
-  previous: {
-    count: number;
-    quantity: number;
-  };
-  changePercent: {
-    count: number;
-    quantity: number;
-  };
-  trend: 'increasing' | 'decreasing' | 'stable';
+function MetricCard({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="bg-muted/40 rounded-lg p-4">
+      <p className="text-xs text-muted-foreground mb-1">{label}</p>
+      <p className="text-2xl font-medium">{value}</p>
+    </div>
+  );
 }
 
-export interface TopCategory {
-  name: string;
-  count: number;
-  quantity: number;
-  percentage: number;
-  topIssueType: string;
-}
-
-export interface TopItem {
-  name: string;
-  count: number;
-  quantity: number;
-  percentage: number;
-  topIssueType: string;
-}
-
-export interface TopIssueType {
-  name: string;
-  count: number;
-  quantity: number;
-  percentage: number;
-  topCategory: string;
-  topItem: string;
-}
-
-export interface DailyTrend {
-  date: string;
-  count: number;
-  quantity: number;
-}
-
-export interface InsightSummary {
-  type: 'top_issue' | 'problem_area' | 'trend_change';
-  title: string;
-  description: string;
-  value: string;
-  change?: string;
-  confidence: number;
-}
-
-export interface AnalyticsData {
-  overview: OverviewStats;
-  trends: {
-    last7Days: TrendData;
-    last30Days: TrendData;
-  };
-  topCategories: TopCategory[];
-  topItems: TopItem[];
-  topIssueTypes: TopIssueType[];
-  dailyTrend: DailyTrend[];
-  insights: InsightSummary[];
-}
-
-export class AnalyticsService {
-  
-  /**
-   * Ensure issueEntries is populated with data from existing tables
-   */
-  private async ensureIssueEntriesPopulated(organizationId: number): Promise<void> {
-    // Check if issueEntries has data for this org
-    const existingEntries = await db.select({ count: count() })
-      .from(issueEntries)
-      .where(eq(issueEntries.organizationId, organizationId))
-      .limit(1);
-
-    if (existingEntries[0]?.count > 0) {
-      return; // Already populated
-    }
-
-    // Get data from existing tables
-    const [rejectionData, reworkData] = await Promise.all([
-      db.select({
-        partNumber: parts.partNumber,
-        zone: zones.name,
-        type: rejectionTypes.type,
-        quantity: rejectionEntries.quantity,
-        date: rejectionEntries.date,
-        remarks: rejectionEntries.remarks,
-        organizationId: rejectionEntries.organizationId,
-        createdByUsername: rejectionEntries.createdByUsername,
-        importedAt: rejectionEntries.importedAt
-      })
-      .from(rejectionEntries)
-      .leftJoin(parts, eq(rejectionEntries.partId, parts.id))
-      .leftJoin(zones, eq(rejectionEntries.zoneId, zones.id))
-      .leftJoin(rejectionTypes, eq(rejectionEntries.rejectionTypeId, rejectionTypes.id))
-      .where(eq(rejectionEntries.organizationId, organizationId)),
-      
-      db.select({
-        partNumber: parts.partNumber,
-        zone: zones.name,
-        quantity: reworkEntries.quantity,
-        date: reworkEntries.date,
-        remarks: reworkEntries.remarks,
-        organizationId: reworkEntries.organizationId,
-        createdByUsername: reworkEntries.createdByUsername,
-        importedAt: reworkEntries.importedAt
-      })
-      .from(reworkEntries)
-      .leftJoin(parts, eq(reworkEntries.partId, parts.id))
-      .leftJoin(zones, eq(reworkEntries.zoneId, zones.id))
-      .leftJoin(reworkTypes, eq(reworkEntries.reworkTypeId, reworkTypes.id))
-      .where(eq(reworkEntries.organizationId, organizationId))
-    ]);
-
-    // Combine and insert into issueEntries
-    const allEntries = [
-      ...rejectionData.map(entry => ({
-        ...entry,
-        partNumber: entry.partNumber || 'Unknown',
-        zone: entry.zone || 'Unknown',
-        type: entry.type || 'rejection',
-        tags: [] as string[],
-        customFields: {} as Record<string, unknown>,
-        entryType: 'rejection' as const,
-      })),
-      ...reworkData.map(entry => ({
-        ...entry,
-        partNumber: entry.partNumber || 'Unknown',
-        zone: entry.zone || 'Unknown',
-        type: 'rework',
-        tags: [] as string[],
-        customFields: {} as Record<string, unknown>,
-        entryType: 'rework' as const,
-      }))
-    ];
-
-    if (allEntries.length > 0) {
-      await db.insert(issueEntries).values(allEntries);
-    }
-  }
-
-  /**
-   * Get comprehensive analytics for organization
-   */
-  async getAnalytics(organizationId: number, period?: AnalyticsPeriod): Promise<AnalyticsData> {
-    // Ensure issueEntries is populated with existing data
-    await this.ensureIssueEntriesPopulated(organizationId);
-    
-    const defaultPeriod = this.getDefaultPeriod();
-    const analyticsPeriod = period || defaultPeriod;
-
-    const [
-      overview,
-      last7DaysTrend,
-      last30DaysTrend,
-      topCategories,
-      topItems,
-      topIssueTypes,
-      dailyTrend,
-      insights
-    ] = await Promise.all([
-      this.getOverviewStats(organizationId, analyticsPeriod),
-      this.getTrendData(organizationId, 7),
-      this.getTrendData(organizationId, 30),
-      this.getTopCategories(organizationId, analyticsPeriod),
-      this.getTopItems(organizationId, analyticsPeriod),
-      this.getTopIssueTypes(organizationId, analyticsPeriod),
-      this.getDailyTrend(organizationId, analyticsPeriod),
-      this.generateInsights(organizationId, analyticsPeriod)
-    ]);
-
-    return {
-      overview,
-      trends: {
-        last7Days: last7DaysTrend,
-        last30Days: last30DaysTrend
-      },
-      topCategories,
-      topItems,
-      topIssueTypes,
-      dailyTrend,
-      insights
-    };
-  }
-
-  /**
-   * Get overview statistics
-   */
-  private async getOverviewStats(organizationId: number, period: AnalyticsPeriod): Promise<OverviewStats> {
-    const baseQuery = db.select({
-      count: count(),
-      totalQuantity: sum(issueEntries.quantity).mapWith(Number),
-      uniqueCategories: sql<string>`COUNT(DISTINCT ${issueEntries.zone})`,
-      uniqueItems: sql<string>`COUNT(DISTINCT ${issueEntries.partNumber})`,
-      uniqueIssueTypes: sql<string>`COUNT(DISTINCT ${issueEntries.type})`
-    })
-    .from(issueEntries)
-    .where(and(
-      eq(issueEntries.organizationId, organizationId),
-      gte(issueEntries.date, period.from),
-      lte(issueEntries.date, period.to)
-    ))
-    .limit(1);
-
-    const result = await baseQuery;
-    const stats = result[0];
-
-    return {
-      totalIssues: stats.count || 0,
-      totalQuantity: stats.totalQuantity || 0,
-      avgQuantityPerIssue: stats.count > 0 ? (stats.totalQuantity || 0) / stats.count : 0,
-      uniqueCategories: parseInt(stats.uniqueCategories || '0'),
-      uniqueItems: parseInt(stats.uniqueItems || '0'),
-      uniqueIssueTypes: parseInt(stats.uniqueIssueTypes || '0')
-    };
-  }
-
-  /**
-   * Get trend data comparing current vs previous period
-   */
-  private async getTrendData(organizationId: number, days: number): Promise<TrendData> {
-    const now = new Date();
-    const currentFrom = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
-    const previousTo = currentFrom;
-    const previousFrom = new Date(previousTo.getTime() - days * 24 * 60 * 60 * 1000);
-
-    const [currentData, previousData] = await Promise.all([
-      this.getPeriodStats(organizationId, currentFrom, now),
-      this.getPeriodStats(organizationId, previousFrom, previousTo)
-    ]);
-
-    const countChange = previousData.count > 0 
-      ? ((currentData.count - previousData.count) / previousData.count) * 100 
-      : 0;
-
-    const quantityChange = previousData.quantity > 0 
-      ? ((currentData.quantity - previousData.quantity) / previousData.quantity) * 100 
-      : 0;
-
-    let trend: 'increasing' | 'decreasing' | 'stable' = 'stable';
-    if (Math.abs(countChange) > 10) {
-      trend = countChange > 0 ? 'increasing' : 'decreasing';
-    }
-
-    return {
-      period: `Last ${days} days`,
-      current: currentData,
-      previous: previousData,
-      changePercent: {
-        count: countChange,
-        quantity: quantityChange
-      },
-      trend
-    };
-  }
-
-  /**
-   * Get stats for a specific period
-   */
-  private async getPeriodStats(organizationId: number, from: Date, to: Date) {
-    const result = await db.select({
-      count: count(),
-      quantity: sum(issueEntries.quantity).mapWith(Number)
-    })
-    .from(issueEntries)
-    .where(and(
-      eq(issueEntries.organizationId, organizationId),
-      gte(issueEntries.date, from),
-      lte(issueEntries.date, to)
-    ))
-    .limit(1);
-
-    return {
-      count: result[0]?.count || 0,
-      quantity: result[0]?.quantity || 0
-    };
-  }
-
-  /**
-   * Get top categories/zones/stations
-   */
-  private async getTopCategories(organizationId: number, period: AnalyticsPeriod): Promise<TopCategory[]> {
-    const totalResult = await db.select({ count: count() })
-      .from(issueEntries)
-      .where(and(
-        eq(issueEntries.organizationId, organizationId),
-        gte(issueEntries.date, period.from),
-        lte(issueEntries.date, period.to)
-      ))
-      .limit(1);
-
-    const total = totalResult[0]?.count || 0;
-
-    const categories = await db.select({
-      name: issueEntries.zone,
-      count: count(),
-      quantity: sum(issueEntries.quantity).mapWith(Number)
-    })
-    .from(issueEntries)
-    .where(and(
-      eq(issueEntries.organizationId, organizationId),
-      gte(issueEntries.date, period.from),
-      lte(issueEntries.date, period.to)
-    ))
-    .groupBy(issueEntries.zone)
-    .orderBy(desc(count()))
-    .limit(10);
-
-    const result: TopCategory[] = [];
-
-    for (const category of categories) {
-      // Get top issue type for this category
-      const topIssueType = await db.select({ type: issueEntries.type })
-        .from(issueEntries)
-        .where(and(
-          eq(issueEntries.organizationId, organizationId),
-          eq(issueEntries.zone, category.name),
-          gte(issueEntries.date, period.from),
-          lte(issueEntries.date, period.to)
-        ))
-        .groupBy(issueEntries.type)
-        .orderBy(desc(count()))
-        .limit(1);
-
-      result.push({
-        name: category.name,
-        count: category.count,
-        quantity: category.quantity,
-        percentage: total > 0 ? (category.count / total) * 100 : 0,
-        topIssueType: topIssueType[0]?.type || 'Unknown'
-      });
-    }
-
-    return result;
-  }
-
-  /**
-   * Get top items/products/batches
-   */
-  private async getTopItems(organizationId: number, period: AnalyticsPeriod): Promise<TopItem[]> {
-    const totalResult = await db.select({ count: count() })
-      .from(issueEntries)
-      .where(and(
-        eq(issueEntries.organizationId, organizationId),
-        gte(issueEntries.date, period.from),
-        lte(issueEntries.date, period.to)
-      ))
-      .limit(1);
-
-    const total = totalResult[0]?.count || 0;
-
-    const items = await db.select({
-      name: issueEntries.partNumber,
-      count: count(),
-      quantity: sum(issueEntries.quantity).mapWith(Number)
-    })
-    .from(issueEntries)
-    .where(and(
-      eq(issueEntries.organizationId, organizationId),
-      gte(issueEntries.date, period.from),
-      lte(issueEntries.date, period.to)
-    ))
-    .groupBy(issueEntries.partNumber)
-    .orderBy(desc(count()))
-    .limit(10);
-
-    const result: TopItem[] = [];
-
-    for (const item of items) {
-      // Get top issue type for this item
-      const topIssueType = await db.select({ type: issueEntries.type })
-        .from(issueEntries)
-        .where(and(
-          eq(issueEntries.organizationId, organizationId),
-          eq(issueEntries.partNumber, item.name),
-          gte(issueEntries.date, period.from),
-          lte(issueEntries.date, period.to)
-        ))
-        .groupBy(issueEntries.type)
-        .orderBy(desc(count()))
-        .limit(1);
-
-      result.push({
-        name: item.name,
-        count: item.count,
-        quantity: item.quantity,
-        percentage: total > 0 ? (item.count / total) * 100 : 0,
-        topIssueType: topIssueType[0]?.type || 'Unknown'
-      });
-    }
-
-    return result;
-  }
-
-  /**
-   * Get top issue types
-   */
-  private async getTopIssueTypes(organizationId: number, period: AnalyticsPeriod): Promise<TopIssueType[]> {
-    const totalResult = await db.select({ count: count() })
-      .from(issueEntries)
-      .where(and(
-        eq(issueEntries.organizationId, organizationId),
-        gte(issueEntries.date, period.from),
-        lte(issueEntries.date, period.to)
-      ))
-      .limit(1);
-
-    const total = totalResult[0]?.count || 0;
-
-    const issueTypes = await db.select({
-      name: issueEntries.type,
-      count: count(),
-      quantity: sum(issueEntries.quantity).mapWith(Number)
-    })
-    .from(issueEntries)
-    .where(and(
-      eq(issueEntries.organizationId, organizationId),
-      gte(issueEntries.date, period.from),
-      lte(issueEntries.date, period.to)
-    ))
-    .groupBy(issueEntries.type)
-    .orderBy(desc(count()))
-    .limit(10);
-
-    const result: TopIssueType[] = [];
-
-    for (const issueType of issueTypes) {
-      // Get top category and item for this issue type
-      const [topCategory, topItem] = await Promise.all([
-        db.select({ zone: issueEntries.zone })
-          .from(issueEntries)
-          .where(and(
-            eq(issueEntries.organizationId, organizationId),
-            eq(issueEntries.type, issueType.name),
-            gte(issueEntries.date, period.from),
-            lte(issueEntries.date, period.to)
-          ))
-          .groupBy(issueEntries.zone)
-          .orderBy(desc(count()))
-          .limit(1),
-        db.select({ partNumber: issueEntries.partNumber })
-          .from(issueEntries)
-          .where(and(
-            eq(issueEntries.organizationId, organizationId),
-            eq(issueEntries.type, issueType.name),
-            gte(issueEntries.date, period.from),
-            lte(issueEntries.date, period.to)
-          ))
-          .groupBy(issueEntries.partNumber)
-          .orderBy(desc(count()))
-          .limit(1)
-      ]);
-
-      result.push({
-        name: issueType.name,
-        count: issueType.count,
-        quantity: issueType.quantity,
-        percentage: total > 0 ? (issueType.count / total) * 100 : 0,
-        topCategory: topCategory[0]?.zone || 'Unknown',
-        topItem: topItem[0]?.partNumber || 'Unknown'
-      });
-    }
-
-    return result;
-  }
-
-  /**
-   * Get daily trend data
-   */
-  private async getDailyTrend(organizationId: number, period: AnalyticsPeriod): Promise<DailyTrend[]> {
-    const entries = await db.select({
-      date: sql<string>`DATE(${issueEntries.date})`,
-      count: count(),
-      quantity: sum(issueEntries.quantity).mapWith(Number)
-    })
-    .from(issueEntries)
-    .where(and(
-      eq(issueEntries.organizationId, organizationId),
-      gte(issueEntries.date, period.from),
-      lte(issueEntries.date, period.to)
-    ))
-    .groupBy(sql`DATE(${issueEntries.date})`)
-    .orderBy(sql`DATE(${issueEntries.date})`);
-
-    return entries.map(entry => ({
-      date: entry.date,
-      count: entry.count,
-      quantity: entry.quantity
-    }));
-  }
-
-  /**
-   * Generate insight summaries
-   */
-  private async generateInsights(organizationId: number, period: AnalyticsPeriod): Promise<InsightSummary[]> {
-    const insights: InsightSummary[] = [];
-
-    // Get top issue type
-    const topIssueType = await db.select({
-      type: issueEntries.type,
-      count: count()
-    })
-    .from(issueEntries)
-    .where(and(
-      eq(issueEntries.organizationId, organizationId),
-      gte(issueEntries.date, period.from),
-      lte(issueEntries.date, period.to)
-    ))
-    .groupBy(issueEntries.type)
-    .orderBy(desc(count()))
-    .limit(1);
-
-    if (topIssueType.length > 0) {
-      insights.push({
-        type: 'top_issue',
-        title: 'Most Common Issue',
-        description: `This week's most frequent problem`,
-        value: topIssueType[0].type,
-        confidence: 0.9
-      });
-    }
-
-    // Get biggest problem area
-    const topCategory = await db.select({
-      zone: issueEntries.zone,
-      count: count()
-    })
-    .from(issueEntries)
-    .where(and(
-      eq(issueEntries.organizationId, organizationId),
-      gte(issueEntries.date, period.from),
-      lte(issueEntries.date, period.to)
-    ))
-    .groupBy(issueEntries.zone)
-    .orderBy(desc(count()))
-    .limit(1);
-
-    if (topCategory.length > 0) {
-      insights.push({
-        type: 'problem_area',
-        title: 'Biggest Problem Area',
-        description: 'Area requiring immediate attention',
-        value: topCategory[0].zone,
-        confidence: 0.85
-      });
-    }
-
-    // Get trend change
-    const trend7Days = await this.getTrendData(organizationId, 7);
-    if (trend7Days.trend !== 'stable') {
-      insights.push({
-        type: 'trend_change',
-        title: 'Significant Trend Change',
-        description: `Issues ${trend7Days.trend} compared to last week`,
-        value: `${trend7Days.changePercent.count.toFixed(1)}%`,
-        change: trend7Days.trend === 'increasing' ? '↑' : '↓',
-        confidence: 0.8
-      });
-    }
-
-    return insights;
-  }
-
-  /**
-   * Update organization template
-   */
-  async updateOrganizationTemplate(organizationId: number, templateId: string): Promise<void> {
-    await db.update(organizations)
-      .set({ templateId })
-      .where(eq(organizations.id, organizationId));
-  }
-
-  /**
-   * Get default period (last 30 days)
-   */
-  private getDefaultPeriod(): AnalyticsPeriod {
-    const now = new Date();
-    const from = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-    return { from, to: now };
-  }
-
-  /**
-   * Get template-aware field labels
-   */
-  async getFieldLabels(organizationId: number): Promise<Record<string, string>> {
-    // Get organization's template configuration
-    const org = await db.select().from(organizations)
-      .where(eq(organizations.id, organizationId))
-      .limit(1);
-
-    if (!org[0]) {
-      return this.getDefaultLabels();
-    }
-
-    // Return labels based on template
-    const templateId = org[0].templateId || 'manufacturing';
-    switch (templateId) {
-      case 'bakery':
-        return this.getBakeryLabels();
-      case 'manufacturing':
-      default:
-        return this.getDefaultLabels();
-    }
-  }
-
-  private getDefaultLabels(): Record<string, string> {
-    return {
-      zone: 'Zone',
-      partNumber: 'Part Number',
-      type: 'Issue Type',
-      quantity: 'Quantity'
-    };
-  }
-
-  private getBakeryLabels(): Record<string, string> {
-    return {
-      zone: 'Kitchen Area',
-      partNumber: 'Product Name',
-      type: 'Quality Issue',
-      quantity: 'Quantity'
-    };
-  }
+function EmptyState() {
+  return (
+    <div className="flex items-center justify-center h-32 text-muted-foreground text-sm">
+      No data yet
+    </div>
+  );
 }
