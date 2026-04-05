@@ -1,5 +1,5 @@
 import { db } from "../storage";
-import { issueEntries, organizations, templates, rejectionEntries, reworkEntries, parts, rejectionTypes, reworkTypes, zones } from "@shared/schema";
+import { issueEntries, organizations, rejectionEntries, reworkEntries, parts, rejectionTypes, reworkTypes, zones } from "@shared/schema";
 import { eq, and, gte, lte, desc, count, sum, sql, inArray } from "drizzle-orm";
 
 /**
@@ -517,33 +517,62 @@ export class AnalyticsService {
   private async generateInsights(organizationId: number, period: AnalyticsPeriod): Promise<InsightSummary[]> {
     const insights: InsightSummary[] = [];
 
-    // Get top issue type
-    const topIssueType = await db.select({
-      type: issueEntries.type,
+    // Top rejection reason
+    const topRejectionReason = await db.select({
+      reason: rejectionTypes.reason,
+      code: rejectionTypes.rejectionCode,
       count: count()
     })
-    .from(issueEntries)
+    .from(rejectionEntries)
+    .leftJoin(rejectionTypes, eq(rejectionEntries.rejectionTypeId, rejectionTypes.id))
     .where(and(
-      eq(issueEntries.organizationId, organizationId),
-      gte(issueEntries.date, period.from),
-      lte(issueEntries.date, period.to)
+      eq(rejectionEntries.organizationId, organizationId),
+      gte(rejectionEntries.date, period.from),
+      lte(rejectionEntries.date, period.to)
     ))
-    .groupBy(issueEntries.type)
+    .groupBy(rejectionTypes.reason, rejectionTypes.rejectionCode)
     .orderBy(desc(count()))
     .limit(1);
 
-    if (topIssueType.length > 0) {
+    if (topRejectionReason.length > 0) {
       insights.push({
         type: 'top_issue',
-        title: 'Most Common Issue',
-        description: `This week's most frequent problem`,
-        value: topIssueType[0].type,
-        confidence: 0.9
+        title: 'Top Rejection Reason',
+        description: `Code: ${topRejectionReason[0].code} — most frequent rejection in this period`,
+        value: topRejectionReason[0].reason ?? topRejectionReason[0].code ?? 'Unknown',
+        confidence: 0.95
       });
     }
 
-    // Get biggest problem area
-    const topCategory = await db.select({
+    // Top rework type
+    const topReworkType = await db.select({
+      reason: reworkTypes.reason,
+      code: reworkTypes.reworkCode,
+      count: count()
+    })
+    .from(reworkEntries)
+    .leftJoin(reworkTypes, eq(reworkEntries.reworkTypeId, reworkTypes.id))
+    .where(and(
+      eq(reworkEntries.organizationId, organizationId),
+      gte(reworkEntries.date, period.from),
+      lte(reworkEntries.date, period.to)
+    ))
+    .groupBy(reworkTypes.reason, reworkTypes.reworkCode)
+    .orderBy(desc(count()))
+    .limit(1);
+
+    if (topReworkType.length > 0) {
+      insights.push({
+        type: 'top_issue',
+        title: 'Top Rework Type',
+        description: `Code: ${topReworkType[0].code} — most frequent rework in this period`,
+        value: topReworkType[0].reason ?? topReworkType[0].code ?? 'Unknown',
+        confidence: 0.95
+      });
+    }
+
+    // Get biggest problem zone
+    const topZone = await db.select({
       zone: issueEntries.zone,
       count: count()
     })
@@ -551,18 +580,19 @@ export class AnalyticsService {
     .where(and(
       eq(issueEntries.organizationId, organizationId),
       gte(issueEntries.date, period.from),
-      lte(issueEntries.date, period.to)
+      lte(issueEntries.date, period.to),
+      sql`${issueEntries.zone} IS NOT NULL`
     ))
     .groupBy(issueEntries.zone)
     .orderBy(desc(count()))
     .limit(1);
 
-    if (topCategory.length > 0) {
+    if (topZone.length > 0) {
       insights.push({
         type: 'problem_area',
-        title: 'Biggest Problem Area',
-        description: 'Area requiring immediate attention',
-        value: topCategory[0].zone,
+        title: 'Biggest Problem Zone',
+        description: 'Zone with the most issues — requires immediate attention',
+        value: topZone[0].zone ?? 'Unknown',
         confidence: 0.85
       });
     }
@@ -584,12 +614,22 @@ export class AnalyticsService {
   }
 
   /**
-   * Update organization template
+   * Get field labels (manufacturing defaults, no template system)
+   */
+  async getFieldLabels(organizationId: number): Promise<Record<string, string>> {
+    return {
+      zone: 'Zone',
+      partNumber: 'Part Number',
+      type: 'Issue Type',
+      quantity: 'Quantity'
+    };
+  }
+
+  /**
+   * Update organization template (no-op, template system removed)
    */
   async updateOrganizationTemplate(organizationId: number, templateId: string): Promise<void> {
-    await db.update(organizations)
-      .set({ templateId })
-      .where(eq(organizations.id, organizationId));
+    // Template system removed
   }
 
   /**
@@ -599,47 +639,5 @@ export class AnalyticsService {
     const now = new Date();
     const from = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
     return { from, to: now };
-  }
-
-  /**
-   * Get template-aware field labels
-   */
-  async getFieldLabels(organizationId: number): Promise<Record<string, string>> {
-    // Get organization's template configuration
-    const org = await db.select().from(organizations)
-      .where(eq(organizations.id, organizationId))
-      .limit(1);
-
-    if (!org[0]) {
-      return this.getDefaultLabels();
-    }
-
-    // Return labels based on template
-    const templateId = org[0].templateId || 'manufacturing';
-    switch (templateId) {
-      case 'bakery':
-        return this.getBakeryLabels();
-      case 'manufacturing':
-      default:
-        return this.getDefaultLabels();
-    }
-  }
-
-  private getDefaultLabels(): Record<string, string> {
-    return {
-      zone: 'Zone',
-      partNumber: 'Part Number',
-      type: 'Issue Type',
-      quantity: 'Quantity'
-    };
-  }
-
-  private getBakeryLabels(): Record<string, string> {
-    return {
-      zone: 'Kitchen Area',
-      partNumber: 'Product Name',
-      type: 'Quality Issue',
-      quantity: 'Quantity'
-    };
   }
 }
