@@ -1,4 +1,3 @@
-import { db } from "../storage";
 import { issueEntries, organizations, templates, rejectionEntries, reworkEntries, parts, rejectionTypes, reworkTypes, zones } from "@shared/schema";
 import { eq, and, gte, lte, desc, count, sum, sql, inArray } from "drizzle-orm";
 
