@@ -1,0 +1,58 @@
+services:
+
+  db:
+    image: postgres:16-alpine
+    container_name: attendance-db
+    environment:
+      POSTGRES_USER: attendance
+      POSTGRES_PASSWORD: secret
+      POSTGRES_DB: attendance
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U attendance"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile.migrate
+    container_name: attendance-migrate
+    environment:
+      DATABASE_URL: postgres://attendance:secret@db:5432/attendance
+    depends_on:
+      db:
+        condition: service_healthy
+
+  api-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: attendance-api
+    environment:
+      PORT: "3000"
+      NODE_ENV: production
+      DATABASE_URL: postgres://attendance:secret@db:5432/attendance
+    ports:
+      - "3000:3000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: attendance-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - api-server
+    restart: unless-stopped
+
+volumes:
+  db_data:
