@@ -28,7 +28,7 @@ FROM nginx:alpine AS runner
 # Copy the built dist directly from the known build output path
 COPY --from=builder /app/artifacts/attendance-mapper/dist /usr/share/nginx/html
 
-RUN printf 'server {\n    listen 80;\n    server_name _;\n    root /usr/share/nginx/html;\n    index index.html;\n    location / { try_files $uri $uri/ /index.html; }\n}\n' > /etc/nginx/conf.d/default.conf
+COPY --from=builder /app/nginx.conf /etc/nginx/conf.d/default.conf
 
 EXPOSE 80
 
