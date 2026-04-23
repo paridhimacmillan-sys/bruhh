@@ -21,8 +21,35 @@ RUN pnpm install --no-frozen-lockfile
 COPY lib/api-client-react/ ./lib/api-client-react/
 COPY artifacts/attendance-mapper/ ./artifacts/attendance-mapper/
 
+# Overwrite vite.config.ts with a clean version that has no PORT/env checks
+RUN cat > /app/artifacts/attendance-mapper/vite.config.ts << 'EOF'
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
+import path from "path";
+
+export default defineConfig({
+  plugins: [react(), tailwindcss()],
+  resolve: {
+    alias: {
+      "@": path.resolve(__dirname, "./src"),
+    },
+  },
+  server: {
+    host: "0.0.0.0",
+    port: 5173,
+    proxy: {
+      "/api": {
+        target: "http://localhost:3000",
+        changeOrigin: true,
+      },
+    },
+  },
+});
+EOF
+
 # Build the Vite app
-RUN pnpm --filter @workspace/attendance-mapper build
+RUN VITE_API_URL=/api pnpm --filter @workspace/attendance-mapper build
 
 # ─── Stage 2: Serve with nginx ────────────────────────────────────────────────
 FROM nginx:alpine AS runner
