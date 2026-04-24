@@ -2,7 +2,7 @@ import { Link, useLocation } from "wouter";
 import { ReactNode } from "react";
 import {
   LayoutDashboard, CalendarCheck, Users, Building2, Clock, Plane,
-  FileSpreadsheet, Calendar, AlertTriangle, ClipboardList, IndianRupee, FileText,
+  FileSpreadsheet, Calendar, AlertTriangle, ClipboardList, IndianRupee, FileText, BarChart2,
 } from "lucide-react";
 
 interface LayoutProps { children: ReactNode; }
@@ -38,6 +38,7 @@ const navGroups = [
       { href: "/reports/daily", label: "Daily", icon: Calendar },
       { href: "/reports/monthly", label: "Monthly", icon: ClipboardList },
       { href: "/reports/absenteeism", label: "Absenteeism", icon: AlertTriangle },
+      { href: "/reports/zones", label: "Zone Summary", icon: BarChart2 },
     ],
   },
 ];
