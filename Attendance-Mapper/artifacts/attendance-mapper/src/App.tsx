@@ -17,6 +17,7 @@ import Form12 from "@/pages/form-12";
 import DailyReport from "@/pages/admin/reports/daily";
 import MonthlyReport from "@/pages/admin/reports/monthly";
 import AbsenteeismReport from "@/pages/admin/reports/absenteeism";
+import ZoneSummary from "@/pages/admin/reports/zone-summary";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient({
@@ -46,6 +47,7 @@ function Router() {
         <Route path="/reports/daily" component={DailyReport} />
         <Route path="/reports/monthly" component={MonthlyReport} />
         <Route path="/reports/absenteeism" component={AbsenteeismReport} />
+        <Route path="/reports/zones" component={ZoneSummary} />
 
         <Route component={NotFound} />
       </Switch>
