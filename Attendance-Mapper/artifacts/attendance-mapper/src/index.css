@@ -55,56 +55,51 @@
 }
 
 :root {
-  /* Industrial Register — zinc base, crisp borders */
-  --background: 0 0% 97%;
-  --foreground: 0 0% 10%;
-  --border: 0 0% 82%;
-  --input: 0 0% 82%;
-  --ring: 43 96% 56%;
+  --background: 249 250 251;
+  --foreground: 17 24 39;
+  --border: 229 231 235;
+  --input: 229 231 235;
+  --ring: 99 102 241;
 
-  --card: 0 0% 100%;
-  --card-foreground: 0 0% 10%;
-  --card-border: 0 0% 85%;
+  --card: 255 255 255;
+  --card-foreground: 17 24 39;
+  --card-border: 243 244 246;
 
-  --popover: 0 0% 100%;
-  --popover-foreground: 0 0% 10%;
-  --popover-border: 0 0% 85%;
+  --popover: 255 255 255;
+  --popover-foreground: 17 24 39;
+  --popover-border: 229 231 235;
 
-  /* Amber as primary — matches the nav active state */
-  --primary: 43 96% 50%;
-  --primary-foreground: 0 0% 10%;
+  --primary: 239 68% 56%;
+  --primary-foreground: 0 0% 100%;
 
-  --secondary: 0 0% 93%;
-  --secondary-foreground: 0 0% 10%;
+  --secondary: 243 244 246;
+  --secondary-foreground: 55 65 81;
 
-  --muted: 0 0% 95%;
-  --muted-foreground: 0 0% 40%;
+  --muted: 249 250 251;
+  --muted-foreground: 107 114 128;
 
-  --accent: 0 0% 90%;
-  --accent-foreground: 0 0% 10%;
+  --accent: 238 242 255;
+  --accent-foreground: 67 56 202;
 
   --destructive: 0 72% 51%;
   --destructive-foreground: 0 0% 100%;
 
-  /* Attendance status tokens */
   --present: 142 71% 35%;
   --absent:  0 72% 51%;
   --late:    25 95% 53%;
   --excused: 217 91% 55%;
 
-  /* Fonts — IBM Plex stack */
-  --app-font-sans:  'IBM Plex Sans', 'Helvetica Neue', sans-serif;
-  --app-font-serif: 'IBM Plex Sans', Georgia, serif;
-  --app-font-mono:  'IBM Plex Mono', 'Courier New', monospace;
+  --app-font-sans:  'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --app-font-serif: 'Inter', Georgia, serif;
+  --app-font-mono:  'JetBrains Mono', 'Fira Code', monospace;
 
-  /* Zero radius — register/grid look */
-  --radius: 0rem;
+  --radius: 0.5rem;
 
-  --button-outline: rgba(0,0,0,.12);
-  --badge-outline:  rgba(0,0,0,.06);
-  --opaque-button-border-intensity: -10;
+  --button-outline: rgba(0,0,0,.08);
+  --badge-outline:  rgba(0,0,0,.05);
+  --opaque-button-border-intensity: -5;
   --elevate-1: rgba(0,0,0,.02);
-  --elevate-2: rgba(0,0,0,.06);
+  --elevate-2: rgba(0,0,0,.05);
 
   --primary-border:     hsl(from hsl(var(--primary))     h s calc(l + var(--opaque-button-border-intensity)) / alpha);
   --secondary-border:   hsl(from hsl(var(--secondary))   h s calc(l + var(--opaque-button-border-intensity)) / alpha);
@@ -119,11 +114,14 @@
     box-sizing: border-box;
   }
   body {
-    @apply antialiased bg-background text-foreground;
-    font-family: 'IBM Plex Mono', 'Courier New', monospace;
+    @apply antialiased;
+    background: #f9fafb;
+    color: #111827;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    font-size: 14px;
   }
-  /* Make all inputs/selects sharp-cornered by default */
-  input, select, textarea, button {
-    border-radius: 0 !important;
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
   }
 }
