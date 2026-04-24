@@ -195,6 +195,7 @@ router.get("/reports/absenteeism", async (req, res) => {
   const q = GetAbsenteeismReportQueryParams.parse(req.query);
   const { start, end, startDate, endDate } = monthBounds(q.month);
   const wd = workingDays(startDate, endDate);
+  const dates = isoDates(startDate, endDate);
 
   const employees = await db
     .select({
@@ -207,32 +208,59 @@ router.get("/reports/absenteeism", async (req, res) => {
     .from(employeesTable)
     .innerJoin(departmentsTable, eq(departmentsTable.id, employeesTable.departmentId));
 
-  const counts = await db
-    .select({
-      employeeId: attendanceTable.employeeId,
-      status: attendanceTable.status,
-      count: sql<number>`count(*)::int`,
-    })
+  // Fetch all attendance records for the month (need per-date for streak calc)
+  const allRecords = await db
+    .select({ employeeId: attendanceTable.employeeId, date: attendanceTable.date, status: attendanceTable.status, inTime1: attendanceTable.inTime1 })
     .from(attendanceTable)
-    .where(and(gte(attendanceTable.date, start), lte(attendanceTable.date, end)))
-    .groupBy(attendanceTable.employeeId, attendanceTable.status);
+    .where(and(gte(attendanceTable.date, start), lte(attendanceTable.date, end)));
 
-  const map = new Map<number, { absent: number; late: number; present: number; total: number }>();
-  for (const c of counts) {
-    const cur = map.get(c.employeeId) ?? { absent: 0, late: 0, present: 0, total: 0 };
-    if (c.status === "absent") cur.absent += c.count;
-    else if (c.status === "late") cur.late += c.count;
-    else if (c.status === "present") cur.present += c.count;
-    cur.total += c.count;
-    map.set(c.employeeId, cur);
+  const recMap = new Map<string, { status: string; inTime1: string | null }>();
+  for (const r of allRecords) recMap.set(`${r.employeeId}:${r.date}`, { status: r.status, inTime1: r.inTime1 });
+
+  const counts = new Map<number, { absent: number; late: number; present: number; total: number }>();
+  for (const r of allRecords) {
+    const cur = counts.get(r.employeeId) ?? { absent: 0, late: 0, present: 0, total: 0 };
+    if (r.status === "absent") cur.absent++;
+    else if (r.status === "late") cur.late++;
+    else if (r.status === "present") cur.present++;
+    cur.total++;
+    counts.set(r.employeeId, cur);
+  }
+
+  // Compute max consecutive absence streak per employee
+  function maxStreak(empId: number): number {
+    let max = 0, cur = 0;
+    for (const date of dates) {
+      const rec = recMap.get(`${empId}:${date}`);
+      const isAbsent = !rec || rec.status === "absent";
+      if (isAbsent) { cur++; max = Math.max(max, cur); } else cur = 0;
+    }
+    return max;
+  }
+
+  // Count late arrivals after 09:00
+  function lateDays(empId: number): number {
+    let count = 0;
+    for (const date of dates) {
+      const rec = recMap.get(`${empId}:${date}`);
+      if (!rec) continue;
+      if (rec.status === "late") { count++; continue; }
+      if (rec.inTime1) {
+        const [h, m] = rec.inTime1.split(":").map(Number);
+        if (h * 60 + m > 9 * 60) count++;
+      }
+    }
+    return count;
   }
 
   const employeesOut = employees
     .map((e) => {
-      const m = map.get(e.id) ?? { absent: 0, late: 0, present: 0, total: 0 };
+      const m = counts.get(e.id) ?? { absent: 0, late: 0, present: 0, total: 0 };
       const recordedAbsent = m.absent;
       const unrecorded = Math.max(0, wd - m.total);
       const totalAbsent = recordedAbsent + unrecorded;
+      const maxConsecutiveAbsent = maxStreak(e.id);
+      const lateArrivals = lateDays(e.id);
       return {
         employeeId: e.id,
         employeeCode: e.employeeCode,
@@ -240,7 +268,8 @@ router.get("/reports/absenteeism", async (req, res) => {
         departmentName: e.departmentName,
         designation: e.designation,
         absentDays: totalAbsent,
-        lateDays: m.late,
+        lateDays: lateArrivals,
+        maxConsecutiveAbsent,
         absenteeismRate: wd > 0 ? Math.round((totalAbsent / wd) * 1000) / 10 : 0,
       };
     })
@@ -394,6 +423,90 @@ router.get("/dashboard/summary", async (_req, res) => {
     overtimeHoursThisMonth: otAgg?.total ?? 0,
     recentActivity: [],
   });
+});
+
+
+router.get("/reports/zone-summary", async (req, res) => {
+  const q = GetAbsenteeismReportQueryParams.parse(req.query); // reuse same month param
+  const { start, end, startDate, endDate } = monthBounds(q.month);
+  const wd = workingDays(startDate, endDate);
+  const calDays = isoDates(startDate, endDate).length;
+
+  const employees = await db
+    .select({
+      id: employeesTable.id,
+      monthlyWage: employeesTable.monthlyWage,
+      otEligible: employeesTable.otEligible,
+      departmentId: employeesTable.departmentId,
+      departmentName: departmentsTable.name,
+      displayOrder: departmentsTable.displayOrder,
+    })
+    .from(employeesTable)
+    .innerJoin(departmentsTable, eq(departmentsTable.id, employeesTable.departmentId));
+
+  const attRows = await db.select().from(attendanceTable)
+    .where(and(gte(attendanceTable.date, start), lte(attendanceTable.date, end)));
+
+  const otRows = await db.select().from(overtimeTable)
+    .where(and(gte(overtimeTable.date, start), lte(overtimeTable.date, end)));
+
+  type ZoneStat = {
+    departmentId: number; departmentName: string; displayOrder: number;
+    headcount: number; totalWage: number; presentDays: number; absentDays: number;
+    lateDays: number; otHours: number;
+  };
+  const zones = new Map<number, ZoneStat>();
+
+  for (const e of employees) {
+    const z = zones.get(e.departmentId) ?? {
+      departmentId: e.departmentId, departmentName: e.departmentName, displayOrder: e.displayOrder,
+      headcount: 0, totalWage: 0, presentDays: 0, absentDays: 0, lateDays: 0, otHours: 0,
+    };
+    z.headcount++;
+    z.totalWage += Number(e.monthlyWage);
+    zones.set(e.departmentId, z);
+  }
+
+  const empDeptMap = new Map(employees.map((e) => [e.id, e.departmentId]));
+
+  for (const r of attRows) {
+    const deptId = empDeptMap.get(r.employeeId);
+    if (!deptId) continue;
+    const z = zones.get(deptId);
+    if (!z) continue;
+    if (r.status === "present" || r.status === "on_leave") z.presentDays++;
+    else if (r.status === "late") { z.presentDays++; z.lateDays++; }
+    else if (r.status === "half_day") z.presentDays += 0.5;
+    else if (r.status === "absent") z.absentDays++;
+  }
+
+  for (const o of otRows) {
+    const deptId = empDeptMap.get(o.employeeId);
+    if (!deptId) continue;
+    const z = zones.get(deptId);
+    if (z) z.otHours += Number(o.hours);
+  }
+
+  const result = Array.from(zones.values())
+    .sort((a, b) => a.displayOrder - b.displayOrder)
+    .map((z) => {
+      const totalExpected = z.headcount * wd;
+      const attendanceRate = totalExpected > 0 ? Math.round((z.presentDays / totalExpected) * 1000) / 10 : 0;
+      return {
+        departmentId: z.departmentId,
+        departmentName: z.departmentName,
+        headcount: z.headcount,
+        totalWage: z.totalWage,
+        presentDays: Math.round(z.presentDays * 10) / 10,
+        absentDays: Math.round(z.absentDays * 10) / 10,
+        lateDays: z.lateDays,
+        otHours: Math.round(z.otHours * 10) / 10,
+        attendanceRate,
+        avgAttendanceRate: attendanceRate,
+      };
+    });
+
+  res.json({ month: q.month, workingDays: wd, calendarDays: calDays, zones: result });
 });
 
 export default router;
