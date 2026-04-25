@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { ReactNode, useState } from "react";
+import { ReactNode, useState, useEffect } from "react";
 import {
   LayoutDashboard, CalendarCheck, Users, Building2, Clock, Plane,
   FileSpreadsheet, Calendar, AlertTriangle, ClipboardList, IndianRupee,
@@ -113,6 +113,15 @@ export function Layout({ children }: LayoutProps) {
   const [location] = useLocation();
   const [openGroup, setOpenGroup] = useState<string | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [orgName, setOrgName] = useState<string>("Administrator");
+
+  // Fetch org name from Rejection Mapper session
+  useEffect(() => {
+    fetch("https://aicreator.co.in/api/user", { credentials: "include" })
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => { if (data?.organizationName) setOrgName(data.organizationName); })
+      .catch(() => {});
+  }, []);
 
   const isActive = (href: string) =>
     href === "/" ? location === "/" : location === href || location.startsWith(href + "/");
@@ -187,8 +196,8 @@ export function Layout({ children }: LayoutProps) {
         <div style={{ padding: "12px 10px", borderTop: "1px solid rgba(255,255,255,0.05)", marginBottom: 12 }}>
           <AppSwitcher />
           <div style={{ fontSize: 11, color: "#374151" }}>
-            <div style={{ color: "#6b7280", marginBottom: 2 }}>Logged in as</div>
-            <div style={{ color: "#9ca3af", fontWeight: 500 }}>Administrator</div>
+            <div style={{ color: "#6b7280", marginBottom: 2 }}>Organisation</div>
+            <div style={{ color: "#9ca3af", fontWeight: 500 }}>{orgName}</div>
           </div>
         </div>
       </aside>
