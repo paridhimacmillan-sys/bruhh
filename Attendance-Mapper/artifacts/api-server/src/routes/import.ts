@@ -10,7 +10,7 @@ import {
   leavesTable,
   payrollLinesTable,
 } from "@workspace/db";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, gte, lte } from "drizzle-orm";
 
 const router: IRouter = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
@@ -18,10 +18,14 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
 function parseWorkbook(buffer: Buffer, mimetype: string): Record<string, any[][]> {
-  const wb = XLSX.read(buffer, { type: "buffer", cellDates: true });
+  const wb = XLSX.read(buffer, { type: "buffer", cellDates: true, bookVBA: false, WTF: false });
   const result: Record<string, any[][]> = {};
   for (const name of wb.SheetNames) {
-    result[name] = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: "" }) as any[][];
+    try {
+      result[name] = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: "" }) as any[][];
+    } catch {
+      result[name] = [];
+    }
   }
   return result;
 }
@@ -521,6 +525,94 @@ router.post("/import/xlsx-bulk", upload.single("file"), async (req, res) => {
   }
 
   res.json({ summary, sheetsFound: Object.keys(sheets) });
+});
+
+// ─── /api/import/xlsx-bulk — fix: wrap entire handler in try/catch with explicit json response ──
+
+// (already defined above, adding delete routes below)
+
+// ─── DELETE routes ─────────────────────────────────────────────────────────
+
+// Delete all attendance for a month
+router.delete("/data/attendance", async (req, res) => {
+  try {
+    const { month } = req.query as { month?: string };
+    if (!month || !month.match(/^\d{4}-\d{2}$/)) {
+      return res.status(400).json({ error: "month param required (YYYY-MM)" });
+    }
+    const start = `${month}-01`;
+    const end = `${month}-31`;
+    const result = await db.delete(attendanceTable)
+      .where(and(gte(attendanceTable.date, start), lte(attendanceTable.date, end)));
+    res.json({ deleted: true, month });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete all overtime for a month
+router.delete("/data/overtime", async (req, res) => {
+  try {
+    const { month } = req.query as { month?: string };
+    if (!month || !month.match(/^\d{4}-\d{2}$/)) {
+      return res.status(400).json({ error: "month param required (YYYY-MM)" });
+    }
+    const start = `${month}-01`;
+    const end = `${month}-31`;
+    await db.delete(overtimeTable)
+      .where(and(gte(overtimeTable.date, start), lte(overtimeTable.date, end)));
+    res.json({ deleted: true, month });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete a single employee
+router.delete("/data/employees/:id", async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: "Invalid employee id" });
+    await db.delete(attendanceTable).where(eq(attendanceTable.employeeId, id));
+    await db.delete(overtimeTable).where(eq(overtimeTable.employeeId, id));
+    await db.delete(leavesTable).where(eq(leavesTable.employeeId, id));
+    await db.delete(payrollLinesTable).where(eq(payrollLinesTable.employeeId, id));
+    await db.delete(employeesTable).where(eq(employeesTable.id, id));
+    res.json({ deleted: true, employeeId: id });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete ALL employees (nuclear option)
+router.delete("/data/employees", async (req, res) => {
+  try {
+    const { confirm } = req.query as { confirm?: string };
+    if (confirm !== "yes") {
+      return res.status(400).json({ error: "Pass ?confirm=yes to delete all employees" });
+    }
+    await db.delete(payrollLinesTable);
+    await db.delete(leavesTable);
+    await db.delete(overtimeTable);
+    await db.delete(attendanceTable);
+    await db.delete(employeesTable);
+    res.json({ deleted: true, message: "All employees and related data deleted" });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete payroll lines for a month
+router.delete("/data/payroll", async (req, res) => {
+  try {
+    const { month } = req.query as { month?: string };
+    if (!month || !month.match(/^\d{4}-\d{2}$/)) {
+      return res.status(400).json({ error: "month param required (YYYY-MM)" });
+    }
+    await db.delete(payrollLinesTable).where(eq(payrollLinesTable.month, month));
+    res.json({ deleted: true, month });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 export default router;
