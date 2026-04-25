@@ -7,6 +7,7 @@ import overtimeRouter from "./overtime";
 import leavesRouter from "./leaves";
 import reportsRouter from "./reports";
 import payrollRouter from "./payroll";
+import importRouter from "./import";
 
 const router: IRouter = Router();
 
@@ -18,5 +19,6 @@ router.use(overtimeRouter);
 router.use(leavesRouter);
 router.use(reportsRouter);
 router.use(payrollRouter);
+router.use(importRouter);
 
 export default router;
