@@ -120,6 +120,30 @@ function downloadTemplate(type: (typeof IMPORT_TYPES)[0]) {
   XLSX.writeFile(wb, `template_${type.id}.xlsx`);
 }
 
+// ─── Safe fetch helper ──────────────────────────────────────────────────────
+// Prevents "Unexpected end of JSON input" by reading the raw text first and
+// only attempting JSON.parse if the body is non-empty.
+
+async function safeApiPost(url: string, body: FormData): Promise<{ ok: boolean; status: number; data: any }> {
+  const res = await fetch(url, { method: "POST", body });
+  const text = await res.text();
+
+  let data: any;
+  if (text.trim().length === 0) {
+    // Server returned an empty body — surface a clear error instead of crashing
+    data = { error: `Server returned an empty response (HTTP ${res.status}). Check server logs.` };
+  } else {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      // Body is not valid JSON (e.g. an HTML error page from a proxy)
+      data = { error: `Server returned unexpected content: ${text.slice(0, 200)}` };
+    }
+  }
+
+  return { ok: res.ok, status: res.status, data };
+}
+
 // ─── Component ─────────────────────────────────────────────────────────────
 
 export default function ImportPage() {
@@ -148,9 +172,8 @@ export default function ImportPage() {
       const fd = new FormData();
       fd.append("file", f);
       fd.append("type", selectedType);
-      const res = await fetch("/api/import/preview", { method: "POST", body: fd });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Preview failed");
+      const { ok, data } = await safeApiPost("/api/import/preview", fd);
+      if (!ok) throw new Error(data.error ?? "Preview failed");
       setPreview({ columns: data.columns, rows: data.preview, total: data.total });
     } catch (e: any) {
       setError(e.message);
@@ -175,9 +198,8 @@ export default function ImportPage() {
       const fd = new FormData();
       fd.append("file", file);
       if (month) fd.append("month", month);
-      const res = await fetch(`/api/import/${selectedType}`, { method: "POST", body: fd });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Import failed");
+      const { ok, data } = await safeApiPost(`/api/import/${selectedType}`, fd);
+      if (!ok) throw new Error(data.error ?? "Import failed");
       setResult(data);
     } catch (e: any) {
       setError(e.message);
@@ -261,7 +283,7 @@ export default function ImportPage() {
             <div style={{ fontSize: 13, color: "#4b5563", lineHeight: 1.6 }}>{cfg.desc}</div>
           </div>
 
-          {/* Month picker for xlsx-bulk and attendance */}
+          {/* Month picker */}
           {(selectedType === "xlsx-bulk" || selectedType === "attendance") && (
             <div>
               <div className="section-label">{selectedType === "xlsx-bulk" ? "Month (for daily sheets)" : "Month"}</div>
@@ -328,9 +350,7 @@ export default function ImportPage() {
               </div>
               <div style={{ overflowX: "auto" }}>
                 <table>
-                  <thead>
-                    <tr>{preview.columns.map((c) => <th key={c}>{c}</th>)}</tr>
-                  </thead>
+                  <thead><tr>{preview.columns.map((c) => <th key={c}>{c}</th>)}</tr></thead>
                   <tbody>
                     {preview.rows.map((row, i) => (
                       <tr key={i}>{preview.columns.map((c) => <td key={c}>{String(row[c] ?? "")}</td>)}</tr>
@@ -357,7 +377,6 @@ export default function ImportPage() {
                 <div style={{ fontWeight: 600, fontSize: 14, color: "#14532d" }}>Import complete!</div>
               </div>
 
-              {/* For bulk import */}
               {result.summary ? (
                 <div style={{ padding: 18 }}>
                   <div style={{ fontWeight: 600, fontSize: 13, color: "#374151", marginBottom: 12 }}>
@@ -370,11 +389,21 @@ export default function ImportPage() {
                         {val.error ? (
                           <div style={{ fontSize: 12.5, color: "#dc2626" }}>{val.error}</div>
                         ) : (
-                          <div style={{ display: "flex", gap: 16, fontSize: 13, flexWrap: "wrap" }}>
-                            {Object.entries(val).map(([k, v]) => (
-                              <span key={k} style={{ color: "#374151" }}><strong>{String(v)}</strong> {k}</span>
-                            ))}
-                          </div>
+                          <>
+                            <div style={{ display: "flex", gap: 16, fontSize: 13, flexWrap: "wrap" }}>
+                              {Object.entries(val).filter(([k]) => k !== "errors").map(([k, v]) => (
+                                <span key={k} style={{ color: "#374151" }}><strong>{String(v)}</strong> {k}</span>
+                              ))}
+                            </div>
+                            {val.errors && val.errors.length > 0 && (
+                              <div style={{ marginTop: 8 }}>
+                                <div style={{ fontSize: 11.5, fontWeight: 600, color: "#dc2626", marginBottom: 4 }}>{val.errors.length} row errors:</div>
+                                <div style={{ display: "flex", flexDirection: "column", gap: 3, maxHeight: 100, overflowY: "auto" }}>
+                                  {val.errors.map((e: string, i: number) => <div key={i} className="error-row">{e}</div>)}
+                                </div>
+                              </div>
+                            )}
+                          </>
                         )}
                       </div>
                     ))}
@@ -397,13 +426,9 @@ export default function ImportPage() {
                   </div>
                   {result.errors && result.errors.length > 0 && (
                     <div style={{ padding: "0 18px 18px" }}>
-                      <div style={{ fontSize: 12, fontWeight: 600, color: "#dc2626", marginBottom: 8 }}>
-                        {result.errors.length} rows had errors:
-                      </div>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: "#dc2626", marginBottom: 8 }}>{result.errors.length} rows had errors:</div>
                       <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 160, overflowY: "auto" }}>
-                        {result.errors.map((e, i) => (
-                          <div key={i} className="error-row">{e}</div>
-                        ))}
+                        {result.errors.map((e, i) => <div key={i} className="error-row">{e}</div>)}
                       </div>
                     </div>
                   )}
@@ -419,11 +444,7 @@ export default function ImportPage() {
           {/* Action button */}
           {file && !result && (
             <div style={{ display: "flex", gap: 10 }}>
-              <button
-                className="btn-primary"
-                onClick={handleImport}
-                disabled={importing}
-              >
+              <button className="btn-primary" onClick={handleImport} disabled={importing}>
                 {importing
                   ? <><Loader2 size={15} style={{ animation: "spin 1s linear infinite" }} /> Importing…</>
                   : <><Upload size={15} /> Import {preview ? `${preview.total} rows` : "file"}</>
@@ -436,8 +457,6 @@ export default function ImportPage() {
 
         {/* Right: info panel */}
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-
-          {/* Column guide */}
           <div style={{ background: "white", borderRadius: 10, border: "1px solid #e5e7eb", overflow: "hidden" }}>
             <div style={{ padding: "12px 16px", borderBottom: "1px solid #f1f5f9" }}>
               <div style={{ fontWeight: 600, fontSize: 13, color: "#111827" }}>Column guide</div>
@@ -462,19 +481,13 @@ export default function ImportPage() {
             </div>
           </div>
 
-          {/* Download template */}
           {cfg.templateRows.length > 0 && (
-            <button
-              className="btn-ghost"
-              onClick={() => downloadTemplate(cfg)}
-              style={{ width: "100%", justifyContent: "center" }}
-            >
+            <button className="btn-ghost" onClick={() => downloadTemplate(cfg)} style={{ width: "100%", justifyContent: "center" }}>
               <Download size={14} />
               Download template
             </button>
           )}
 
-          {/* Tips */}
           <div style={{ background: "#fffbeb", borderRadius: 10, padding: "14px 16px", border: "1px solid #fde68a" }}>
             <div style={{ fontSize: 12, fontWeight: 600, color: "#92400e", marginBottom: 8 }}>Tips</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 7, fontSize: 12, color: "#78350f", lineHeight: 1.6 }}>
@@ -485,7 +498,6 @@ export default function ImportPage() {
             </div>
           </div>
 
-          {/* Supported formats */}
           <div style={{ background: "white", borderRadius: 10, border: "1px solid #e5e7eb", padding: "14px 16px" }}>
             <div style={{ fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 8 }}>Supported formats</div>
             {[
@@ -504,7 +516,6 @@ export default function ImportPage() {
 
       <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
 
-      {/* ── Delete Data Section ─────────────────────────────────────────── */}
       <DeleteSection />
     </div>
   );
@@ -524,7 +535,9 @@ function DeleteSection() {
     try {
       const qs = new URLSearchParams(params).toString();
       const res = await fetch(`/api/data/${type}${qs ? `?${qs}` : ""}`, { method: "DELETE" });
-      const data = await res.json();
+      const text = await res.text();
+      let data: any = {};
+      try { data = JSON.parse(text); } catch { data = { error: text || "Unknown error" }; }
       if (!res.ok) throw new Error(data.error ?? "Delete failed");
       setResult({ type: "success", message: `Deleted successfully${params.month ? ` for ${params.month}` : ""}.` });
     } catch (e: any) {
@@ -537,39 +550,23 @@ function DeleteSection() {
 
   const actions = [
     {
-      id: "attendance",
-      label: "Delete attendance records",
-      desc: "Remove all punch data for a specific month",
-      color: "#d97706",
-      needsMonth: true,
-      confirm: `Delete all attendance for ${month || "selected month"}?`,
+      id: "attendance", label: "Delete attendance records", desc: "Remove all punch data for a specific month",
+      color: "#d97706", needsMonth: true, confirm: `Delete all attendance for ${month || "selected month"}?`,
       onConfirm: () => doDelete("attendance", { month }),
     },
     {
-      id: "overtime",
-      label: "Delete overtime records",
-      desc: "Remove all OT entries for a specific month",
-      color: "#d97706",
-      needsMonth: true,
-      confirm: `Delete all overtime for ${month || "selected month"}?`,
+      id: "overtime", label: "Delete overtime records", desc: "Remove all OT entries for a specific month",
+      color: "#d97706", needsMonth: true, confirm: `Delete all overtime for ${month || "selected month"}?`,
       onConfirm: () => doDelete("overtime", { month }),
     },
     {
-      id: "payroll",
-      label: "Delete payroll deductions",
-      desc: "Remove advances/HRA entries for a specific month",
-      color: "#d97706",
-      needsMonth: true,
-      confirm: `Delete all payroll lines for ${month || "selected month"}?`,
+      id: "payroll", label: "Delete payroll deductions", desc: "Remove advances/HRA entries for a specific month",
+      color: "#d97706", needsMonth: true, confirm: `Delete all payroll lines for ${month || "selected month"}?`,
       onConfirm: () => doDelete("payroll", { month }),
     },
     {
-      id: "employees",
-      label: "Delete ALL employees",
-      desc: "Permanently removes all employees and their attendance, OT, leaves, payroll",
-      color: "#dc2626",
-      needsMonth: false,
-      confirm: "This will permanently delete ALL employees and ALL their data. This cannot be undone.",
+      id: "employees", label: "Delete ALL employees", desc: "Permanently removes all employees and their attendance, OT, leaves, payroll",
+      color: "#dc2626", needsMonth: false, confirm: "This will permanently delete ALL employees and ALL their data. This cannot be undone.",
       onConfirm: () => doDelete("employees", { confirm: "yes" }),
     },
   ];
@@ -581,13 +578,10 @@ function DeleteSection() {
         <div style={{ fontSize: 13, color: "#9ca3af", marginTop: 3 }}>Permanently remove records. This cannot be undone.</div>
       </div>
 
-      {/* Month picker for month-scoped deletes */}
       <div style={{ marginBottom: 16 }}>
         <label style={{ fontSize: 11, fontWeight: 600, color: "#9ca3af", textTransform: "uppercase", letterSpacing: "0.07em", display: "block", marginBottom: 6 }}>Month (for attendance / overtime / payroll deletes)</label>
-        <input
-          type="month" value={month} onChange={(e) => setMonth(e.target.value)}
-          style={{ padding: "8px 12px", border: "1.5px solid #e5e7eb", borderRadius: 8, fontSize: 13, color: "#374151", width: 180 }}
-        />
+        <input type="month" value={month} onChange={(e) => setMonth(e.target.value)}
+          style={{ padding: "8px 12px", border: "1.5px solid #e5e7eb", borderRadius: 8, fontSize: 13, color: "#374151", width: 180 }} />
       </div>
 
       {result && (
@@ -617,10 +611,7 @@ function DeleteSection() {
                     {loading === a.id ? <Loader2 size={13} style={{ animation: "spin 1s linear infinite" }} /> : null}
                     {loading === a.id ? "Deleting…" : "Yes, delete"}
                   </button>
-                  <button
-                    onClick={() => setConfirming(null)}
-                    style={{ padding: "7px 14px", background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 6, fontSize: 12, cursor: "pointer", color: "#6b7280" }}
-                  >
+                  <button onClick={() => setConfirming(null)} style={{ padding: "7px 14px", background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 6, fontSize: 12, cursor: "pointer", color: "#6b7280" }}>
                     Cancel
                   </button>
                 </div>
