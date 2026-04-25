@@ -3,7 +3,7 @@ import { ReactNode, useState, useEffect } from "react";
 import {
   LayoutDashboard, CalendarCheck, Users, Building2, Clock, Plane,
   FileSpreadsheet, Calendar, AlertTriangle, ClipboardList, IndianRupee,
-  FileText, BarChart2, ChevronDown, Menu, X, LayoutGrid, ExternalLink,
+  FileText, BarChart2, Menu, X, LayoutGrid, ExternalLink, Upload,
 } from "lucide-react";
 
 interface LayoutProps { children: ReactNode; }
@@ -36,10 +36,16 @@ const navGroups = [
   {
     label: "Reports",
     items: [
-      { href: "/reports/daily",        label: "Daily",        icon: Calendar      },
-      { href: "/reports/monthly",      label: "Monthly",      icon: ClipboardList },
-      { href: "/reports/absenteeism",  label: "Absenteeism",  icon: AlertTriangle },
-      { href: "/reports/zones",        label: "Zone Summary", icon: BarChart2     },
+      { href: "/reports/daily",       label: "Daily",        icon: Calendar      },
+      { href: "/reports/monthly",     label: "Monthly",      icon: ClipboardList },
+      { href: "/reports/absenteeism", label: "Absenteeism",  icon: AlertTriangle },
+      { href: "/reports/zones",       label: "Zone Summary", icon: BarChart2     },
+    ],
+  },
+  {
+    label: "Data",
+    items: [
+      { href: "/import", label: "Import Data", icon: Upload },
     ],
   },
 ];
@@ -111,11 +117,9 @@ function AppSwitcher() {
 
 export function Layout({ children }: LayoutProps) {
   const [location] = useLocation();
-  const [openGroup, setOpenGroup] = useState<string | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [orgName, setOrgName] = useState<string>("Administrator");
 
-  // Fetch org name from Rejection Mapper session
   useEffect(() => {
     fetch("https://aicreator.co.in/api/user", { credentials: "include" })
       .then((r) => r.ok ? r.json() : null)
@@ -148,9 +152,7 @@ export function Layout({ children }: LayoutProps) {
 
       {/* Sidebar */}
       <aside
-        className={`shrink-0 flex flex-col transition-all duration-200 print:hidden
-          ${mobileOpen ? "fixed inset-0 z-50" : "hidden lg:flex"}
-        `}
+        className={`shrink-0 flex flex-col transition-all duration-200 print:hidden ${mobileOpen ? "fixed inset-0 z-50" : "hidden lg:flex"}`}
         style={{ width: 220, padding: "0 12px" }}
       >
         {/* Logo */}
@@ -192,10 +194,10 @@ export function Layout({ children }: LayoutProps) {
           ))}
         </nav>
 
-        {/* Bottom info */}
+        {/* Bottom: app switcher + org */}
         <div style={{ padding: "12px 10px", borderTop: "1px solid rgba(255,255,255,0.05)", marginBottom: 12 }}>
           <AppSwitcher />
-          <div style={{ fontSize: 11, color: "#374151" }}>
+          <div style={{ fontSize: 11 }}>
             <div style={{ color: "#6b7280", marginBottom: 2 }}>Organisation</div>
             <div style={{ color: "#9ca3af", fontWeight: 500 }}>{orgName}</div>
           </div>
@@ -213,11 +215,8 @@ export function Layout({ children }: LayoutProps) {
 
       {/* Main content */}
       <div className="main-content flex flex-col">
-
-        {/* Top bar */}
         <header className="sticky top-0 z-30 print:hidden" style={{ background: "rgba(249,250,251,0.85)", backdropFilter: "blur(12px)", borderBottom: "1px solid #e5e7eb", padding: "0 24px" }}>
           <div style={{ height: 56, display: "flex", alignItems: "center", gap: 12 }}>
-            {/* Mobile menu toggle */}
             <button
               className="lg:hidden"
               onClick={() => setMobileOpen(!mobileOpen)}
@@ -226,7 +225,6 @@ export function Layout({ children }: LayoutProps) {
               {mobileOpen ? <X size={16} /> : <Menu size={16} />}
             </button>
 
-            {/* Breadcrumb */}
             <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
               <span style={{ color: "#9ca3af" }}>Premier Pin</span>
               <span style={{ color: "#d1d5db" }}>/</span>
@@ -242,7 +240,6 @@ export function Layout({ children }: LayoutProps) {
           </div>
         </header>
 
-        {/* Page content */}
         <main style={{ flex: 1, padding: "28px 24px", maxWidth: 1400 }}>
           {children}
         </main>
