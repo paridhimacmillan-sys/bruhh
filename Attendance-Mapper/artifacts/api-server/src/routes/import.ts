@@ -431,10 +431,17 @@ router.post("/import/payroll", upload.single("file"), async (req, res) => {
 // ─── /api/import/xlsx-bulk ── parse entire .xlsm and auto-route ──────────
 
 router.post("/import/xlsx-bulk", upload.single("file"), async (req, res) => {
-  if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+  try {
+    if (!req.file) return res.status(400).json({ error: "No file uploaded" });
 
-  const sheets = parseWorkbook(req.file.buffer, req.file.mimetype);
-  const summary: Record<string, any> = {};
+    let sheets: Record<string, any[][]>;
+    try {
+      sheets = parseWorkbook(req.file.buffer, req.file.mimetype);
+    } catch (parseErr: any) {
+      return res.status(400).json({ error: `Failed to parse file: ${parseErr.message}` });
+    }
+
+    const summary: Record<string, any> = {};
 
   // Identify sheet roles
   const masterSheet = Object.keys(sheets).find((s) => s.toLowerCase() === "master" || s.toLowerCase() === "mastersheet");
@@ -524,7 +531,10 @@ router.post("/import/xlsx-bulk", upload.single("file"), async (req, res) => {
     }
   }
 
-  res.json({ summary, sheetsFound: Object.keys(sheets) });
+    res.json({ summary, sheetsFound: Object.keys(sheets) });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message ?? "Import failed" });
+  }
 });
 
 // ─── /api/import/xlsx-bulk — fix: wrap entire handler in try/catch with explicit json response ──
