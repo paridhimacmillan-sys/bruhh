@@ -18,6 +18,7 @@ import DailyReport from "@/pages/admin/reports/daily";
 import MonthlyReport from "@/pages/admin/reports/monthly";
 import AbsenteeismReport from "@/pages/admin/reports/absenteeism";
 import ZoneSummary from "@/pages/admin/reports/zone-summary";
+import ImportPage from "@/pages/import";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient({
@@ -48,6 +49,7 @@ function Router() {
         <Route path="/reports/monthly" component={MonthlyReport} />
         <Route path="/reports/absenteeism" component={AbsenteeismReport} />
         <Route path="/reports/zones" component={ZoneSummary} />
+        <Route path="/import" component={ImportPage} />
 
         <Route component={NotFound} />
       </Switch>
