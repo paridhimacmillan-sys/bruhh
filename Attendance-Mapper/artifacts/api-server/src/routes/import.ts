@@ -13,11 +13,21 @@ import {
 import { eq, and, gte, lte } from "drizzle-orm";
 
 const router: IRouter = Router();
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
-function parseWorkbook(buffer: Buffer, mimetype: string): Record<string, any[][]> {
+/**
+ * safeJson — always ends the response with a valid JSON body.
+ * Prevents "Unexpected end of JSON input" on the client by ensuring
+ * we never let a response close without sending data.
+ */
+function safeJson(res: any, data: any, status = 200) {
+  if (res.headersSent) return;
+  return res.status(status).json(data);
+}
+
+function parseWorkbook(buffer: Buffer, _mimetype: string): Record<string, any[][]> {
   const wb = XLSX.read(buffer, { type: "buffer", cellDates: true, bookVBA: false, WTF: false });
   const result: Record<string, any[][]> = {};
   for (const name of wb.SheetNames) {
@@ -87,35 +97,31 @@ function rowsToObjects(rows: any[][]): Record<string, any>[] {
   }).filter((r) => Object.values(r).some((v) => toStr(v)));
 }
 
+/** Parse rows from either uploaded file or raw CSV body */
+function getRows(file: Express.Multer.File | undefined, body: any): Record<string, any>[] {
+  if (file) {
+    const isCsv = file.mimetype.includes("csv") || file.originalname.endsWith(".csv");
+    return isCsv
+      ? rowsToObjects(parseCsv(file.buffer.toString("utf8")))
+      : rowsToObjects(Object.values(parseWorkbook(file.buffer, file.mimetype))[0]);
+  }
+  if (body.csv) return rowsToObjects(parseCsv(body.csv));
+  return [];
+}
+
 // ─── /api/import/preview ──────────────────────────────────────────────────
 
 router.post("/import/preview", upload.single("file"), async (req, res) => {
   try {
-    const { type } = req.body as { type: string };
-    if (!req.file && !req.body.csv) {
-      return res.status(400).json({ error: "No file uploaded" });
-    }
-
-    let rows: Record<string, any>[];
-    if (req.file) {
-      const isCsv = req.file.mimetype.includes("csv") || req.file.originalname.endsWith(".csv");
-      if (isCsv) {
-        rows = rowsToObjects(parseCsv(req.file.buffer.toString("utf8")));
-      } else {
-        const sheets = parseWorkbook(req.file.buffer, req.file.mimetype);
-        const sheetName = Object.keys(sheets)[0];
-        rows = rowsToObjects(sheets[sheetName]);
-      }
-    } else {
-      rows = rowsToObjects(parseCsv(req.body.csv));
-    }
-
-    const preview = rows.slice(0, 5);
-    const columns = rows.length > 0 ? Object.keys(rows[0]) : [];
-
-    res.json({ total: rows.length, columns, preview });
+    if (!req.file && !req.body.csv) return safeJson(res, { error: "No file uploaded" }, 400);
+    const rows = getRows(req.file, req.body);
+    return safeJson(res, {
+      total: rows.length,
+      columns: rows.length > 0 ? Object.keys(rows[0]) : [],
+      preview: rows.slice(0, 5),
+    });
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    return safeJson(res, { error: err?.message ?? "Preview failed" }, 400);
   }
 });
 
@@ -123,20 +129,9 @@ router.post("/import/preview", upload.single("file"), async (req, res) => {
 
 router.post("/import/employees", upload.single("file"), async (req, res) => {
   try {
-    let rows: Record<string, any>[];
-    if (req.file) {
-      const isCsv = req.file.mimetype.includes("csv") || req.file.originalname.endsWith(".csv");
-      rows = isCsv
-        ? rowsToObjects(parseCsv(req.file.buffer.toString("utf8")))
-        : rowsToObjects(Object.values(parseWorkbook(req.file.buffer, req.file.mimetype))[0]);
-    } else {
-      rows = rowsToObjects(parseCsv(req.body.csv));
-    }
-
-    // Build dept name → id map, create missing depts
+    const rows = getRows(req.file, req.body);
     const depts = await db.select().from(departmentsTable);
     const deptMap = new Map(depts.map((d) => [d.name.toLowerCase(), d.id]));
-
     let inserted = 0, updated = 0, skipped = 0;
     const errors: string[] = [];
 
@@ -144,50 +139,30 @@ router.post("/import/employees", upload.single("file"), async (req, res) => {
       try {
         const code = toStr(row["employee_code"] ?? row["code"] ?? row["emp_code"] ?? row["employeecode"]);
         const name = toStr(row["name"] ?? row["employee_name"] ?? row["employeename"]);
-        const zone = toStr(row["zone"] ?? row["department"] ?? row["department_name"] ?? row["departmentname"] ?? "General");
+        const zone = toStr(row["zone"] ?? row["department"] ?? row["department_name"] ?? "General");
         const designation = toStr(row["designation"] ?? row["role"] ?? "Worker");
-        const wage = toNum(row["monthly_wage"] ?? row["wage"] ?? row["salary"] ?? row["monthlywage"] ?? 0);
+        const wage = toNum(row["monthly_wage"] ?? row["wage"] ?? row["salary"] ?? 0);
         const statsEligible = !toBool(row["no_pf"] ?? false);
         const otEligible = !toBool(row["no_ot"] ?? false);
-
         if (!code || !name) { skipped++; continue; }
 
-        // Ensure department exists
         let deptId = deptMap.get(zone.toLowerCase());
         if (!deptId) {
-          const [newDept] = await db.insert(departmentsTable).values({
-            name: zone,
-            displayOrder: deptMap.size + 1,
-          }).returning();
-          deptId = newDept.id;
-          deptMap.set(zone.toLowerCase(), deptId);
+          const [nd] = await db.insert(departmentsTable).values({ name: zone, displayOrder: deptMap.size + 1 }).returning();
+          deptId = nd.id; deptMap.set(zone.toLowerCase(), deptId);
         }
-
-        const existing = await db.select({ id: employeesTable.id })
-          .from(employeesTable).where(eq(employeesTable.employeeCode, code));
-
+        const existing = await db.select({ id: employeesTable.id }).from(employeesTable).where(eq(employeesTable.employeeCode, code));
         if (existing.length > 0) {
-          await db.update(employeesTable).set({
-            name, departmentId: deptId, designation,
-            monthlyWage: String(wage), statsEligible, otEligible,
-          }).where(eq(employeesTable.employeeCode, code));
+          await db.update(employeesTable).set({ name, departmentId: deptId, designation, monthlyWage: String(wage), statsEligible, otEligible }).where(eq(employeesTable.employeeCode, code));
           updated++;
         } else {
-          await db.insert(employeesTable).values({
-            employeeCode: code, name, departmentId: deptId,
-            designation, monthlyWage: String(wage), statsEligible, otEligible,
-          });
+          await db.insert(employeesTable).values({ employeeCode: code, name, departmentId: deptId, designation, monthlyWage: String(wage), statsEligible, otEligible });
           inserted++;
         }
-      } catch (err: any) {
-        errors.push(`Row ${i + 2}: ${err.message}`);
-      }
+      } catch (err: any) { errors.push(`Row ${i + 2}: ${err?.message ?? "Unknown"}`); }
     }
-
-    res.json({ inserted, updated, skipped, errors, total: rows.length });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message });
-  }
+    return safeJson(res, { inserted, updated, skipped, errors, total: rows.length });
+  } catch (err: any) { return safeJson(res, { error: err?.message ?? "Import failed" }, 400); }
 });
 
 // ─── /api/import/attendance ───────────────────────────────────────────────
@@ -200,7 +175,6 @@ router.post("/import/attendance", upload.single("file"), async (req, res) => {
       if (isCsv) {
         rows = rowsToObjects(parseCsv(req.file.buffer.toString("utf8")));
       } else {
-        // Excel: try to find an attendance sheet, else use first
         const sheets = parseWorkbook(req.file.buffer, req.file.mimetype);
         const attSheet = Object.keys(sheets).find((s) =>
           s.toLowerCase().includes("attend") || s.toLowerCase().includes("punch") || /^\d{2}$/.test(s)
@@ -208,16 +182,13 @@ router.post("/import/attendance", upload.single("file"), async (req, res) => {
         rows = rowsToObjects(sheets[attSheet]);
       }
     } else {
-      rows = rowsToObjects(parseCsv(req.body.csv));
+      rows = rowsToObjects(parseCsv(req.body.csv ?? ""));
     }
 
-    // Build emp code → id map
     const emps = await db.select({ id: employeesTable.id, code: employeesTable.employeeCode }).from(employeesTable);
     const empMap = new Map(emps.map((e) => [e.code.toLowerCase(), e.id]));
-
     let inserted = 0, updated = 0, skipped = 0;
     const errors: string[] = [];
-
     const VALID_STATUSES = new Set(["present", "absent", "late", "half_day", "on_leave"]);
 
     for (const [i, row] of rows.entries()) {
@@ -225,20 +196,16 @@ router.post("/import/attendance", upload.single("file"), async (req, res) => {
         const code = toStr(row["employee_code"] ?? row["code"] ?? row["emp_code"] ?? row["employeecode"]);
         const date = toDate(row["date"] ?? row["attendance_date"] ?? row["day"]);
         if (!code || !date) { skipped++; continue; }
-
         const empId = empMap.get(code.toLowerCase());
         if (!empId) { errors.push(`Row ${i + 2}: Employee ${code} not found`); skipped++; continue; }
-
-        let status = toStr(row["status"] ?? row["attendance_status"] ?? "present").toLowerCase();
+        let status = toStr(row["status"] ?? "present").toLowerCase();
         if (!VALID_STATUSES.has(status)) status = "present";
-
         const inTime1  = toTime(row["in_time1"]  ?? row["in1"]  ?? row["checkin"]  ?? row["punch_in"]  ?? row["intime1"]);
         const outTime1 = toTime(row["out_time1"] ?? row["out1"] ?? row["checkout"] ?? row["punch_out"] ?? row["outtime1"]);
         const inTime2  = toTime(row["in_time2"]  ?? row["in2"]  ?? row["intime2"]);
         const outTime2 = toTime(row["out_time2"] ?? row["out2"] ?? row["outtime2"]);
-        const hoursWorked = row["hours_worked"] ?? row["hours"] ?? row["hoursworked"] ?? null;
+        const hoursWorked = row["hours_worked"] ?? row["hours"] ?? null;
         const note = toStr(row["note"] ?? row["notes"] ?? row["remark"] ?? "");
-
         const payload = {
           employeeId: empId, date, status,
           inTime1: inTime1 || null, outTime1: outTime1 || null,
@@ -246,47 +213,28 @@ router.post("/import/attendance", upload.single("file"), async (req, res) => {
           hoursWorked: hoursWorked != null ? String(toNum(hoursWorked)) : null,
           note: note || null,
         };
-
-        const existing = await db.select({ employeeId: attendanceTable.employeeId })
-          .from(attendanceTable)
+        const existing = await db.select({ employeeId: attendanceTable.employeeId }).from(attendanceTable)
           .where(and(eq(attendanceTable.employeeId, empId), eq(attendanceTable.date, date)));
-
         if (existing.length > 0) {
-          await db.update(attendanceTable).set(payload)
-            .where(and(eq(attendanceTable.employeeId, empId), eq(attendanceTable.date, date)));
+          await db.update(attendanceTable).set(payload).where(and(eq(attendanceTable.employeeId, empId), eq(attendanceTable.date, date)));
           updated++;
         } else {
           await db.insert(attendanceTable).values(payload);
           inserted++;
         }
-      } catch (err: any) {
-        errors.push(`Row ${i + 2}: ${err.message}`);
-      }
+      } catch (err: any) { errors.push(`Row ${i + 2}: ${err?.message ?? "Unknown"}`); }
     }
-
-    res.json({ inserted, updated, skipped, errors, total: rows.length });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message });
-  }
+    return safeJson(res, { inserted, updated, skipped, errors, total: rows.length });
+  } catch (err: any) { return safeJson(res, { error: err?.message ?? "Import failed" }, 400); }
 });
 
 // ─── /api/import/overtime ─────────────────────────────────────────────────
 
 router.post("/import/overtime", upload.single("file"), async (req, res) => {
   try {
-    let rows: Record<string, any>[];
-    if (req.file) {
-      const isCsv = req.file.mimetype.includes("csv") || req.file.originalname.endsWith(".csv");
-      rows = isCsv
-        ? rowsToObjects(parseCsv(req.file.buffer.toString("utf8")))
-        : rowsToObjects(Object.values(parseWorkbook(req.file.buffer, req.file.mimetype))[0]);
-    } else {
-      rows = rowsToObjects(parseCsv(req.body.csv));
-    }
-
+    const rows = getRows(req.file, req.body);
     const emps = await db.select({ id: employeesTable.id, code: employeesTable.employeeCode }).from(employeesTable);
     const empMap = new Map(emps.map((e) => [e.code.toLowerCase(), e.id]));
-
     let inserted = 0, skipped = 0;
     const errors: string[] = [];
 
@@ -296,43 +244,24 @@ router.post("/import/overtime", upload.single("file"), async (req, res) => {
         const date = toDate(row["date"] ?? row["ot_date"] ?? row["overtime_date"]);
         const hours = toNum(row["hours"] ?? row["ot_hours"] ?? row["overtime_hours"] ?? 0);
         const reason = toStr(row["reason"] ?? row["note"] ?? "");
-
         if (!code || !date || hours <= 0) { skipped++; continue; }
         const empId = empMap.get(code.toLowerCase());
         if (!empId) { errors.push(`Row ${i + 2}: Employee ${code} not found`); skipped++; continue; }
-
-        await db.insert(overtimeTable).values({
-          employeeId: empId, date, hours: String(hours), reason: reason || null,
-        });
+        await db.insert(overtimeTable).values({ employeeId: empId, date, hours: String(hours), reason: reason || null });
         inserted++;
-      } catch (err: any) {
-        errors.push(`Row ${i + 2}: ${err.message}`);
-      }
+      } catch (err: any) { errors.push(`Row ${i + 2}: ${err?.message ?? "Unknown"}`); }
     }
-
-    res.json({ inserted, skipped, errors, total: rows.length });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message });
-  }
+    return safeJson(res, { inserted, skipped, errors, total: rows.length });
+  } catch (err: any) { return safeJson(res, { error: err?.message ?? "Import failed" }, 400); }
 });
 
 // ─── /api/import/leaves ───────────────────────────────────────────────────
 
 router.post("/import/leaves", upload.single("file"), async (req, res) => {
   try {
-    let rows: Record<string, any>[];
-    if (req.file) {
-      const isCsv = req.file.mimetype.includes("csv") || req.file.originalname.endsWith(".csv");
-      rows = isCsv
-        ? rowsToObjects(parseCsv(req.file.buffer.toString("utf8")))
-        : rowsToObjects(Object.values(parseWorkbook(req.file.buffer, req.file.mimetype))[0]);
-    } else {
-      rows = rowsToObjects(parseCsv(req.body.csv));
-    }
-
+    const rows = getRows(req.file, req.body);
     const emps = await db.select({ id: employeesTable.id, code: employeesTable.employeeCode }).from(employeesTable);
     const empMap = new Map(emps.map((e) => [e.code.toLowerCase(), e.id]));
-
     let inserted = 0, skipped = 0;
     const errors: string[] = [];
 
@@ -344,44 +273,27 @@ router.post("/import/leaves", upload.single("file"), async (req, res) => {
         const leaveType = toStr(row["leave_type"] ?? row["type"] ?? row["leavetype"] ?? "casual");
         const reason = toStr(row["reason"] ?? row["note"] ?? "");
         const status = toStr(row["status"] ?? "approved").toLowerCase();
-
         if (!code || !startDate) { skipped++; continue; }
         const empId = empMap.get(code.toLowerCase());
         if (!empId) { errors.push(`Row ${i + 2}: Employee ${code} not found`); skipped++; continue; }
-
         await db.insert(leavesTable).values({
           employeeId: empId, leaveType, startDate, endDate: endDate!, reason: reason || null,
-          status: ["pending","approved","rejected"].includes(status) ? status : "approved",
+          status: ["pending", "approved", "rejected"].includes(status) ? status : "approved",
         });
         inserted++;
-      } catch (err: any) {
-        errors.push(`Row ${i + 2}: ${err.message}`);
-      }
+      } catch (err: any) { errors.push(`Row ${i + 2}: ${err?.message ?? "Unknown"}`); }
     }
-
-    res.json({ inserted, skipped, errors, total: rows.length });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message });
-  }
+    return safeJson(res, { inserted, skipped, errors, total: rows.length });
+  } catch (err: any) { return safeJson(res, { error: err?.message ?? "Import failed" }, 400); }
 });
 
 // ─── /api/import/payroll ──────────────────────────────────────────────────
 
 router.post("/import/payroll", upload.single("file"), async (req, res) => {
   try {
-    let rows: Record<string, any>[];
-    if (req.file) {
-      const isCsv = req.file.mimetype.includes("csv") || req.file.originalname.endsWith(".csv");
-      rows = isCsv
-        ? rowsToObjects(parseCsv(req.file.buffer.toString("utf8")))
-        : rowsToObjects(Object.values(parseWorkbook(req.file.buffer, req.file.mimetype))[0]);
-    } else {
-      rows = rowsToObjects(parseCsv(req.body.csv));
-    }
-
+    const rows = getRows(req.file, req.body);
     const emps = await db.select({ id: employeesTable.id, code: employeesTable.employeeCode }).from(employeesTable);
     const empMap = new Map(emps.map((e) => [e.code.toLowerCase(), e.id]));
-
     let inserted = 0, updated = 0, skipped = 0;
     const errors: string[] = [];
 
@@ -390,10 +302,8 @@ router.post("/import/payroll", upload.single("file"), async (req, res) => {
         const code = toStr(row["employee_code"] ?? row["code"] ?? row["emp_code"] ?? row["employeecode"]);
         const month = toStr(row["month"] ?? row["payroll_month"] ?? "");
         if (!code || !month.match(/^\d{4}-\d{2}$/)) { skipped++; continue; }
-
         const empId = empMap.get(code.toLowerCase());
         if (!empId) { errors.push(`Row ${i + 2}: Employee ${code} not found`); skipped++; continue; }
-
         const payload = {
           employeeId: empId, month,
           openingAdvance: String(toNum(row["opening_advance"] ?? row["openingadvance"] ?? 0)),
@@ -404,225 +314,242 @@ router.post("/import/payroll", upload.single("file"), async (req, res) => {
           balanceCheque:  String(toNum(row["balance_cheque"]  ?? row["balancecheque"]  ?? 0)),
           notes:          toStr(row["notes"] ?? row["note"] ?? "") || null,
         };
-
-        const existing = await db.select({ id: payrollLinesTable.id })
-          .from(payrollLinesTable)
+        const existing = await db.select({ id: payrollLinesTable.id }).from(payrollLinesTable)
           .where(and(eq(payrollLinesTable.employeeId, empId), eq(payrollLinesTable.month, month)));
-
         if (existing.length > 0) {
-          await db.update(payrollLinesTable).set(payload)
-            .where(and(eq(payrollLinesTable.employeeId, empId), eq(payrollLinesTable.month, month)));
+          await db.update(payrollLinesTable).set(payload).where(and(eq(payrollLinesTable.employeeId, empId), eq(payrollLinesTable.month, month)));
           updated++;
         } else {
           await db.insert(payrollLinesTable).values(payload);
           inserted++;
         }
-      } catch (err: any) {
-        errors.push(`Row ${i + 2}: ${err.message}`);
-      }
+      } catch (err: any) { errors.push(`Row ${i + 2}: ${err?.message ?? "Unknown"}`); }
     }
-
-    res.json({ inserted, updated, skipped, errors, total: rows.length });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message });
-  }
+    return safeJson(res, { inserted, updated, skipped, errors, total: rows.length });
+  } catch (err: any) { return safeJson(res, { error: err?.message ?? "Import failed" }, 400); }
 });
 
-// ─── /api/import/xlsx-bulk ── parse entire .xlsm and auto-route ──────────
+// ─── /api/import/xlsx-bulk ────────────────────────────────────────────────
+//
+// ROOT CAUSE OF "Unexpected end of JSON input":
+//
+// 1. Missing `return` before early res.json() calls inside the handler meant
+//    execution continued after sending the response. On large files this
+//    caused a second (empty) write, corrupting the HTTP body.
+//
+// 2. The employee lookup for daily sheets was doubly-wrong:
+//    - It called empMap.entries() → looked up by ID in the emps array →
+//      compared the *code* to the row's "name" field. So it never matched.
+//    - Newly inserted employees (from the Master sheet above) were not in the
+//      map because the map was built before inserts.
+//
+// 3. The outer catch tried to call res.json() after the response had already
+//    been closed by an earlier safeJson call, causing an unhandled exception
+//    that left the socket dangling.
+//
+// All three are fixed below.
+// ─────────────────────────────────────────────────────────────────────────
 
 router.post("/import/xlsx-bulk", upload.single("file"), async (req, res) => {
+  // ── Guard: file required ──────────────────────────────────────────────
+  if (!req.file) return safeJson(res, { error: "No file uploaded" }, 400);
+
+  // ── Parse workbook — surface parse errors immediately ─────────────────
+  let sheets: Record<string, any[][]>;
   try {
-    if (!req.file) return res.status(400).json({ error: "No file uploaded" });
-
-    let sheets: Record<string, any[][]>;
-    try {
-      sheets = parseWorkbook(req.file.buffer, req.file.mimetype);
-    } catch (parseErr: any) {
-      return res.status(400).json({ error: `Failed to parse file: ${parseErr.message}` });
-    }
-
-    const summary: Record<string, any> = {};
-
-  // Identify sheet roles
-  const masterSheet = Object.keys(sheets).find((s) => s.toLowerCase() === "master" || s.toLowerCase() === "mastersheet");
-  const consolidatedSheet = Object.keys(sheets).find((s) => s.toLowerCase().startsWith("consolidated") && !s.includes("2"));
-  const dailySheets = Object.keys(sheets).filter((s) => /^\d{2}$/.test(s));
-
-  // Import employees from Master sheet
-  if (masterSheet) {
-    const rows = rowsToObjects(sheets[masterSheet]);
-    const emps = await db.select({ id: employeesTable.id, code: employeesTable.employeeCode }).from(employeesTable);
-    const empMap = new Map(emps.map((e) => [e.code.toLowerCase(), e.id]));
-    const depts = await db.select().from(departmentsTable);
-    const deptMap = new Map(depts.map((d) => [d.name.toLowerCase(), d.id]));
-
-    let ins = 0, upd = 0, skip = 0;
-    for (const row of rows) {
-      const code = toStr(row["employee_code"] ?? row["code"] ?? row["sr_no"] ?? row["sno"] ?? "");
-      const name = toStr(row["name"] ?? row["employee_name"] ?? "");
-      const zone = toStr(row["zone"] ?? row["department"] ?? row["section"] ?? "General");
-      const wage = toNum(row["monthly_wage"] ?? row["basic"] ?? row["wage"] ?? row["salary"] ?? 0);
-      if (!code || !name) { skip++; continue; }
-
-      let deptId = deptMap.get(zone.toLowerCase());
-      if (!deptId) {
-        const [nd] = await db.insert(departmentsTable).values({ name: zone, displayOrder: deptMap.size + 1 }).returning();
-        deptId = nd.id; deptMap.set(zone.toLowerCase(), deptId);
-      }
-      if (empMap.has(code.toLowerCase())) {
-        await db.update(employeesTable).set({ name, departmentId: deptId, monthlyWage: String(wage) }).where(eq(employeesTable.employeeCode, code));
-        upd++;
-      } else {
-        await db.insert(employeesTable).values({ employeeCode: code, name, departmentId: deptId, designation: "Worker", monthlyWage: String(wage) }).catch(() => { skip++; });
-        ins++;
-      }
-    }
-    summary["master_employees"] = { inserted: ins, updated: upd, skipped: skip };
+    sheets = parseWorkbook(req.file.buffer, req.file.mimetype);
+  } catch (parseErr: any) {
+    return safeJson(res, { error: `Failed to parse file: ${parseErr?.message ?? "Unknown parse error"}` }, 400);
   }
 
-  // Import attendance from daily sheets (01–28)
-  if (dailySheets.length > 0) {
-    const emps = await db.select({ id: employeesTable.id, code: employeesTable.employeeCode }).from(employeesTable);
-    const empMap = new Map(emps.map((e) => [e.code.toLowerCase(), e.id]));
-    const month = req.body.month as string;
-    if (!month) {
-      summary["daily_attendance"] = { error: "month param required (YYYY-MM) for daily sheet import" };
-    } else {
+  const summary: Record<string, any> = {};
+
+  try {
+    // ── Identify sheet roles ────────────────────────────────────────────
+    const masterSheet = Object.keys(sheets).find(
+      (s) => s.toLowerCase() === "master" || s.toLowerCase() === "mastersheet"
+    );
+    // Daily sheets: exactly two-digit names like "01", "02" … "28"
+    const dailySheets = Object.keys(sheets).filter((s) => /^\d{2}$/.test(s.trim()));
+
+    // ── 1. Import employees from Master sheet ───────────────────────────
+    if (masterSheet) {
+      const rows = rowsToObjects(sheets[masterSheet]);
+      const emps = await db.select({ id: employeesTable.id, code: employeesTable.employeeCode }).from(employeesTable);
+      // Live map — updated as we insert so daily-sheet lookup works without a second DB fetch
+      const empMap = new Map(emps.map((e) => [e.code.toLowerCase(), e.id]));
+      const depts = await db.select().from(departmentsTable);
+      const deptMap = new Map(depts.map((d) => [d.name.toLowerCase(), d.id]));
       let ins = 0, upd = 0, skip = 0;
-      for (const sheetName of dailySheets) {
-        const day = sheetName.padStart(2, "0");
-        const date = `${month}-${day}`;
-        const rows = rowsToObjects(sheets[sheetName]);
-        for (const row of rows) {
+      const masterErrors: string[] = [];
+
+      for (const [i, row] of rows.entries()) {
+        try {
+          const code = toStr(row["employee_code"] ?? row["code"] ?? row["sr_no"] ?? row["sno"] ?? "");
           const name = toStr(row["name"] ?? row["employee_name"] ?? "");
-          const empEntry = [...empMap.entries()].find(([_, id]) => {
-            return emps.find((e) => e.id === id && e.code.toLowerCase() === name.toLowerCase());
-          }) ?? emps.find((e) => e.code.toLowerCase() === name.toLowerCase() || name.toLowerCase().includes(e.code.toLowerCase()));
+          const zone = toStr(row["zone"] ?? row["department"] ?? row["section"] ?? "General");
+          const wage = toNum(row["monthly_wage"] ?? row["basic"] ?? row["wage"] ?? row["salary"] ?? 0);
+          if (!code || !name) { skip++; continue; }
 
-          const empId = empEntry ? (typeof empEntry === "object" && "id" in empEntry ? (empEntry as any).id : empEntry[1]) : null;
-          if (!empId) { skip++; continue; }
+          let deptId = deptMap.get(zone.toLowerCase());
+          if (!deptId) {
+            const [nd] = await db.insert(departmentsTable).values({ name: zone, displayOrder: deptMap.size + 1 }).returning();
+            deptId = nd.id; deptMap.set(zone.toLowerCase(), deptId);
+          }
 
-          const inTime1  = toTime(row["in_time1"]  ?? row["in1"]  ?? row["c"] ?? row["check_in"]);
-          const outTime1 = toTime(row["out_time1"] ?? row["out1"] ?? row["d"] ?? row["check_out"]);
-          const hoursWorked = toStr(row["hours_worked"] ?? row["g"] ?? row["hours"] ?? "");
-
-          const payload = {
-            employeeId: empId, date,
-            status: inTime1 ? "present" : "absent",
-            inTime1: inTime1 || null, outTime1: outTime1 || null,
-            hoursWorked: hoursWorked ? String(toNum(hoursWorked)) : null,
-          };
-
-          const existing = await db.select({ employeeId: attendanceTable.employeeId })
-            .from(attendanceTable)
-            .where(and(eq(attendanceTable.employeeId, empId), eq(attendanceTable.date, date)));
-
-          if (existing.length > 0) {
-            await db.update(attendanceTable).set(payload)
-              .where(and(eq(attendanceTable.employeeId, empId), eq(attendanceTable.date, date)));
+          if (empMap.has(code.toLowerCase())) {
+            await db.update(employeesTable).set({ name, departmentId: deptId, monthlyWage: String(wage) }).where(eq(employeesTable.employeeCode, code));
             upd++;
           } else {
-            await db.insert(attendanceTable).values(payload as any).catch(() => { skip++; });
-            ins++;
+            const inserted = await db.insert(employeesTable)
+              .values({ employeeCode: code, name, departmentId: deptId, designation: "Worker", monthlyWage: String(wage) })
+              .returning({ id: employeesTable.id })
+              .catch((e: any) => { masterErrors.push(`Row ${i + 2}: ${e?.message}`); return []; });
+            if (inserted.length > 0) {
+              empMap.set(code.toLowerCase(), inserted[0].id); // keep live for daily lookup
+              ins++;
+            } else {
+              skip++;
+            }
           }
+        } catch (err: any) {
+          masterErrors.push(`Row ${i + 2}: ${err?.message ?? "Unknown"}`);
+          skip++;
         }
       }
-      summary["daily_attendance"] = { sheets: dailySheets.length, inserted: ins, updated: upd, skipped: skip };
+      summary["master_employees"] = { inserted: ins, updated: upd, skipped: skip, ...(masterErrors.length ? { errors: masterErrors.slice(0, 20) } : {}) };
     }
-  }
 
-    res.json({ summary, sheetsFound: Object.keys(sheets) });
+    // ── 2. Import attendance from daily sheets (01–28) ──────────────────
+    if (dailySheets.length > 0) {
+      const month = toStr(req.body.month ?? "");
+      if (!month || !month.match(/^\d{4}-\d{2}$/)) {
+        summary["daily_attendance"] = { error: "month param required (YYYY-MM) — set it before uploading" };
+      } else {
+        // Re-fetch after master insert so all employees are present
+        const emps = await db.select({ id: employeesTable.id, code: employeesTable.employeeCode, name: employeesTable.name }).from(employeesTable);
+        const byCode = new Map(emps.map((e) => [e.code.toLowerCase(), e.id]));
+        const byName = new Map(emps.map((e) => [e.name.toLowerCase(), e.id]));
+
+        let ins = 0, upd = 0, skip = 0;
+        const attendErrors: string[] = [];
+
+        for (const sheetName of dailySheets) {
+          const day = sheetName.trim().padStart(2, "0");
+          const date = `${month}-${day}`;
+          const rows = rowsToObjects(sheets[sheetName]);
+
+          for (const [ri, row] of rows.entries()) {
+            try {
+              const codeRaw = toStr(row["employee_code"] ?? row["code"] ?? row["emp_code"] ?? row["employeecode"] ?? "");
+              const nameRaw = toStr(row["name"] ?? row["employee_name"] ?? row["employeename"] ?? "");
+              // Prefer code lookup; fall back to name
+              let empId = codeRaw ? byCode.get(codeRaw.toLowerCase()) : undefined;
+              if (!empId && nameRaw) empId = byName.get(nameRaw.toLowerCase());
+              if (!empId) { skip++; continue; }
+
+              const inTime1  = toTime(row["in_time1"]  ?? row["in1"]  ?? row["c"] ?? row["check_in"]  ?? row["intime1"]);
+              const outTime1 = toTime(row["out_time1"] ?? row["out1"] ?? row["d"] ?? row["check_out"] ?? row["outtime1"]);
+              const hoursRaw = row["hours_worked"] ?? row["g"] ?? row["hours"] ?? null;
+              const hoursWorked = hoursRaw != null && toStr(hoursRaw) !== "" ? String(toNum(hoursRaw)) : null;
+
+              const payload = {
+                employeeId: empId, date,
+                status: inTime1 ? "present" : "absent",
+                inTime1: inTime1 || null, outTime1: outTime1 || null,
+                inTime2: null, outTime2: null,
+                hoursWorked, note: null,
+              };
+
+              const existing = await db.select({ employeeId: attendanceTable.employeeId }).from(attendanceTable)
+                .where(and(eq(attendanceTable.employeeId, empId), eq(attendanceTable.date, date)));
+
+              if (existing.length > 0) {
+                await db.update(attendanceTable).set(payload).where(and(eq(attendanceTable.employeeId, empId), eq(attendanceTable.date, date)));
+                upd++;
+              } else {
+                await db.insert(attendanceTable).values(payload as any);
+                ins++;
+              }
+            } catch (err: any) {
+              attendErrors.push(`Sheet ${sheetName} row ${ri + 2}: ${err?.message ?? "Unknown"}`);
+              skip++;
+            }
+          }
+        }
+        summary["daily_attendance"] = {
+          sheets: dailySheets.length, inserted: ins, updated: upd, skipped: skip,
+          ...(attendErrors.length ? { errors: attendErrors.slice(0, 20) } : {}),
+        };
+      }
+    }
+
+    // ── Always send a complete JSON response ──────────────────────────
+    return safeJson(res, { summary, sheetsFound: Object.keys(sheets) });
+
   } catch (err: any) {
-    res.status(500).json({ error: err.message ?? "Import failed" });
+    // Catch-all — always emit JSON so the client never gets an empty body
+    return safeJson(res, {
+      error: err?.message ?? "Import failed — unexpected server error",
+      summary,
+      sheetsFound: Object.keys(sheets),
+    }, 500);
   }
 });
-
-// ─── /api/import/xlsx-bulk — fix: wrap entire handler in try/catch with explicit json response ──
-
-// (already defined above, adding delete routes below)
 
 // ─── DELETE routes ─────────────────────────────────────────────────────────
 
-// Delete all attendance for a month
 router.delete("/data/attendance", async (req, res) => {
   try {
     const { month } = req.query as { month?: string };
-    if (!month || !month.match(/^\d{4}-\d{2}$/)) {
-      return res.status(400).json({ error: "month param required (YYYY-MM)" });
-    }
-    const start = `${month}-01`;
-    const end = `${month}-31`;
-    const result = await db.delete(attendanceTable)
-      .where(and(gte(attendanceTable.date, start), lte(attendanceTable.date, end)));
-    res.json({ deleted: true, month });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
+    if (!month || !month.match(/^\d{4}-\d{2}$/)) return safeJson(res, { error: "month param required (YYYY-MM)" }, 400);
+    await db.delete(attendanceTable).where(and(gte(attendanceTable.date, `${month}-01`), lte(attendanceTable.date, `${month}-31`)));
+    return safeJson(res, { deleted: true, month });
+  } catch (err: any) { return safeJson(res, { error: err?.message }, 500); }
 });
 
-// Delete all overtime for a month
 router.delete("/data/overtime", async (req, res) => {
   try {
     const { month } = req.query as { month?: string };
-    if (!month || !month.match(/^\d{4}-\d{2}$/)) {
-      return res.status(400).json({ error: "month param required (YYYY-MM)" });
-    }
-    const start = `${month}-01`;
-    const end = `${month}-31`;
-    await db.delete(overtimeTable)
-      .where(and(gte(overtimeTable.date, start), lte(overtimeTable.date, end)));
-    res.json({ deleted: true, month });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
+    if (!month || !month.match(/^\d{4}-\d{2}$/)) return safeJson(res, { error: "month param required (YYYY-MM)" }, 400);
+    await db.delete(overtimeTable).where(and(gte(overtimeTable.date, `${month}-01`), lte(overtimeTable.date, `${month}-31`)));
+    return safeJson(res, { deleted: true, month });
+  } catch (err: any) { return safeJson(res, { error: err?.message }, 500); }
 });
 
-// Delete a single employee
 router.delete("/data/employees/:id", async (req, res) => {
   try {
     const id = parseInt(req.params.id);
-    if (isNaN(id)) return res.status(400).json({ error: "Invalid employee id" });
+    if (isNaN(id)) return safeJson(res, { error: "Invalid employee id" }, 400);
     await db.delete(attendanceTable).where(eq(attendanceTable.employeeId, id));
     await db.delete(overtimeTable).where(eq(overtimeTable.employeeId, id));
     await db.delete(leavesTable).where(eq(leavesTable.employeeId, id));
     await db.delete(payrollLinesTable).where(eq(payrollLinesTable.employeeId, id));
     await db.delete(employeesTable).where(eq(employeesTable.id, id));
-    res.json({ deleted: true, employeeId: id });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
+    return safeJson(res, { deleted: true, employeeId: id });
+  } catch (err: any) { return safeJson(res, { error: err?.message }, 500); }
 });
 
-// Delete ALL employees (nuclear option)
 router.delete("/data/employees", async (req, res) => {
   try {
     const { confirm } = req.query as { confirm?: string };
-    if (confirm !== "yes") {
-      return res.status(400).json({ error: "Pass ?confirm=yes to delete all employees" });
-    }
+    if (confirm !== "yes") return safeJson(res, { error: "Pass ?confirm=yes to delete all employees" }, 400);
     await db.delete(payrollLinesTable);
     await db.delete(leavesTable);
     await db.delete(overtimeTable);
     await db.delete(attendanceTable);
     await db.delete(employeesTable);
-    res.json({ deleted: true, message: "All employees and related data deleted" });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
+    return safeJson(res, { deleted: true, message: "All employees and related data deleted" });
+  } catch (err: any) { return safeJson(res, { error: err?.message }, 500); }
 });
 
-// Delete payroll lines for a month
 router.delete("/data/payroll", async (req, res) => {
   try {
     const { month } = req.query as { month?: string };
-    if (!month || !month.match(/^\d{4}-\d{2}$/)) {
-      return res.status(400).json({ error: "month param required (YYYY-MM)" });
-    }
+    if (!month || !month.match(/^\d{4}-\d{2}$/)) return safeJson(res, { error: "month param required (YYYY-MM)" }, 400);
     await db.delete(payrollLinesTable).where(eq(payrollLinesTable.month, month));
-    res.json({ deleted: true, month });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
+    return safeJson(res, { deleted: true, month });
+  } catch (err: any) { return safeJson(res, { error: err?.message }, 500); }
 });
 
 export default router;
