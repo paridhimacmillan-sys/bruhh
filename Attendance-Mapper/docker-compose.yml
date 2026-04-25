@@ -48,6 +48,11 @@ services:
       context: .
       dockerfile: Dockerfile.frontend
     container_name: attendance-frontend
+    environment:
+      # CRITICAL: Point to the internal Docker container name, NOT the public Render/Cloudflare URL.
+      # Using the public URL (https://bruhh-vewm.onrender.com) routes back through Cloudflare,
+      # which detects its own IPs in the forwarding chain and kills the request with HTTP 508.
+      API_URL: http://api-server:3000
     ports:
       - "80:80"
     depends_on:
