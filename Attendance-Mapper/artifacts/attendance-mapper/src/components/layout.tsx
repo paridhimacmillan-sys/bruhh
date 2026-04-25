@@ -3,7 +3,7 @@ import { ReactNode, useState } from "react";
 import {
   LayoutDashboard, CalendarCheck, Users, Building2, Clock, Plane,
   FileSpreadsheet, Calendar, AlertTriangle, ClipboardList, IndianRupee,
-  FileText, BarChart2, ChevronDown, Menu, X, Upload,
+  FileText, BarChart2, ChevronDown, Menu, X, LayoutGrid, ExternalLink,
 } from "lucide-react";
 
 interface LayoutProps { children: ReactNode; }
@@ -42,15 +42,72 @@ const navGroups = [
       { href: "/reports/zones",        label: "Zone Summary", icon: BarChart2     },
     ],
   },
-  {
-    label: "Data",
-    items: [
-      { href: "/import", label: "Import Data", icon: Upload },
-    ],
-  },
 ];
 
 const flat = navGroups.flatMap((g) => g.items);
+
+const APPS = [
+  {
+    id: "attendance",
+    name: "Attendance Mapper",
+    description: "Attendance & payroll",
+    url: "https://attendance.aicreator.co.in",
+    icon: "🟢",
+    current: true,
+  },
+  {
+    id: "rejection",
+    name: "Rejection Mapper",
+    description: "Parts rejection tracker",
+    url: "https://aicreator.co.in",
+    icon: "🔴",
+    current: false,
+  },
+];
+
+function AppSwitcher() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ position: "relative", marginBottom: 8 }}>
+      <button
+        onClick={() => setOpen(!open)}
+        style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", borderRadius: 7, background: "transparent", border: "none", cursor: "pointer", color: "#6b7280", fontSize: 13, fontWeight: 450, transition: "all 0.12s" }}
+        onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(255,255,255,0.05)"; (e.currentTarget as HTMLButtonElement).style.color = "#e5e7eb"; }}
+        onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = "transparent"; (e.currentTarget as HTMLButtonElement).style.color = "#6b7280"; }}
+      >
+        <LayoutGrid size={15} style={{ opacity: 0.6, flexShrink: 0 }} />
+        <span style={{ flex: 1, textAlign: "left" }}>Switch App</span>
+        <span style={{ fontSize: 10, opacity: 0.5 }}>{open ? "▲" : "▼"}</span>
+      </button>
+
+      {open && (
+        <div style={{ position: "absolute", bottom: "100%", left: 0, right: 0, marginBottom: 4, borderRadius: 10, border: "1px solid rgba(255,255,255,0.08)", background: "#1a1a1b", boxShadow: "0 8px 24px rgba(0,0,0,0.4)", overflow: "hidden", zIndex: 100 }}>
+          {APPS.map((app) => (
+            <a
+              key={app.id}
+              href={app.current ? undefined : app.url}
+              onClick={app.current ? (e) => e.preventDefault() : undefined}
+              style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", textDecoration: "none", cursor: app.current ? "default" : "pointer", opacity: app.current ? 0.5 : 1, background: app.current ? "rgba(255,255,255,0.03)" : "transparent", transition: "background 0.12s" }}
+              onMouseEnter={e => { if (!app.current) (e.currentTarget as HTMLAnchorElement).style.background = "rgba(255,255,255,0.05)"; }}
+              onMouseLeave={e => { if (!app.current) (e.currentTarget as HTMLAnchorElement).style.background = "transparent"; }}
+            >
+              <span style={{ fontSize: 18 }}>{app.icon}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ color: "#f9fafb", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{app.name}</div>
+                <div style={{ color: "#6b7280", fontSize: 10.5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{app.description}</div>
+              </div>
+              {app.current ? (
+                <span style={{ fontSize: 10, background: "rgba(99,102,241,0.2)", color: "#818cf8", padding: "2px 8px", borderRadius: 20, fontWeight: 600, flexShrink: 0 }}>Active</span>
+              ) : (
+                <ExternalLink size={12} style={{ color: "#6b7280", flexShrink: 0 }} />
+              )}
+            </a>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function Layout({ children }: LayoutProps) {
   const [location] = useLocation();
@@ -128,6 +185,7 @@ export function Layout({ children }: LayoutProps) {
 
         {/* Bottom info */}
         <div style={{ padding: "12px 10px", borderTop: "1px solid rgba(255,255,255,0.05)", marginBottom: 12 }}>
+          <AppSwitcher />
           <div style={{ fontSize: 11, color: "#374151" }}>
             <div style={{ color: "#6b7280", marginBottom: 2 }}>Logged in as</div>
             <div style={{ color: "#9ca3af", fontWeight: 500 }}>Administrator</div>
