@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from "react";
-import { Upload, FileText, CheckCircle, AlertTriangle, X, ChevronDown, Download, Loader2, FileSpreadsheet, Users, CalendarCheck, Clock, Plane, IndianRupee, Info } from "lucide-react";
+import { Upload, FileText, CheckCircle, AlertTriangle, X, Download, Loader2, FileSpreadsheet, Users, CalendarCheck, Clock, Plane, IndianRupee, Info } from "lucide-react";
 import * as XLSX from "xlsx";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
@@ -503,6 +503,141 @@ export default function ImportPage() {
       </div>
 
       <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+
+      {/* ── Delete Data Section ─────────────────────────────────────────── */}
+      <DeleteSection />
+    </div>
+  );
+}
+
+// ─── Delete Section ────────────────────────────────────────────────────────
+
+function DeleteSection() {
+  const [month, setMonth] = useState("");
+  const [confirming, setConfirming] = useState<string | null>(null);
+  const [loading, setLoading] = useState<string | null>(null);
+  const [result, setResult] = useState<{ type: string; message: string } | null>(null);
+
+  const doDelete = async (type: string, params: Record<string, string> = {}) => {
+    setLoading(type);
+    setResult(null);
+    try {
+      const qs = new URLSearchParams(params).toString();
+      const res = await fetch(`/api/data/${type}${qs ? `?${qs}` : ""}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Delete failed");
+      setResult({ type: "success", message: `Deleted successfully${params.month ? ` for ${params.month}` : ""}.` });
+    } catch (e: any) {
+      setResult({ type: "error", message: e.message });
+    } finally {
+      setLoading(null);
+      setConfirming(null);
+    }
+  };
+
+  const actions = [
+    {
+      id: "attendance",
+      label: "Delete attendance records",
+      desc: "Remove all punch data for a specific month",
+      color: "#d97706",
+      needsMonth: true,
+      confirm: `Delete all attendance for ${month || "selected month"}?`,
+      onConfirm: () => doDelete("attendance", { month }),
+    },
+    {
+      id: "overtime",
+      label: "Delete overtime records",
+      desc: "Remove all OT entries for a specific month",
+      color: "#d97706",
+      needsMonth: true,
+      confirm: `Delete all overtime for ${month || "selected month"}?`,
+      onConfirm: () => doDelete("overtime", { month }),
+    },
+    {
+      id: "payroll",
+      label: "Delete payroll deductions",
+      desc: "Remove advances/HRA entries for a specific month",
+      color: "#d97706",
+      needsMonth: true,
+      confirm: `Delete all payroll lines for ${month || "selected month"}?`,
+      onConfirm: () => doDelete("payroll", { month }),
+    },
+    {
+      id: "employees",
+      label: "Delete ALL employees",
+      desc: "Permanently removes all employees and their attendance, OT, leaves, payroll",
+      color: "#dc2626",
+      needsMonth: false,
+      confirm: "This will permanently delete ALL employees and ALL their data. This cannot be undone.",
+      onConfirm: () => doDelete("employees", { confirm: "yes" }),
+    },
+  ];
+
+  return (
+    <div style={{ marginTop: 40, borderTop: "1px solid #e5e7eb", paddingTop: 32 }}>
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", letterSpacing: "-0.01em" }}>Delete Data</div>
+        <div style={{ fontSize: 13, color: "#9ca3af", marginTop: 3 }}>Permanently remove records. This cannot be undone.</div>
+      </div>
+
+      {/* Month picker for month-scoped deletes */}
+      <div style={{ marginBottom: 16 }}>
+        <label style={{ fontSize: 11, fontWeight: 600, color: "#9ca3af", textTransform: "uppercase", letterSpacing: "0.07em", display: "block", marginBottom: 6 }}>Month (for attendance / overtime / payroll deletes)</label>
+        <input
+          type="month" value={month} onChange={(e) => setMonth(e.target.value)}
+          style={{ padding: "8px 12px", border: "1.5px solid #e5e7eb", borderRadius: 8, fontSize: 13, color: "#374151", width: 180 }}
+        />
+      </div>
+
+      {result && (
+        <div style={{ marginBottom: 16, padding: "12px 16px", borderRadius: 8, background: result.type === "success" ? "#f0fdf4" : "#fef2f2", border: `1px solid ${result.type === "success" ? "#bbf7d0" : "#fca5a5"}`, fontSize: 13, color: result.type === "success" ? "#15803d" : "#dc2626", display: "flex", alignItems: "center", gap: 8 }}>
+          {result.type === "success" ? <CheckCircle size={15} /> : <AlertTriangle size={15} />}
+          {result.message}
+        </div>
+      )}
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 10 }}>
+        {actions.map((a) => (
+          <div key={a.id} style={{ background: "white", border: "1.5px solid #e5e7eb", borderRadius: 10, padding: "14px 16px" }}>
+            <div style={{ fontWeight: 600, fontSize: 13, color: "#111827", marginBottom: 3 }}>{a.label}</div>
+            <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 12, lineHeight: 1.5 }}>{a.desc}</div>
+
+            {confirming === a.id ? (
+              <div>
+                <div style={{ fontSize: 12, color: a.color, fontWeight: 500, marginBottom: 10, lineHeight: 1.5, background: a.color === "#dc2626" ? "#fef2f2" : "#fffbeb", padding: "8px 10px", borderRadius: 6 }}>
+                  ⚠ {a.confirm}
+                </div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button
+                    onClick={a.onConfirm}
+                    disabled={!!loading || (a.needsMonth && !month)}
+                    style={{ flex: 1, background: a.color, color: "white", border: "none", borderRadius: 6, padding: "7px 0", fontSize: 12, fontWeight: 600, cursor: loading ? "not-allowed" : "pointer", opacity: (a.needsMonth && !month) ? 0.5 : 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}
+                  >
+                    {loading === a.id ? <Loader2 size={13} style={{ animation: "spin 1s linear infinite" }} /> : null}
+                    {loading === a.id ? "Deleting…" : "Yes, delete"}
+                  </button>
+                  <button
+                    onClick={() => setConfirming(null)}
+                    style={{ padding: "7px 14px", background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 6, fontSize: 12, cursor: "pointer", color: "#6b7280" }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                onClick={() => setConfirming(a.id)}
+                style={{ width: "100%", padding: "7px 0", background: "white", border: `1.5px solid ${a.color}`, borderRadius: 6, fontSize: 12, fontWeight: 600, color: a.color, cursor: "pointer", transition: "all 0.12s" }}
+                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = a.color; (e.currentTarget as HTMLButtonElement).style.color = "white"; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = "white"; (e.currentTarget as HTMLButtonElement).style.color = a.color; }}
+              >
+                Delete
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
