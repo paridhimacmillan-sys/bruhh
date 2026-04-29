@@ -30,10 +30,7 @@ RUN pnpm install --no-frozen-lockfile
 
 COPY lib/db/ ./lib/db/
 
-# Generate migration files
-RUN cd /app/lib/db && npx drizzle-kit generate --config ./drizzle.config.ts
-
-# Keep node_modules + source + migrations in /migrate so we can run drizzle-kit migrate at runtime
+# Keep node_modules + source in /migrate so we can run drizzle-kit push at runtime
 RUN mkdir -p /migrate && cp -r /app/. /migrate/
 
 # ─── Stage 2: Build Frontend ───────────────────────────────────────────────────
@@ -80,7 +77,7 @@ COPY nginx.combined.conf /etc/nginx/http.d/default.conf
 COPY supervisord.conf /etc/supervisord.conf
 
 # Startup script: run DB migration first, then hand off to supervisord
-RUN printf '#!/bin/sh\nset -e\necho "[startup] Running drizzle-kit migrate..."\ncd /migrate/lib/db && npx drizzle-kit migrate --config ./drizzle.config.ts\necho "[startup] Migration done. Starting services..."\nexec /usr/bin/supervisord -c /etc/supervisord.conf\n' > /start.sh && chmod +x /start.sh
+RUN printf '#!/bin/sh\nset -e\necho "[startup] Running drizzle-kit push..."\ncd /migrate/lib/db && yes "" | npx drizzle-kit push --config ./drizzle.config.ts\necho "[startup] Migration done. Starting services..."\nexec /usr/bin/supervisord -c /etc/supervisord.conf\n' > /start.sh && chmod +x /start.sh
 
 ENV NODE_ENV=production
 ENV PORT=3000
