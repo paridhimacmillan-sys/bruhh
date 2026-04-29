@@ -1,87 +1,63 @@
-# ─── Stage 1: Build API ────────────────────────────────────────────────────────
-FROM node:20-alpine AS api-builder
+services:
 
-RUN corepack enable && corepack prepare pnpm@latest --activate
-WORKDIR /app
+  db:
+    image: postgres:16-alpine
+    container_name: attendance-db
+    environment:
+      POSTGRES_USER: attendance
+      POSTGRES_PASSWORD: secret
+      POSTGRES_DB: attendance
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U attendance"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
 
-COPY package.json pnpm-workspace.yaml tsconfig.base.json ./
-COPY lib/db/package.json ./lib/db/
-COPY lib/api-zod/package.json ./lib/api-zod/
-COPY artifacts/api-server/package.json ./artifacts/api-server/
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile.migrate
+    container_name: attendance-migrate
+    environment:
+      DATABASE_URL: postgres://attendance:secret@db:5432/attendance
+    depends_on:
+      db:
+        condition: service_healthy
 
-RUN pnpm install --no-frozen-lockfile
+  api-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: attendance-api
+    environment:
+      PORT: "3000"
+      NODE_ENV: production
+      DATABASE_URL: postgres://attendance:secret@db:5432/attendance
+    ports:
+      - "3000:3000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
 
-COPY lib/db/ ./lib/db/
-COPY lib/api-zod/ ./lib/api-zod/
-COPY artifacts/api-server/ ./artifacts/api-server/
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: attendance-frontend
+    environment:
+      # CRITICAL: Point to the internal Docker container name, NOT the public Render/Cloudflare URL.
+      # Using the public URL (https://bruhh-vewm.onrender.com) routes back through Cloudflare,
+      # which detects its own IPs in the forwarding chain and kills the request with HTTP 508.
+      API_URL: http://api-server:3000
+    ports:
+      - "80:80"
+    depends_on:
+      - api-server
+    restart: unless-stopped
 
-RUN pnpm --filter @workspace/api-server build
-
-# ─── Stage 1b: Build migrate bundle ────────────────────────────────────────────
-FROM node:20-alpine AS migrate-builder
-
-RUN corepack enable && corepack prepare pnpm@latest --activate
-WORKDIR /app
-
-COPY package.json pnpm-workspace.yaml tsconfig.base.json ./
-COPY lib/db/package.json ./lib/db/
-
-RUN pnpm install --no-frozen-lockfile
-
-COPY lib/db/ ./lib/db/
-
-# Keep node_modules + source in /migrate so we can run drizzle-kit push at runtime
-RUN mkdir -p /migrate && cp -r /app/. /migrate/
-
-# ─── Stage 2: Build Frontend ───────────────────────────────────────────────────
-FROM node:20-slim AS frontend-builder
-
-RUN corepack enable && corepack prepare pnpm@latest --activate
-WORKDIR /app
-
-COPY . .
-
-# Fix catalog: references
-RUN node -e "const fs=require('fs');const catalog={'drizzle-orm':'^0.39.0','@types/node':'^22.0.0','@tailwindcss/vite':'^4.0.0','@tanstack/react-query':'^5.0.0','@types/react':'^19.0.0','@types/react-dom':'^19.0.0','@vitejs/plugin-react':'^4.0.0','class-variance-authority':'^0.7.0','clsx':'^2.0.0','framer-motion':'^11.0.0','lucide-react':'^0.383.0','react':'^19.0.0','react-dom':'^19.0.0','tailwind-merge':'^2.0.0','tailwindcss':'^4.0.0','vite':'^6.0.0','zod':'^3.24.0','@replit/vite-plugin-cartographer':null,'@replit/vite-plugin-dev-banner':null,'@replit/vite-plugin-runtime-error-modal':null};const {execSync}=require('child_process');const files=execSync('find /app -maxdepth 5 -name \"package.json\" -not -path \"*/node_modules/*\"').toString().trim().split('\n');for(const f of files){try{const pkg=JSON.parse(fs.readFileSync(f,'utf8'));let changed=false;for(const s of['dependencies','devDependencies']){if(!pkg[s])continue;for(const[k,v]of Object.entries(pkg[s])){if(v==='catalog:'){if(catalog[k]===null){delete pkg[s][k];changed=true;}else if(catalog[k]){pkg[s][k]=catalog[k];changed=true;}}}}if(changed){fs.writeFileSync(f,JSON.stringify(pkg,null,2));console.log('Fixed: '+f);}}catch(e){}}"
-
-# Fix vite config
-RUN node -e "const fs=require('fs'),{execSync}=require('child_process');const cfg='import{defineConfig}from\"vite\";import react from\"@vitejs/plugin-react\";import tailwindcss from\"@tailwindcss/vite\";import p from\"path\";export default defineConfig({plugins:[react(),tailwindcss()],resolve:{alias:{\"@\":p.resolve(__dirname,\"./src\")}},server:{host:\"0.0.0.0\",port:5173}});';const files=execSync('find /app -maxdepth 6 -name \"vite.config.ts\" -not -path \"*/node_modules/*\"').toString().trim().split('\n').filter(Boolean);for(const f of files){fs.writeFileSync(f,cfg);console.log('Overwrote: '+f);}"
-
-RUN node -e "const fs=require('fs'),{execSync}=require('child_process');const files=execSync('find /app -maxdepth 4 -name \"pnpm-workspace.yaml\"').toString().trim().split('\n').filter(Boolean);if(!files.length){console.error('No pnpm-workspace.yaml found!');process.exit(1);}const root=require('path').dirname(files[0]);console.log('Workspace root: '+root);fs.writeFileSync('/workspace-root',root);"
-RUN cd $(cat /workspace-root) && pnpm install --no-frozen-lockfile
-
-# Build frontend with /api as the API URL (relative — nginx handles it)
-RUN cd $(cat /workspace-root) && VITE_API_URL=/api pnpm --filter @workspace/attendance-mapper build
-
-# ─── Stage 3: Combined runtime ─────────────────────────────────────────────────
-FROM node:20-alpine AS runner
-
-# Install nginx and supervisor (supervisor starts both nginx + node)
-RUN apk add --no-cache nginx supervisor
-
-WORKDIR /app
-
-# Copy built API
-COPY --from=api-builder /app/artifacts/api-server/dist ./dist
-
-# Copy migrate workspace (drizzle-kit + schema) so we can run push at startup
-COPY --from=migrate-builder /migrate /migrate
-
-# Copy frontend build into nginx html dir
-COPY --from=frontend-builder /app/artifacts/attendance-mapper/dist /usr/share/nginx/html
-
-# Copy nginx config (hardcoded to proxy /api → localhost:3000)
-COPY nginx.combined.conf /etc/nginx/http.d/default.conf
-
-# Supervisor config to run both processes
-COPY supervisord.conf /etc/supervisord.conf
-
-# Startup script: run DB migration first, then hand off to supervisord
-RUN printf '#!/bin/sh\nset -e\necho "[startup] Running drizzle-kit push..."\ncd /migrate/lib/db && yes "" | npx drizzle-kit push --config ./drizzle.config.ts\necho "[startup] Migration done. Starting services..."\nexec /usr/bin/supervisord -c /etc/supervisord.conf\n' > /start.sh && chmod +x /start.sh
-
-ENV NODE_ENV=production
-ENV PORT=3000
-
-EXPOSE 80
-
-CMD ["/start.sh"]
+volumes:
+  db_data:
