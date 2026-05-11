@@ -1,11 +1,12 @@
 'use client';
 import React, { useState, useEffect } from 'react';
-import { Plus, Search, Edit2, Trash2, ChevronUp, ChevronDown } from 'lucide-react';
+import { Plus, Search, Edit2, Trash2, ChevronUp, ChevronDown, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import Modal from '@/components/ui/Modal';
 import { Item } from '@/lib/mockData';
 import { getItems, getMachines, addItem, updateItem, deleteItem, subscribe } from '@/lib/store';
 import ItemForm from './ItemForm';
+import ImportModal, { ImportRow, ImportError } from './ImportModal';
 
 export default function ItemTab() {
   const [items, setItems] = useState<Item[]>(() => getItems());
@@ -17,6 +18,42 @@ export default function ItemTab() {
   const [sortKey, setSortKey] = useState<'itemName' | 'defaultRate'>('itemName');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [importOpen, setImportOpen] = useState(false);
+
+  const ITEM_TEMPLATE_HEADERS = ['itemName', 'defaultRate', 'status'];
+  const ITEM_TEMPLATE_SAMPLE = [
+    ['Gear Shaft A', '120', 'active'],
+    ['Bracket Type B', '85', 'active'],
+  ];
+
+  const validateItemRow = (row: ImportRow, index: number): ImportError[] => {
+    const errs: ImportError[] = [];
+    if (!row['itemname']?.trim()) errs.push({ row: index, field: 'itemName', message: 'Required' });
+    const rate = Number(row['defaultrate']);
+    if (!row['defaultrate'] || isNaN(rate) || rate < 0) {
+      errs.push({ row: index, field: 'defaultRate', message: 'Must be a non-negative number' });
+    }
+    if (row['status'] && !['active', 'inactive'].includes(row['status'].toLowerCase())) {
+      errs.push({ row: index, field: 'status', message: 'Must be "active" or "inactive"' });
+    }
+    return errs;
+  };
+
+  const handleItemImport = (rows: ImportRow[]) => {
+    rows.forEach((row) => {
+      const newItem: Item = {
+        id: `item-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        itemName: row['itemname'] ?? '',
+        defaultRate: Number(row['defaultrate']) || 0,
+        rates: [],
+        status: (row['status']?.toLowerCase() as 'active' | 'inactive') || 'active',
+        unit: 'pcs/hr',
+        createdAt: new Date().toISOString().split('T')[0],
+      };
+      addItem(newItem);
+    });
+    toast.success(`${rows.length} item${rows.length !== 1 ? 's' : ''} imported successfully`);
+  };
 
   useEffect(() => {
     const unsub = subscribe(() => {
@@ -106,13 +143,22 @@ export default function ItemTab() {
             ))}
           </div>
         </div>
-        <button
-          onClick={() => { setEditItem(null); setAddOpen(true); }}
-          className="flex items-center gap-2 px-4 py-2 text-sm font-semibold bg-primary text-white rounded-md hover:bg-primary/90 transition-colors active:scale-95"
-        >
-          <Plus size={15} />
-          Add Item
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setImportOpen(true)}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-semibold border border-border bg-card text-foreground rounded-md hover:bg-muted transition-colors active:scale-95"
+          >
+            <Upload size={15} />
+            Import
+          </button>
+          <button
+            onClick={() => { setEditItem(null); setAddOpen(true); }}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-semibold bg-primary text-white rounded-md hover:bg-primary/90 transition-colors active:scale-95"
+          >
+            <Plus size={15} />
+            Add Item
+          </button>
+        </div>
       </div>
 
       <div className="card-base overflow-hidden">
@@ -281,6 +327,17 @@ export default function ItemTab() {
           Removing this item will not affect historical production entries. It will no longer be available for new production records.
         </p>
       </Modal>
+      {/* Import Modal */}
+      <ImportModal
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        title="Import Items"
+        templateHeaders={ITEM_TEMPLATE_HEADERS}
+        templateSampleRows={ITEM_TEMPLATE_SAMPLE}
+        templateFileName="item_master_template.csv"
+        validateRow={validateItemRow}
+        onImport={handleItemImport}
+      />
     </>
   );
 }
