@@ -44,7 +44,7 @@ function notify() {
 
 export function subscribe(fn: Listener) {
   listeners.add(fn);
-  return () => listeners.delete(fn);
+  return () => { listeners.delete(fn); };
 }
 
 let machines: Machine[] = [...INITIAL_MACHINES];
