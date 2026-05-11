@@ -12,7 +12,7 @@ let alertListeners: Set<() => void> = new Set();
 
 export function subscribeAlerts(fn: () => void) {
   alertListeners.add(fn);
-  return () => alertListeners.delete(fn);
+  return () => { alertListeners.delete(fn); };
 }
 
 function notifyAlerts() {
