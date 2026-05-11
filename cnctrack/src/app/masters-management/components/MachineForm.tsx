@@ -1,7 +1,7 @@
 'use client';
 import React from 'react';
 import { useForm } from 'react-hook-form';
-import { Machine, Item } from '@/lib/mockData';
+import { Machine, Item, MachineStatus } from '@/lib/mockData';
 
 const MACHINE_TYPES = ['CNC Lathe', 'CNC Milling', 'CNC Turning', 'CNC Grinding', 'CNC Drilling', 'CNC EDM', 'CNC Router'];
 const STATUS_OPTIONS = ['active', 'idle', 'maintenance', 'offline'];
@@ -50,7 +50,8 @@ export default function MachineForm({ initial, items, onSave, onCancel }: Props)
   };
 
   const onSubmit = (data: MachineFormData) => {
-    onSave(data);
+    const status = data.status as MachineStatus;
+    onSave({ ...data, status });
   };
 
   return (
