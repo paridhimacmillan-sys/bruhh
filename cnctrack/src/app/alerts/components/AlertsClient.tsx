@@ -93,7 +93,7 @@ export default function AlertsClient() {
   }, [dbAvailable]);
 
   // Subscribe to in-memory alerts
-  useEffect(() => subscribeAlerts(() => setAlerts([...getInMemoryAlerts()])), []);
+  useEffect(() => { return subscribeAlerts(() => setAlerts([...getInMemoryAlerts()])); }, []);
 
   // Auto-evaluate alerts when store updates
   const runEvaluation = useCallback(() => {
