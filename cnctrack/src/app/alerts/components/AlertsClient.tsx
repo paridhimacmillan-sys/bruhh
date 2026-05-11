@@ -180,7 +180,7 @@ export default function AlertsClient() {
       created_at: new Date().toISOString(),
     };
     setThresholds((prev) => [...prev, newT]);
-    startEdit(newT.id);
+    startEdit(newT);
   };
 
   return (
