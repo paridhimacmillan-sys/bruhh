@@ -231,7 +231,7 @@ export default function ImportModal({ open, onClose, onImport, date, shift }: Pr
     const items = getItems();
     const header = 'Machine,Item,Operator,H1,H2,H3,H4,H5,H6,H7,H8';
     const example = machines.slice(0, 2).map((m) => {
-      const item = items.find((i) => i.assignedItems ? false : true) ?? items[0];
+      const item = items.find((i) => m.assignedItems?.includes(i.id)) ?? items[0];
       return `${m.machineNumber},${item?.itemName?.split(' — ')[0] ?? 'Item Name'},,0,0,0,0,0,0,0,0`;
     });
     const csv = [header, ...example].join('\n');
