@@ -67,7 +67,7 @@ export default function EntryGrid({ rows, shift, shiftHours, onCellChange, onIte
         <table className="w-full text-sm border-collapse">
           <thead>
             <tr className="border-b border-border bg-muted/20">
-              <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider sticky left-0 bg-muted/20 min-w-[140px]">
+              <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider sticky left-0 z-10 bg-card min-w-[140px]">
                 Machine
               </th>
               <th className="text-left px-3 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider min-w-[180px]">
@@ -117,7 +117,7 @@ export default function EntryGrid({ rows, shift, shiftHours, onCellChange, onIte
                     } ${row.status === 'flagged' ? 'bg-orange-50/40' : ''}`}
                   >
                     {/* Machine */}
-                    <td className="px-4 py-3 sticky left-0 bg-card">
+                    <td className="px-4 py-3 sticky left-0 z-10 bg-card">
                       <div className="flex items-center gap-2">
                         {row.status === 'flagged' && (
                           <AlertTriangle size={12} className="text-warning shrink-0" />
