@@ -1,544 +1,280 @@
 'use client';
 import React, { useState, useRef, useCallback } from 'react';
-import { Upload, FileSpreadsheet, AlertCircle, CheckCircle2, X, Eye, Download } from 'lucide-react';
+import { Upload, Download, AlertCircle, CheckCircle2, X, FileSpreadsheet } from 'lucide-react';
 import Modal from '@/components/ui/Modal';
-import { getMachines, getItems } from '@/lib/store';
-import { GridRow } from './ProductionEntryClient';
 
-type Shift = 'A' | 'B' | 'C';
-type ImportStep = 'upload' | 'mapping' | 'preview' | 'validating';
-
-interface ParsedRow {
-  rawMachine: string;
-  rawItem: string;
-  rawHours: string[];
-  rawOperator: string;
-  resolvedMachineId: string | null;
-  resolvedItemId: string | null;
-  errors: string[];
-  duplicate: boolean;
+export interface ImportRow {
+  [key: string]: string;
 }
 
-interface ColumnMapping {
-  machineCol: string;
-  itemCol: string;
-  operatorCol: string;
-  hourPrefix: string;
+export interface ImportError {
+  row: number;
+  field: string;
+  message: string;
 }
 
-interface Props {
+interface ImportModalProps {
   open: boolean;
   onClose: () => void;
-  onImport: (rows: GridRow[]) => void;
-  date: string;
-  shift: Shift;
+  title: string;
+  templateHeaders: string[];
+  templateSampleRows: string[][];
+  templateFileName: string;
+  validateRow: (row: ImportRow, index: number) => ImportError[];
+  onImport: (rows: ImportRow[]) => void;
 }
 
-function parseCSV(text: string): Record<string, string>[] {
+function parseCSV(text: string): string[][] {
   const lines = text.trim().split(/\r?\n/);
-  if (lines.length < 2) return [];
-  const headers = lines[0].split(',').map((h) => h.trim().replace(/^"|"$/g, ''));
-  return lines.slice(1).map((line) => {
-    const values = line.split(',').map((v) => v.trim().replace(/^"|"$/g, ''));
-    const row: Record<string, string> = {};
-    headers.forEach((h, i) => { row[h] = values[i] ?? ''; });
-    return row;
-  });
-}
-
-async function parseFile(file: File): Promise<Record<string, string>[]> {
-  if (file.name.endsWith('.csv')) {
-    const text = await file.text();
-    return parseCSV(text);
-  }
-  // For xlsx files, use the xlsx library
-  try {
-    const XLSX = await import('xlsx');
-    const buffer = await file.arrayBuffer();
-    const workbook = XLSX.read(buffer, { type: 'array' });
-    const sheetName = workbook.SheetNames[0];
-    const sheet = workbook.Sheets[sheetName];
-    const data = XLSX.utils.sheet_to_json<Record<string, string>>(sheet, { defval: '' });
-    return data.map((row) => {
-      const normalized: Record<string, string> = {};
-      Object.entries(row).forEach(([k, v]) => { normalized[String(k)] = String(v); });
-      return normalized;
-    });
-  } catch {
-    // Fallback: try as CSV
-    const text = await file.text();
-    return parseCSV(text);
-  }
-}
-
-function validateRows(
-  rawData: Record<string, string>[],
-  mapping: ColumnMapping,
-  existingMachineNumbers: Set<string>
-): ParsedRow[] {
-  const machines = getMachines();
-  const items = getItems();
-  const seen = new Set<string>();
-
-  return rawData.map((row) => {
-    const rawMachine = (row[mapping.machineCol] ?? '').trim();
-    const rawItem = (row[mapping.itemCol] ?? '').trim();
-    const rawOperator = (row[mapping.operatorCol] ?? '').trim();
-
-    // Detect hour columns: H1..H8 or prefix+1..prefix+8
-    const rawHours: string[] = [];
-    for (let i = 1; i <= 8; i++) {
-      const key = `${mapping.hourPrefix}${i}`;
-      const altKey = `H${i}`;
-      rawHours.push(row[key] ?? row[altKey] ?? '0');
-    }
-
-    const errors: string[] = [];
-
-    // Resolve machine
-    const machine = machines.find(
-      (m) => m.machineNumber.toLowerCase() === rawMachine.toLowerCase()
-    );
-    if (!rawMachine) {
-      errors.push('Machine column is empty');
-    } else if (!machine) {
-      errors.push(`Machine "${rawMachine}" not found in master`);
-    }
-
-    // Resolve item
-    const item = items.find(
-      (i) => i.itemName.toLowerCase().includes(rawItem.toLowerCase()) ||
-             rawItem.toLowerCase().includes(i.itemName.split(' — ')[0].toLowerCase())
-    );
-    if (!rawItem) {
-      errors.push('Item column is empty');
-    } else if (!item) {
-      errors.push(`Item "${rawItem}" not found in master`);
-    }
-
-    // Validate hour values
-    rawHours.forEach((h, idx) => {
-      const v = parseInt(h, 10);
-      if (h !== '' && h !== '0' && (isNaN(v) || v < 0)) {
-        errors.push(`H${idx + 1} has invalid value: "${h}"`);
+  return lines.map((line) => {
+    const cols: string[] = [];
+    let cur = '';
+    let inQuote = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') {
+        inQuote = !inQuote;
+      } else if (ch === ',' && !inQuote) {
+        cols.push(cur.trim());
+        cur = '';
+      } else {
+        cur += ch;
       }
-    });
-
-    // Duplicate detection
-    const dupKey = `${rawMachine}-${rawItem}`;
-    const duplicate = seen.has(dupKey) || existingMachineNumbers.has(rawMachine.toUpperCase());
-    if (!duplicate) seen.add(dupKey);
-
-    return {
-      rawMachine,
-      rawItem,
-      rawHours,
-      rawOperator,
-      resolvedMachineId: machine?.id ?? null,
-      resolvedItemId: item?.id ?? null,
-      errors,
-      duplicate,
-    };
+    }
+    cols.push(cur.trim());
+    return cols;
   });
 }
 
-export default function ImportModal({ open, onClose, onImport, date, shift }: Props) {
-  const [step, setStep] = useState<ImportStep>('upload');
-  const [file, setFile] = useState<File | null>(null);
-  const [parsed, setParsed] = useState<ParsedRow[]>([]);
-  const [validating, setValidating] = useState(false);
-  const [mapping, setMapping] = useState<ColumnMapping>({
-    machineCol: 'Machine',
-    itemCol: 'Item',
-    operatorCol: 'Operator',
-    hourPrefix: 'H',
-  });
-  const [detectedHeaders, setDetectedHeaders] = useState<string[]>([]);
+export default function ImportModal({
+  open,
+  onClose,
+  title,
+  templateHeaders,
+  templateSampleRows,
+  templateFileName,
+  validateRow,
+  onImport,
+}: ImportModalProps) {
+  const [rows, setRows] = useState<ImportRow[]>([]);
+  const [errors, setErrors] = useState<ImportError[]>([]);
+  const [fileName, setFileName] = useState('');
+  const [dragging, setDragging] = useState(false);
+  const [step, setStep] = useState<'upload' | 'preview'>('upload');
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const handleFileSelect = useCallback(async (f: File) => {
-    setFile(f);
-    // Try to detect headers
-    try {
-      const data = await parseFile(f);
-      if (data.length > 0) {
-        setDetectedHeaders(Object.keys(data[0]));
-      }
-    } catch {
-      setDetectedHeaders([]);
-    }
-  }, []);
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    const f = e.dataTransfer.files[0];
-    if (f) handleFileSelect(f);
-  };
-
-  const handleParse = async () => {
-    if (!file) return;
-    setValidating(true);
-    setStep('validating');
-    try {
-      const rawData = await parseFile(file);
-      // Get existing machine numbers for duplicate detection
-      const existingMachineNums = new Set<string>();
-      const validated = validateRows(rawData, mapping, existingMachineNums);
-      setParsed(validated);
-    } catch (err) {
-      setParsed([]);
-    }
-    setStep('preview');
-    setValidating(false);
-  };
-
-  const validRows = parsed.filter((r) => r.errors.length === 0 && !r.duplicate);
-  const errorRows = parsed.filter((r) => r.errors.length > 0);
-  const dupRows = parsed.filter((r) => r.duplicate && r.errors.length === 0);
-
-  const handleConfirmImport = () => {
-    const items = getItems();
-    const gridRows: GridRow[] = validRows.map((r) => {
-      const item = items.find((i) => i.id === r.resolvedItemId);
-      const rate = item?.rates.find((rt) => rt.machineId === r.resolvedMachineId)?.rate ?? item?.defaultRate ?? 60;
-      return {
-        machineId: r.resolvedMachineId!,
-        itemId: r.resolvedItemId!,
-        entries: r.rawHours.map((h, idx) => ({
-          hour: idx + 1,
-          actual: parseInt(h, 10) || 0,
-          expected: rate,
-        })),
-        status: 'draft' as const,
-        operatorName: r.rawOperator,
-        notes: '',
-      };
-    });
-    onImport(gridRows);
-    handleClose();
+  const reset = () => {
+    setRows([]);
+    setErrors([]);
+    setFileName('');
+    setStep('upload');
   };
 
   const handleClose = () => {
-    setStep('upload');
-    setFile(null);
-    setParsed([]);
-    setDetectedHeaders([]);
+    reset();
     onClose();
   };
 
+  const processFile = (file: File) => {
+    if (!file.name.endsWith('.csv')) {
+      alert('Please upload a CSV file.');
+      return;
+    }
+    setFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = e.target?.result as string;
+      const parsed = parseCSV(text);
+      if (parsed.length < 2) return;
+      const headers = parsed[0].map((h) => h.toLowerCase().trim());
+      const dataRows: ImportRow[] = parsed.slice(1).filter((r) => r.some((c) => c !== '')).map((r) => {
+        const obj: ImportRow = {};
+        headers.forEach((h, i) => { obj[h] = r[i] ?? ''; });
+        return obj;
+      });
+      const allErrors: ImportError[] = [];
+      dataRows.forEach((row, i) => {
+        allErrors.push(...validateRow(row, i));
+      });
+      setRows(dataRows);
+      setErrors(allErrors);
+      setStep('preview');
+    };
+    reader.readAsText(file);
+  };
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setDragging(false);
+    const file = e.dataTransfer.files[0];
+    if (file) processFile(file);
+  }, []);
+
+  const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) processFile(file);
+  };
+
   const downloadTemplate = () => {
-    const machines = getMachines();
-    const items = getItems();
-    const header = 'Machine,Item,Operator,H1,H2,H3,H4,H5,H6,H7,H8';
-    const example = machines.slice(0, 2).map((m) => {
-      const item = items.find((i) => m.assignedItems?.includes(i.id)) ?? items[0];
-      return `${m.machineNumber},${item?.itemName?.split(' — ')[0] ?? 'Item Name'},,0,0,0,0,0,0,0,0`;
-    });
-    const csv = [header, ...example].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
+    const lines = [templateHeaders.join(','), ...templateSampleRows.map((r) => r.join(','))];
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `production_import_template_${date}.csv`;
+    a.download = templateFileName;
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  const validRows = rows.filter((_, i) => !errors.some((e) => e.row === i));
+  const errorRowIndices = new Set(errors.map((e) => e.row));
+
+  const handleImport = () => {
+    onImport(validRows);
+    handleClose();
   };
 
   return (
     <Modal
       open={open}
       onClose={handleClose}
-      title="Import Production Data"
-      subtitle={
-        step === 'upload' ?'Upload an Excel (.xlsx) or CSV file'
-          : step === 'preview'
-          ? `Preview — ${parsed.length} rows parsed`
-          : 'Validating file...'
-      }
-      size="xl"
+      title={title}
+      subtitle={step === 'upload' ? 'Upload a CSV file to bulk import records' : `${rows.length} rows found · ${errors.length} errors · ${validRows.length} will be imported`}
+      size="lg"
       footer={
-        step === 'upload' ? (
+        step === 'preview' ? (
           <>
-            <button onClick={handleClose} className="px-4 py-2 text-sm font-medium border border-border rounded-md hover:bg-muted transition-colors">
-              Cancel
-            </button>
             <button
-              onClick={handleParse}
-              disabled={!file}
-              className="flex items-center gap-2 px-4 py-2 text-sm font-semibold bg-primary text-white rounded-md hover:bg-primary/90 transition-colors disabled:opacity-50 active:scale-95"
+              onClick={reset}
+              className="px-4 py-2 text-sm font-medium border border-border rounded-md hover:bg-muted transition-colors"
             >
-              <Eye size={14} />
-              Parse &amp; Preview
-            </button>
-          </>
-        ) : step === 'preview' ? (
-          <>
-            <button onClick={() => { setStep('upload'); setParsed([]); }} className="px-4 py-2 text-sm font-medium border border-border rounded-md hover:bg-muted transition-colors">
               Back
             </button>
             <button
-              onClick={handleConfirmImport}
+              onClick={handleImport}
               disabled={validRows.length === 0}
-              className="flex items-center gap-2 px-4 py-2 text-sm font-semibold bg-primary text-white rounded-md hover:bg-primary/90 transition-colors disabled:opacity-50 active:scale-95"
+              className="px-4 py-2 text-sm font-semibold bg-primary text-white rounded-md hover:bg-primary/90 transition-colors active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <Upload size={14} />
-              Import {validRows.length} Valid Row{validRows.length !== 1 ? 's' : ''}
+              Import {validRows.length} Record{validRows.length !== 1 ? 's' : ''}
             </button>
           </>
-        ) : null
+        ) : undefined
       }
     >
-      {step === 'upload' && (
-        <div className="space-y-5">
+      {step === 'upload' ? (
+        <div className="space-y-4">
+          {/* Template download */}
+          <div className="flex items-center justify-between p-3 bg-muted/50 rounded-md border border-border">
+            <div className="flex items-center gap-2">
+              <FileSpreadsheet size={16} className="text-primary" />
+              <div>
+                <p className="text-xs font-semibold text-foreground">Download Template</p>
+                <p className="text-xs text-muted-foreground">Use this CSV template to format your data correctly</p>
+              </div>
+            </div>
+            <button
+              onClick={downloadTemplate}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-border rounded-md hover:bg-muted transition-colors"
+            >
+              <Download size={13} />
+              Template
+            </button>
+          </div>
+
           {/* Drop zone */}
           <div
+            onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+            onDragLeave={() => setDragging(false)}
             onDrop={handleDrop}
-            onDragOver={(e) => e.preventDefault()}
             onClick={() => fileRef.current?.click()}
-            className={`border-2 border-dashed rounded-lg p-10 text-center cursor-pointer transition-colors ${
-              file ? 'border-primary/40 bg-primary/5' : 'border-border hover:border-primary/30 hover:bg-muted/30'
+            className={`flex flex-col items-center justify-center gap-3 p-10 border-2 border-dashed rounded-md cursor-pointer transition-colors ${
+              dragging ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50 hover:bg-muted/30'
             }`}
           >
-            <input
-              ref={fileRef}
-              type="file"
-              accept=".xlsx,.csv,.xls"
-              className="hidden"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) handleFileSelect(f);
-              }}
-            />
-            {file ? (
-              <div className="flex items-center justify-center gap-3">
-                <FileSpreadsheet size={28} className="text-primary" />
-                <div className="text-left">
-                  <p className="text-sm font-semibold text-foreground">{file.name}</p>
-                  <p className="text-xs text-muted-foreground">{(file.size / 1024).toFixed(1)} KB</p>
-                  {detectedHeaders.length > 0 && (
-                    <p className="text-xs text-success mt-0.5">
-                      {detectedHeaders.length} columns detected: {detectedHeaders.slice(0, 5).join(', ')}{detectedHeaders.length > 5 ? '...' : ''}
-                    </p>
-                  )}
-                </div>
-                <button
-                  onClick={(e) => { e.stopPropagation(); setFile(null); setDetectedHeaders([]); }}
-                  className="ml-4 p-1 hover:bg-muted rounded"
-                >
-                  <X size={14} className="text-muted-foreground" />
-                </button>
-              </div>
-            ) : (
-              <>
-                <Upload size={28} className="text-muted-foreground mx-auto mb-3" />
-                <p className="text-sm font-medium text-foreground">Drop your file here or click to browse</p>
-                <p className="text-xs text-muted-foreground mt-1">Supports .xlsx, .xls, .csv files</p>
-              </>
-            )}
+            <Upload size={28} className={dragging ? 'text-primary' : 'text-muted-foreground'} />
+            <div className="text-center">
+              <p className="text-sm font-semibold text-foreground">Drop your CSV file here</p>
+              <p className="text-xs text-muted-foreground mt-0.5">or click to browse</p>
+            </div>
+            <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={handleFileInput} />
           </div>
 
-          {/* Field mapping */}
+          {/* Column guide */}
           <div>
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-xs font-semibold text-foreground uppercase tracking-wider">Column Mapping</p>
-              <button
-                onClick={downloadTemplate}
-                className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 font-semibold transition-colors"
-              >
-                <Download size={12} />
-                Download Template
-              </button>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              {[
-                { label: 'Machine column header', key: 'machineCol' as const, placeholder: 'Machine' },
-                { label: 'Item column header', key: 'itemCol' as const, placeholder: 'Item' },
-                { label: 'Operator column header', key: 'operatorCol' as const, placeholder: 'Operator' },
-                { label: 'Hour column prefix', key: 'hourPrefix' as const, placeholder: 'H (for H1, H2...)' },
-              ].map((field) => (
-                <div key={`map-${field.key}`}>
-                  <label className="block text-xs font-semibold text-muted-foreground mb-1">{field.label}</label>
-                  {detectedHeaders.length > 0 ? (
-                    <select
-                      value={mapping[field.key]}
-                      onChange={(e) => setMapping((prev) => ({ ...prev, [field.key]: e.target.value }))}
-                      className="w-full px-3 py-2 text-sm border border-border rounded-md bg-card focus:outline-none focus:ring-2 focus:ring-ring appearance-none cursor-pointer"
-                    >
-                      <option value="">-- Select column --</option>
-                      {detectedHeaders.map((h) => (
-                        <option key={`hdr-${h}`} value={h}>{h}</option>
-                      ))}
-                      {/* Allow manual entry */}
-                      <option value={mapping[field.key]}>{mapping[field.key]} (manual)</option>
-                    </select>
-                  ) : (
-                    <input
-                      value={mapping[field.key]}
-                      onChange={(e) => setMapping((prev) => ({ ...prev, [field.key]: e.target.value }))}
-                      className="w-full px-3 py-2 text-sm border border-border rounded-md bg-card focus:outline-none focus:ring-2 focus:ring-ring"
-                      placeholder={field.placeholder}
-                    />
-                  )}
-                </div>
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Required Columns</p>
+            <div className="flex flex-wrap gap-2">
+              {templateHeaders.map((h) => (
+                <span key={h} className="text-xs bg-muted px-2 py-1 rounded font-mono text-foreground">{h}</span>
               ))}
             </div>
-            <p className="text-xs text-muted-foreground mt-2">
-              Hour columns are auto-detected as H1–H8 or {mapping.hourPrefix}1–{mapping.hourPrefix}8. Machine numbers must match master exactly.
-            </p>
-          </div>
-
-          {/* Expected format */}
-          <div className="bg-muted/30 rounded-md p-4">
-            <p className="text-xs font-semibold text-foreground mb-2">Expected file format</p>
-            <div className="overflow-x-auto">
-              <table className="text-xs border-collapse">
-                <thead>
-                  <tr>
-                    {['Machine', 'Item', 'Operator', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'H7', 'H8'].map((h) => (
-                      <th key={`fmt-${h}`} className="border border-border px-2 py-1 bg-muted text-muted-foreground font-semibold">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    {['CNC1', 'Spindle Shaft', 'Amit Sharma', '78', '82', '76', '80', '71', '0', '0', '0'].map((v, i) => (
-                      <td key={`fmt-val-${i}`} className="border border-border px-2 py-1 font-mono-nums text-foreground">{v}</td>
-                    ))}
-                  </tr>
-                </tbody>
-              </table>
-            </div>
           </div>
         </div>
-      )}
+      ) : (
+        <div className="space-y-3">
+          {/* Error summary */}
+          {errors.length > 0 && (
+            <div className="p-3 bg-danger/5 border border-danger/20 rounded-md">
+              <div className="flex items-center gap-2 mb-1.5">
+                <AlertCircle size={14} className="text-danger shrink-0" />
+                <p className="text-xs font-semibold text-danger">{errors.length} validation error{errors.length > 1 ? 's' : ''} — affected rows will be skipped</p>
+              </div>
+              <ul className="space-y-0.5 max-h-24 overflow-y-auto">
+                {errors.map((err, i) => (
+                  <li key={i} className="text-xs text-danger/80">
+                    Row {err.row + 2}: <span className="font-mono">{err.field}</span> — {err.message}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
-      {step === 'validating' && (
-        <div className="py-16 text-center space-y-4">
-          <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
-          <p className="text-sm font-medium text-foreground">Parsing and validating file...</p>
-          <p className="text-xs text-muted-foreground">Matching machine numbers and item names against master data</p>
-        </div>
-      )}
-
-      {step === 'preview' && (
-        <div className="space-y-4">
-          {/* Validation summary */}
-          <div className="grid grid-cols-3 gap-3">
-            <div className="success-card p-3 rounded-md text-center">
-              <p className="text-lg font-bold font-mono-nums text-success">{validRows.length}</p>
-              <p className="text-xs text-success/80 font-medium">Valid rows</p>
+          {validRows.length > 0 && errors.length === 0 && (
+            <div className="flex items-center gap-2 p-3 bg-success/5 border border-success/20 rounded-md">
+              <CheckCircle2 size={14} className="text-success" />
+              <p className="text-xs font-semibold text-success">All {rows.length} rows are valid and ready to import</p>
             </div>
-            <div className={`p-3 rounded-md text-center ${errorRows.length > 0 ? 'alert-card' : 'card-base'}`}>
-              <p className={`text-lg font-bold font-mono-nums ${errorRows.length > 0 ? 'text-danger' : 'text-muted-foreground'}`}>
-                {errorRows.length}
-              </p>
-              <p className={`text-xs font-medium ${errorRows.length > 0 ? 'text-danger/80' : 'text-muted-foreground'}`}>Errors</p>
-            </div>
-            <div className={`p-3 rounded-md text-center ${dupRows.length > 0 ? 'warning-card' : 'card-base'}`}>
-              <p className={`text-lg font-bold font-mono-nums ${dupRows.length > 0 ? 'text-warning' : 'text-muted-foreground'}`}>
-                {dupRows.length}
-              </p>
-              <p className={`text-xs font-medium ${dupRows.length > 0 ? 'text-warning/80' : 'text-muted-foreground'}`}>Duplicates</p>
-            </div>
-          </div>
+          )}
 
           {/* Preview table */}
           <div className="border border-border rounded-md overflow-hidden">
-            <div className="bg-muted/30 px-4 py-2 border-b border-border">
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                All {parsed.length} parsed rows
-              </p>
-            </div>
-            <div className="overflow-x-auto max-h-64">
+            <div className="overflow-x-auto max-h-72 overflow-y-auto">
               <table className="w-full text-xs">
-                <thead className="sticky top-0 bg-muted/90">
-                  <tr className="border-b border-border">
-                    <th className="text-left px-3 py-2 font-semibold text-muted-foreground">Machine</th>
-                    <th className="text-left px-3 py-2 font-semibold text-muted-foreground">Item</th>
-                    <th className="text-left px-3 py-2 font-semibold text-muted-foreground">Operator</th>
-                    {Array.from({ length: 8 }, (_, i) => (
-                      <th key={`prev-h-${i}`} className="text-center px-2 py-2 font-semibold text-muted-foreground">H{i + 1}</th>
+                <thead className="sticky top-0">
+                  <tr className="bg-muted/60 border-b border-border">
+                    <th className="px-3 py-2 text-left font-semibold text-muted-foreground">#</th>
+                    {templateHeaders.map((h) => (
+                      <th key={h} className="px-3 py-2 text-left font-semibold text-muted-foreground capitalize">{h}</th>
                     ))}
-                    <th className="text-center px-3 py-2 font-semibold text-muted-foreground">Status</th>
+                    <th className="px-3 py-2 text-left font-semibold text-muted-foreground">Status</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {parsed.map((row, idx) => (
-                    <tr
-                      key={`preview-row-${idx}`}
-                      className={`border-b border-border ${
-                        row.errors.length > 0
-                          ? 'bg-danger/5'
-                          : row.duplicate
-                          ? 'bg-warning/5' :''
-                      }`}
-                    >
-                      <td className="px-3 py-2 font-mono-nums font-semibold text-foreground">{row.rawMachine}</td>
-                      <td className="px-3 py-2 text-muted-foreground truncate max-w-[120px]">{row.rawItem}</td>
-                      <td className="px-3 py-2 text-muted-foreground truncate max-w-[100px]">{row.rawOperator || '—'}</td>
-                      {row.rawHours.map((h, hi) => (
-                        <td key={`ph-${idx}-${hi}`} className="px-2 py-2 text-center font-mono-nums text-foreground">
-                          {h === '0' || h === '' ? <span className="text-muted-foreground/40">—</span> : h}
+                  {rows.map((row, i) => {
+                    const hasError = errorRowIndices.has(i);
+                    return (
+                      <tr key={i} className={`border-b border-border ${hasError ? 'bg-danger/5' : 'hover:bg-muted/20'}`}>
+                        <td className="px-3 py-2 text-muted-foreground font-mono">{i + 1}</td>
+                        {templateHeaders.map((h) => (
+                          <td key={h} className="px-3 py-2 text-foreground font-mono max-w-[120px] truncate" title={row[h.toLowerCase()]}>
+                            {row[h.toLowerCase()] || <span className="text-muted-foreground/40">—</span>}
+                          </td>
+                        ))}
+                        <td className="px-3 py-2">
+                          {hasError ? (
+                            <span className="flex items-center gap-1 text-danger text-xs"><X size={11} /> Error</span>
+                          ) : (
+                            <span className="flex items-center gap-1 text-success text-xs"><CheckCircle2 size={11} /> OK</span>
+                          )}
                         </td>
-                      ))}
-                      <td className="px-3 py-2 text-center">
-                        {row.errors.length > 0 ? (
-                          <span className="inline-flex items-center gap-1 text-danger font-semibold">
-                            <AlertCircle size={11} />
-                            Error
-                          </span>
-                        ) : row.duplicate ? (
-                          <span className="inline-flex items-center gap-1 text-warning font-semibold">
-                            <AlertCircle size={11} />
-                            Duplicate
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 text-success font-semibold">
-                            <CheckCircle2 size={11} />
-                            Valid
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
           </div>
 
-          {/* Error details */}
-          {errorRows.length > 0 && (
-            <div className="alert-card p-3 rounded-md space-y-1.5">
-              <p className="text-xs font-semibold text-danger flex items-center gap-1.5">
-                <AlertCircle size={12} />
-                {errorRows.length} row{errorRows.length > 1 ? 's' : ''} will be skipped due to errors:
-              </p>
-              {errorRows.map((row, idx) => (
-                <div key={`err-detail-${idx}`} className="ml-4">
-                  <p className="text-xs font-medium text-foreground">{row.rawMachine} / {row.rawItem}</p>
-                  {row.errors.map((err, ei) => (
-                    <p key={`err-msg-${idx}-${ei}`} className="text-xs text-danger/80 ml-2">• {err}</p>
-                  ))}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {dupRows.length > 0 && (
-            <div className="warning-card p-3 rounded-md">
-              <p className="text-xs font-semibold text-warning flex items-center gap-1.5">
-                <AlertCircle size={12} />
-                {dupRows.length} duplicate row{dupRows.length > 1 ? 's' : ''} detected and skipped — same machine/item combination appears more than once
-              </p>
-            </div>
-          )}
-
-          {parsed.length === 0 && (
-            <div className="text-center py-8 text-muted-foreground">
-              <p className="text-sm">No rows could be parsed from the file.</p>
-              <p className="text-xs mt-1">Check that the column mapping matches your file headers.</p>
-            </div>
-          )}
+          <p className="text-xs text-muted-foreground">File: <span className="font-mono">{fileName}</span></p>
         </div>
       )}
     </Modal>
