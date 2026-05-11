@@ -1,12 +1,13 @@
 'use client';
 import React, { useState, useEffect } from 'react';
-import { Plus, Search, Edit2, Trash2, ChevronUp, ChevronDown } from 'lucide-react';
+import { Plus, Search, Edit2, Trash2, ChevronUp, ChevronDown, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import StatusBadge from '@/components/ui/StatusBadge';
 import Modal from '@/components/ui/Modal';
 import { Machine, MachineStatus } from '@/lib/mockData';
 import { getMachines, getItems, addMachine, updateMachine, deleteMachine, subscribe } from '@/lib/store';
 import MachineForm from './MachineForm';
+import ImportModal, { ImportRow, ImportError } from './ImportModal';
 
 type SortKey = 'machineNumber' | 'machineType' | 'status';
 
@@ -20,6 +21,42 @@ export default function MachineTab() {
   const [editMachine, setEditMachine] = useState<Machine | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<'all' | MachineStatus>('all');
+  const [importOpen, setImportOpen] = useState(false);
+
+  const MACHINE_TEMPLATE_HEADERS = ['machineNumber', 'machineType', 'status', 'operatorName'];
+  const MACHINE_TEMPLATE_SAMPLE = [
+    ['CNC-001', 'Lathe', 'active', 'John Doe'],
+    ['CNC-002', 'Milling', 'idle', ''],
+  ];
+
+  const validateMachineRow = (row: ImportRow, index: number): ImportError[] => {
+    const errs: ImportError[] = [];
+    if (!row['machinenumber']?.trim()) errs.push({ row: index, field: 'machineNumber', message: 'Required' });
+    if (!row['machinetype']?.trim()) errs.push({ row: index, field: 'machineType', message: 'Required' });
+    const validStatuses = ['active', 'idle', 'maintenance', 'offline'];
+    if (row['status'] && !validStatuses.includes(row['status'].toLowerCase())) {
+      errs.push({ row: index, field: 'status', message: `Must be one of: ${validStatuses.join(', ')}` });
+    }
+    return errs;
+  };
+
+  const handleMachineImport = (rows: ImportRow[]) => {
+    rows.forEach((row) => {
+      const newM: Machine = {
+        id: `machine-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        machineNumber: row['machinenumber'] ?? '',
+        machineType: row['machinetype'] ?? '',
+        status: (row['status']?.toLowerCase() as MachineStatus) || 'active',
+        operatorName: row['operatorname']?.trim() || null,
+        currentItem: null,
+        lastEntryTime: null,
+        assignedItems: [],
+        createdAt: new Date().toISOString().split('T')[0],
+      };
+      addMachine(newM);
+    });
+    toast.success(`${rows.length} machine${rows.length !== 1 ? 's' : ''} imported successfully`);
+  };
 
   useEffect(() => {
     const unsub = subscribe(() => {
@@ -122,13 +159,22 @@ export default function MachineTab() {
             ))}
           </div>
         </div>
-        <button
-          onClick={() => { setEditMachine(null); setAddOpen(true); }}
-          className="flex items-center gap-2 px-4 py-2 text-sm font-semibold bg-primary text-white rounded-md hover:bg-primary/90 transition-colors active:scale-95"
-        >
-          <Plus size={15} />
-          Add Machine
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setImportOpen(true)}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-semibold border border-border bg-card text-foreground rounded-md hover:bg-muted transition-colors active:scale-95"
+          >
+            <Upload size={15} />
+            Import
+          </button>
+          <button
+            onClick={() => { setEditMachine(null); setAddOpen(true); }}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-semibold bg-primary text-white rounded-md hover:bg-primary/90 transition-colors active:scale-95"
+          >
+            <Plus size={15} />
+            Add Machine
+          </button>
+        </div>
       </div>
 
       {/* Table */}
@@ -295,6 +341,17 @@ export default function MachineTab() {
           Removing this machine will not affect historical production entries. It will no longer be available for new production records.
         </p>
       </Modal>
+      {/* Import Modal */}
+      <ImportModal
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        title="Import Machines"
+        templateHeaders={MACHINE_TEMPLATE_HEADERS}
+        templateSampleRows={MACHINE_TEMPLATE_SAMPLE}
+        templateFileName="machine_master_template.csv"
+        validateRow={validateMachineRow}
+        onImport={handleMachineImport}
+      />
     </>
   );
 }
