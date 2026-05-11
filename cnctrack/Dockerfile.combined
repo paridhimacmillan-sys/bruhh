@@ -12,11 +12,17 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# Supabase env vars must be available at build time (they're inlined by Next.js)
+# Accept real credentials as build args (set these in Render → Environment)
 ARG NEXT_PUBLIC_SUPABASE_URL
 ARG NEXT_PUBLIC_SUPABASE_ANON_KEY
-ENV NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL
-ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+# Fall back to placeholders so the build never fails due to missing env vars.
+# The app detects placeholder values at runtime and uses mock data instead.
+ENV NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL:-https://placeholder.supabase.co}
+ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY:-placeholder-key-for-build-only}
+
+# Disable Next.js telemetry during build
+ENV NEXT_TELEMETRY_DISABLED=1
 
 RUN npm run build
 
@@ -26,6 +32,7 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 ENV PORT=4028
+ENV NEXT_TELEMETRY_DISABLED=1
 
 # Don't run as root
 RUN addgroup --system --gid 1001 nodejs \
