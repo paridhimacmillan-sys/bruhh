@@ -36,12 +36,12 @@ function buildInitialRows(date: string, shift: Shift): GridRow[] {
     );
     const itemId = machine.currentItem ?? (items.find((i) => i.status === 'active')?.id ?? items[0]?.id ?? '');
     const item = items.find((i) => i.id === itemId) ?? items[0];
-    const rate = item?.rates.find((r) => r.machineId === machine.id)?.rate ?? item?.defaultRate ?? 60;
+    const rate = Number(item?.rates.find((r) => r.machineId === machine.id)?.rate ?? item?.defaultRate ?? 60);
     return {
       machineId: machine.id,
       itemId,
       entries: existing
-        ? existing.entries
+        ? existing.entries.map((e) => ({ ...e, actual: Number(e.actual), expected: Number(e.expected) }))
         : Array.from({ length: 8 }, (_, i) => ({
             hour: i + 1,
             actual: 0,
@@ -63,10 +63,15 @@ export default function ProductionEntryClient() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
-  // Re-build rows when store changes (e.g. new machine/item added)
+  const isSavingRef = React.useRef(false);
+
+  // Re-build rows when store changes (e.g. new machine/item added),
+  // but NOT while a save is in progress (would wipe the just-saved data).
   useEffect(() => {
     const unsub = subscribe(() => {
-      setRows(buildInitialRows(date, shift));
+      if (!isSavingRef.current) {
+        setRows(buildInitialRows(date, shift));
+      }
     });
     return unsub;
   }, [date, shift]);
@@ -105,7 +110,7 @@ export default function ProductionEntryClient() {
       const next = [...prev];
       const item = items.find((i) => i.id === itemId);
       const machineId = next[machineIdx].machineId;
-      const rate = item?.rates.find((r) => r.machineId === machineId)?.rate ?? item?.defaultRate ?? 60;
+      const rate = Number(item?.rates.find((r) => r.machineId === machineId)?.rate ?? item?.defaultRate ?? 60);
       next[machineIdx] = {
         ...next[machineIdx],
         itemId,
@@ -137,6 +142,7 @@ export default function ProductionEntryClient() {
 
   const handleSave = async () => {
     setSaving(true);
+    isSavingRef.current = true;
     await new Promise((r) => setTimeout(r, 700));
     const updatedRows = rows.map((r) => ({ ...r, status: 'submitted' as const }));
     setRows(updatedRows);
@@ -158,6 +164,7 @@ export default function ProductionEntryClient() {
     upsertEntries(entries);
 
     setSaving(false);
+    isSavingRef.current = false;
     setSaved(true);
     toast.success(`Production entries saved — ${date}, Shift ${shift}`);
   };
