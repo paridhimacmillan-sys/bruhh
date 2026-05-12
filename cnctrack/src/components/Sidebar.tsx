@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -13,15 +13,16 @@ import {
   Menu,
   X,
   FileBarChart2,
+  History,
 } from 'lucide-react';
 import AppLogo from '@/components/ui/AppLogo';
 import NotificationBell from '@/components/ui/NotificationBell';
-import { supabase } from '@/lib/supabase';
 
 const NAV_ITEMS = [
   { key: 'nav-dashboard', label: 'Production Dashboard', href: '/', icon: LayoutDashboard, badge: null },
   { key: 'nav-masters', label: 'Masters Management', href: '/masters-management', icon: Database, badge: null },
   { key: 'nav-entry', label: 'Production Entry', href: '/production-entry', icon: ClipboardList, badge: 3 },
+  { key: 'nav-recent', label: 'Recent Entries', href: '/recent-entries', icon: History, badge: null },
   { key: 'nav-reports', label: 'Production Reports', href: '/reports', icon: FileBarChart2, badge: null },
 ];
 
@@ -29,23 +30,6 @@ export default function Sidebar() {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [user, setUser] = useState<{ name: string; role: string; initials: string } | null>(null);
-
-  useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
-      if (data.user) {
-        const name = data.user.user_metadata?.full_name ?? data.user.email ?? 'User';
-        const role = data.user.user_metadata?.role ?? '';
-        const initials = name
-          .split(' ')
-          .map((n: string) => n[0])
-          .join('')
-          .toUpperCase()
-          .slice(0, 2);
-        setUser({ name, role, initials });
-      }
-    });
-  }, []);
 
   const isActive = (href: string) => {
     if (href === '/') return pathname === '/';
@@ -120,12 +104,12 @@ export default function Sidebar() {
 
         <div className={`flex items-center gap-2 px-2 py-2 mt-1 rounded-md hover:bg-muted transition-colors cursor-pointer ${collapsed ? 'justify-center' : ''}`}>
           <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center shrink-0">
-            <span className="text-xs font-bold text-white">{user?.initials ?? '?'}</span>
+            <span className="text-xs font-bold text-white">RK</span>
           </div>
           {!collapsed && (
             <div className="overflow-hidden flex-1">
-              <p className="text-xs font-semibold text-foreground truncate">{user?.name ?? '—'}</p>
-              <p className="text-xs text-muted-foreground truncate">{user?.role}</p>
+              <p className="text-xs font-semibold text-foreground truncate">Rajesh Kumar</p>
+              <p className="text-xs text-muted-foreground truncate">Shift Supervisor</p>
             </div>
           )}
         </div>
