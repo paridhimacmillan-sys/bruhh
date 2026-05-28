@@ -37,8 +37,8 @@ export async function dbGetMachines(): Promise<Machine[]> {
 
 export async function dbAddMachine(m: Machine): Promise<void> {
   await sql`
-    INSERT INTO machines (id, machine_type, machine_number, status, current_item, operator_name, last_entry_time, assigned_items, created_at)
-    VALUES (${m.id}, ${m.machineType}, ${m.machineNumber}, ${m.status}, ${m.currentItem}, ${m.operatorName}, ${m.lastEntryTime}, ${JSON.stringify(m.assignedItems)}, ${m.createdAt})
+    INSERT INTO machines (id, machine_type, machine_number, machine_target_rate, status, current_item, operator_name, last_entry_time, assigned_items, created_at)
+    VALUES (${m.id}, ${m.machineType}, ${m.machineNumber}, ${m.expectedPerHour}, ${m.status}, ${m.currentItem}, ${m.operatorName}, ${m.lastEntryTime}, ${JSON.stringify(m.assignedItems)}, ${m.createdAt})
   `;
 }
 
@@ -48,6 +48,7 @@ export async function dbUpdateMachine(id: string, data: Partial<Machine>): Promi
     UPDATE machines SET
       machine_type    = COALESCE(${m.machineType ?? null}, machine_type),
       machine_number  = COALESCE(${m.machineNumber ?? null}, machine_number),
+      machine_target_rate = COALESCE(${m.expectedPerHour ?? null}, machine_target_rate),
       status          = COALESCE(${m.status ?? null}, status),
       current_item    = COALESCE(${m.currentItem ?? null}, current_item),
       operator_name   = COALESCE(${m.operatorName ?? null}, operator_name),
@@ -199,6 +200,7 @@ function rowToMachine(r: any): Machine {
     id: r.id,
     machineType: r.machine_type,
     machineNumber: r.machine_number,
+    expectedPerHour: Number(r.machine_target_rate ?? 60),
     status: r.status,
     currentItem: r.current_item,
     operatorName: r.operator_name,
