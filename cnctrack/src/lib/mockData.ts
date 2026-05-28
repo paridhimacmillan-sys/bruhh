@@ -7,6 +7,7 @@ export interface Machine {
   id: string;
   machineType: string;
   machineNumber: string;
+  expectedPerHour: number;
   status: MachineStatus;
   currentItem: string | null;
   operatorName: string | null;
