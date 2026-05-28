@@ -3,12 +3,12 @@ import React from 'react';
 import { useForm } from 'react-hook-form';
 import { Machine, Item, MachineStatus } from '@/lib/mockData';
 
-const MACHINE_TYPES = ['CNC Lathe', 'CNC Milling', 'CNC Turning', 'CNC Grinding', 'CNC Drilling', 'CNC EDM', 'CNC Router'];
 const STATUS_OPTIONS = ['active', 'idle', 'maintenance', 'offline'];
 
 interface MachineFormData {
   machineNumber: string;
   machineType: string;
+  expectedPerHour: number;
   status: string;
   operatorName: string;
   assignedItems: string[];
@@ -32,6 +32,7 @@ export default function MachineForm({ initial, items, onSave, onCancel }: Props)
     defaultValues: {
       machineNumber: initial?.machineNumber ?? '',
       machineType: initial?.machineType ?? '',
+      expectedPerHour: initial?.expectedPerHour ?? 60,
       status: initial?.status ?? 'active',
       operatorName: initial?.operatorName ?? '',
       assignedItems: initial?.assignedItems ?? [],
@@ -56,16 +57,16 @@ export default function MachineForm({ initial, items, onSave, onCancel }: Props)
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-3 gap-4">
         <div>
           <label className="block text-xs font-semibold text-foreground mb-1">
             Machine Number <span className="text-danger">*</span>
           </label>
-          <p className="text-xs text-muted-foreground mb-1.5">e.g. CNC1, CNC-A01</p>
+          <p className="text-xs text-muted-foreground mb-1.5">e.g. MCH-01, PRESS-02</p>
           <input
             {...register('machineNumber', { required: 'Machine number is required' })}
             className="w-full px-3 py-2 text-sm border border-border rounded-md bg-card focus:outline-none focus:ring-2 focus:ring-ring font-mono-nums"
-            placeholder="CNC1"
+            placeholder="MCH-01"
           />
           {errors.machineNumber && (
             <p className="text-xs text-danger mt-1">{errors.machineNumber.message}</p>
@@ -75,18 +76,37 @@ export default function MachineForm({ initial, items, onSave, onCancel }: Props)
           <label className="block text-xs font-semibold text-foreground mb-1">
             Machine Type <span className="text-danger">*</span>
           </label>
-          <p className="text-xs text-muted-foreground mb-1.5">Select the CNC category</p>
-          <select
+          <p className="text-xs text-muted-foreground mb-1.5">Enter any machine type used in your plant</p>
+          <input
             {...register('machineType', { required: 'Machine type is required' })}
             className="w-full px-3 py-2 text-sm border border-border rounded-md bg-card focus:outline-none focus:ring-2 focus:ring-ring appearance-none cursor-pointer"
-          >
-            <option value="">Select type...</option>
-            {MACHINE_TYPES.map((t) => (
-              <option key={`type-${t}`} value={t}>{t}</option>
-            ))}
-          </select>
+            placeholder="e.g. Packaging Line, Robot Cell, Press"
+          />
           {errors.machineType && (
             <p className="text-xs text-danger mt-1">{errors.machineType.message}</p>
+          )}
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-foreground mb-1">
+            Target Per Hour <span className="text-danger">*</span>
+          </label>
+          <p className="text-xs text-muted-foreground mb-1.5">Admin-defined expected output for this machine</p>
+          <div className="relative">
+            <input
+              type="number"
+              {...register('expectedPerHour', {
+                required: 'Target per hour is required',
+                min: { value: 1, message: 'Must be at least 1' },
+                max: { value: 9999, message: 'Cannot exceed 9999' },
+                valueAsNumber: true,
+              })}
+              className="w-full px-3 py-2 pr-16 text-sm border border-border rounded-md bg-card focus:outline-none focus:ring-2 focus:ring-ring font-mono-nums"
+              placeholder="60"
+            />
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">pcs/hr</span>
+          </div>
+          {errors.expectedPerHour && (
+            <p className="text-xs text-danger mt-1">{errors.expectedPerHour.message}</p>
           )}
         </div>
       </div>
