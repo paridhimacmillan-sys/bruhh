@@ -49,7 +49,7 @@ function saveLocalSnapshot() {
       JSON.stringify({ machines, items, entries })
     );
   } catch (err) {
-    console.warn('[CNCTrack] Failed to save local snapshot:', err);
+    console.warn('[MachineTrack] Failed to save local snapshot:', err);
   }
 }
 
@@ -67,7 +67,7 @@ function loadLocalSnapshot() {
     if (Array.isArray(parsed.items) && parsed.items.length > 0) items = parsed.items;
     if (Array.isArray(parsed.entries) && parsed.entries.length > 0) entries = parsed.entries;
   } catch (err) {
-    console.warn('[CNCTrack] Failed to load local snapshot:', err);
+    console.warn('[MachineTrack] Failed to load local snapshot:', err);
   }
 }
 
@@ -103,7 +103,7 @@ export async function bootstrapStore(): Promise<void> {
       dbReady = true;
       notify();
     } catch (err) {
-      console.warn('[CNCTrack] Supabase bootstrap failed — running on mock data:', err);
+      console.warn('[MachineTrack] Supabase bootstrap failed — running on mock data:', err);
     }
   })();
   return bootstrapPromise;
@@ -167,12 +167,12 @@ export async function upsertEntries(newEntries: ProductionEntry[]) {
 export async function fetchEntriesForRange(dateFrom: string, dateTo: string): Promise<ProductionEntry[]> {
   if (dbReady) {
     try { return await dbGetEntries({ dateFrom, dateTo }); }
-    catch (err) { console.warn('[CNCTrack] DB range fetch failed, using memory:', err); }
+    catch (err) { console.warn('[MachineTrack] DB range fetch failed, using memory:', err); }
   }
   return entries.filter((e) => e.date >= dateFrom && e.date <= dateTo);
 }
 
-export function getDashboardData(date: string, shift: 'A' | 'B' | 'C' | 'all') {
+export function getDashboardData(date: string, shift: string | 'all') {
   const filteredEntries = entries.filter(
     (e) => e.date === date && (shift === 'all' || e.shift === shift)
   );
