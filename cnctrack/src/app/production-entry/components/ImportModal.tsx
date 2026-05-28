@@ -197,10 +197,10 @@ export default function ImportModal({ open, onClose, onImport, date, shift }: Pr
   const dupRows = parsed.filter((r) => r.duplicate && r.errors.length === 0);
 
   const handleConfirmImport = () => {
-    const items = getItems();
+    const machines = getMachines();
     const gridRows: GridRow[] = validRows.map((r) => {
-      const item = items.find((i) => i.id === r.resolvedItemId);
-      const rate = item?.rates.find((rt) => rt.machineId === r.resolvedMachineId)?.rate ?? item?.defaultRate ?? 60;
+      const machine = machines.find((m) => m.id === r.resolvedMachineId);
+      const rate = machine?.expectedPerHour ?? 60;
       return {
         machineId: r.resolvedMachineId!,
         itemId: r.resolvedItemId!,
@@ -401,7 +401,7 @@ export default function ImportModal({ open, onClose, onImport, date, shift }: Pr
                 </thead>
                 <tbody>
                   <tr>
-                    {['CNC1', 'Spindle Shaft', 'Amit Sharma', '78', '82', '76', '80', '71', '0', '0', '0'].map((v, i) => (
+                    {['MCH-01', 'Spindle Shaft', 'Amit Sharma', '78', '82', '76', '80', '71', '0', '0', '0'].map((v, i) => (
                       <td key={`fmt-val-${i}`} className="border border-border px-2 py-1 font-mono-nums text-foreground">{v}</td>
                     ))}
                   </tr>
@@ -544,3 +544,4 @@ export default function ImportModal({ open, onClose, onImport, date, shift }: Pr
     </Modal>
   );
 }
+
