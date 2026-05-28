@@ -1,9 +1,11 @@
 'use client';
 import React, { useState } from 'react';
 import { RefreshCw, Calendar, ChevronDown } from 'lucide-react';
+import { getTodayISOLocal } from '@/lib/date';
 
 const SHIFTS = ['All Shifts', 'Shift A', 'Shift B', 'Shift C'];
-const DATES = ['2026-05-10 (Today)', '2026-05-09', '2026-05-08'];
+const TODAY = getTodayISOLocal();
+const DATES = [`${TODAY} (Today)`];
 
 export default function DashboardHeader() {
   const [shift, setShift] = useState('Shift A');
@@ -19,8 +21,8 @@ export default function DashboardHeader() {
       <div>
         <h1 className="text-2xl font-semibold text-foreground">Production Dashboard</h1>
         <p className="text-sm text-muted-foreground mt-0.5">
-          Plant Floor A &mdash; CNC Operations &mdash;{' '}
-          <span className="font-mono-nums text-xs">May 10, 2026</span>
+          Shop Floor A &mdash; Mixed Machine Operations &mdash;{' '}
+          <span className="font-mono-nums text-xs">{TODAY}</span>
         </p>
       </div>
       <div className="flex items-center gap-3 flex-wrap">
@@ -28,7 +30,7 @@ export default function DashboardHeader() {
         <div className="relative">
           <select
             className="appearance-none pl-3 pr-8 py-2 text-sm border border-border rounded-md bg-card text-foreground font-medium focus:outline-none focus:ring-2 focus:ring-ring cursor-pointer"
-            defaultValue="2026-05-10 (Today)"
+            defaultValue={`${TODAY} (Today)`}
           >
             {DATES?.map((d) => (
               <option key={`date-${d}`} value={d}>{d}</option>
