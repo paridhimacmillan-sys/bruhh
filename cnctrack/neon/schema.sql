@@ -1,4 +1,4 @@
--- CNCTrack — Neon PostgreSQL Schema
+-- MachineTrack — Neon PostgreSQL Schema
 -- 1. Go to https://console.neon.tech → your project → SQL Editor
 -- 2. Paste this entire file and click Run
 
@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS machines (
   id              TEXT PRIMARY KEY,
   machine_type    TEXT NOT NULL,
   machine_number  TEXT NOT NULL UNIQUE,
+  machine_target_rate INTEGER NOT NULL DEFAULT 60,
   status          TEXT NOT NULL DEFAULT 'active'
                     CHECK (status IN ('active','idle','maintenance','offline')),
   current_item    TEXT,
@@ -15,6 +16,8 @@ CREATE TABLE IF NOT EXISTS machines (
   assigned_items  JSONB NOT NULL DEFAULT '[]',
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+ALTER TABLE machines
+  ADD COLUMN IF NOT EXISTS machine_target_rate INTEGER NOT NULL DEFAULT 60;
 
 -- ─── Items ──────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS items (
@@ -34,7 +37,7 @@ CREATE TABLE IF NOT EXISTS production_entries (
   date           DATE NOT NULL,
   machine_id     TEXT NOT NULL REFERENCES machines(id) ON DELETE CASCADE,
   item_id        TEXT NOT NULL REFERENCES items(id) ON DELETE RESTRICT,
-  shift          TEXT NOT NULL CHECK (shift IN ('A','B','C')),
+  shift          TEXT NOT NULL,
   entries        JSONB NOT NULL DEFAULT '[]',
   status         TEXT NOT NULL DEFAULT 'draft'
                    CHECK (status IN ('draft','submitted','flagged')),
@@ -44,6 +47,8 @@ CREATE TABLE IF NOT EXISTS production_entries (
   total_expected INTEGER NOT NULL DEFAULT 0,
   UNIQUE (date, machine_id, shift)
 );
+ALTER TABLE production_entries
+  DROP CONSTRAINT IF EXISTS production_entries_shift_check;
 
 CREATE INDEX IF NOT EXISTS idx_entries_date    ON production_entries(date);
 CREATE INDEX IF NOT EXISTS idx_entries_machine ON production_entries(machine_id);
@@ -74,3 +79,4 @@ CREATE TABLE IF NOT EXISTS alert_events (
 );
 
 CREATE INDEX IF NOT EXISTS idx_alert_events_resolved ON alert_events(resolved);
+
