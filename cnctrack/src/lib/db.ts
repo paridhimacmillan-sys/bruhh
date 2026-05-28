@@ -4,5 +4,13 @@
 
 import { neon } from '@neondatabase/serverless';
 
-const sql = neon(process.env.DATABASE_URL!);
+const databaseUrl = process.env.DATABASE_URL;
+
+const sql = databaseUrl
+  ? neon(databaseUrl)
+  : (() => {
+      throw new Error(
+        'No database connection string was provided to neon(). Set DATABASE_URL.'
+      );
+    });
 export default sql;
