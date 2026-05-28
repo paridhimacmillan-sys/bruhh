@@ -42,7 +42,7 @@ export interface ProductionEntry {
   date: string;
   machineId: string;
   itemId: string;
-  shift: 'A' | 'B' | 'C';
+  shift: string;
   entries: HourlyEntry[];
   status: EntryStatus;
   operatorName: string;
