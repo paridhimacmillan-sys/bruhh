@@ -7,8 +7,10 @@ import ImportModal from './ImportModal';
 import CopyPreviousModal from './CopyPreviousModal';
 import { HourlyEntry, ProductionEntry } from '@/lib/mockData';
 import { getMachines, getItems, getEntries, upsertEntries, subscribe } from '@/lib/store';
+import { getShifts, subscribeShifts } from '@/lib/shifts';
+import { getTodayISOLocal } from '@/lib/date';
 
-type Shift = 'A' | 'B' | 'C';
+type Shift = string;
 
 export interface GridRow {
   machineId: string;
@@ -25,6 +27,45 @@ const SHIFT_HOURS: Record<Shift, string[]> = {
   C: ['22:00', '23:00', '00:00', '01:00', '02:00', '03:00', '04:00', '05:00'],
 };
 
+function splitExpectedAcrossHours(totalExpected: number): number[] {
+  const safeTotal = Math.max(0, Math.round(totalExpected));
+  const base = Math.floor(safeTotal / 8);
+  const remainder = safeTotal % 8;
+  return Array.from({ length: 8 }, (_, i) => base + (i < remainder ? 1 : 0));
+}
+
+function getCarryForwardExpected(
+  entries: ProductionEntry[],
+  date: string,
+  machineId: string,
+  shift: Shift,
+  fallbackPerHour: number
+): number[] {
+  const previous = entries
+    .filter((e) => e.machineId === machineId && e.shift === shift && e.date < date)
+    .sort((a, b) => b.date.localeCompare(a.date))[0];
+
+  if (!previous) {
+    return Array.from({ length: 8 }, () => Math.max(1, Math.round(fallbackPerHour)));
+  }
+
+  const previousExpected = Math.max(
+    0,
+    previous.totalExpected || previous.entries.reduce((s, e) => s + (e.expected ?? 0), 0)
+  );
+  const previousActual = Math.max(
+    0,
+    previous.totalActual || previous.entries.reduce((s, e) => s + (e.actual ?? 0), 0)
+  );
+
+  const nextTotalExpected =
+    previousActual > previousExpected
+      ? Math.round((previousExpected + previousActual) / 2)
+      : previousExpected;
+
+  return splitExpectedAcrossHours(nextTotalExpected);
+}
+
 function buildInitialRows(date: string, shift: Shift): GridRow[] {
   const machines = getMachines();
   const items = getItems();
@@ -35,17 +76,16 @@ function buildInitialRows(date: string, shift: Shift): GridRow[] {
       (e) => e.date === date && e.machineId === machine.id && e.shift === shift
     );
     const itemId = machine.currentItem ?? (items.find((i) => i.status === 'active')?.id ?? items[0]?.id ?? '');
-    const item = items.find((i) => i.id === itemId) ?? items[0];
-    const rate = Number(item?.rates.find((r) => r.machineId === machine.id)?.rate ?? item?.defaultRate ?? 60);
+    const rate = Number(machine.expectedPerHour ?? 60);
     return {
       machineId: machine.id,
       itemId,
       entries: existing
         ? existing.entries.map((e) => ({ ...e, actual: Number(e.actual), expected: Number(e.expected) }))
-        : Array.from({ length: 8 }, (_, i) => ({
+        : getCarryForwardExpected(entries, date, machine.id, shift, rate).map((expected, i) => ({
             hour: i + 1,
             actual: 0,
-            expected: rate,
+            expected,
           })),
       status: existing?.status ?? 'draft',
       operatorName: existing?.operatorName ?? (machine.operatorName ?? ''),
@@ -55,15 +95,29 @@ function buildInitialRows(date: string, shift: Shift): GridRow[] {
 }
 
 export default function ProductionEntryClient() {
-  const [date, setDate] = useState('2026-05-10');
-  const [shift, setShift] = useState<Shift>('A');
-  const [rows, setRows] = useState<GridRow[]>(() => buildInitialRows('2026-05-10', 'A'));
+  const [date, setDate] = useState(getTodayISOLocal());
+  const [shifts, setShifts] = useState<string[]>(() => getShifts());
+  const [shift, setShift] = useState<Shift>(() => getShifts()[0] ?? 'A');
+  const [rows, setRows] = useState<GridRow[]>(() => buildInitialRows(getTodayISOLocal(), 'A'));
   const [importOpen, setImportOpen] = useState(false);
   const [copyOpen, setCopyOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
   const isSavingRef = React.useRef(false);
+
+  useEffect(() => {
+    const unsubShifts = subscribeShifts(() => {
+      const next = getShifts();
+      setShifts(next);
+      if (!next.includes(shift)) {
+        const fallback = next[0] ?? 'A';
+        setShift(fallback);
+        setRows(buildInitialRows(date, fallback));
+      }
+    });
+    return unsubShifts;
+  }, [date, shift]);
 
   // Re-build rows when store changes (e.g. new machine/item added),
   // but NOT while a save is in progress (would wipe the just-saved data).
@@ -104,17 +158,11 @@ export default function ProductionEntryClient() {
   };
 
   const handleItemChange = (machineIdx: number, itemId: string) => {
-    const items = getItems();
-    const machines = getMachines();
     setRows((prev) => {
       const next = [...prev];
-      const item = items.find((i) => i.id === itemId);
-      const machineId = next[machineIdx].machineId;
-      const rate = Number(item?.rates.find((r) => r.machineId === machineId)?.rate ?? item?.defaultRate ?? 60);
       next[machineIdx] = {
         ...next[machineIdx],
         itemId,
-        entries: next[machineIdx].entries.map((e) => ({ ...e, expected: rate })),
         status: 'draft',
       };
       return next;
@@ -255,7 +303,7 @@ export default function ProductionEntryClient() {
           <div>
             <label className="block text-xs font-semibold text-muted-foreground mb-1">Shift</label>
             <div className="flex gap-1">
-              {(['A', 'B', 'C'] as Shift[]).map((s) => (
+              {shifts.map((s) => (
                 <button
                   key={`shift-btn-${s}`}
                   onClick={() => handleShiftChange(s)}
@@ -272,7 +320,7 @@ export default function ProductionEntryClient() {
           <div className="hidden sm:block">
             <label className="block text-xs font-semibold text-muted-foreground mb-1">Hours</label>
             <div className="flex gap-1 flex-wrap">
-              {SHIFT_HOURS[shift].map((h, i) => (
+              {(SHIFT_HOURS[shift as keyof typeof SHIFT_HOURS] ?? Array.from({ length: 8 }, (_, i) => `H${i + 1}`)).map((h, i) => (
                 <span
                   key={`hour-chip-${shift}-${i}`}
                   className="text-xs font-mono-nums bg-muted px-2 py-1 rounded text-muted-foreground"
@@ -329,7 +377,7 @@ export default function ProductionEntryClient() {
       <EntryGrid
         rows={rows}
         shift={shift}
-        shiftHours={SHIFT_HOURS[shift]}
+        shiftHours={SHIFT_HOURS[shift as keyof typeof SHIFT_HOURS] ?? Array.from({ length: 8 }, (_, i) => `H${i + 1}`)}
         onCellChange={handleCellChange}
         onItemChange={handleItemChange}
         onOperatorChange={handleOperatorChange}
@@ -354,3 +402,5 @@ export default function ProductionEntryClient() {
     </div>
   );
 }
+
+
