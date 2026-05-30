@@ -9,8 +9,13 @@ export async function GET() {
       dbGetEntries(),
     ]);
     return NextResponse.json({ machines, items, entries });
-  } catch {
-    return NextResponse.json({ machines: [], items: [], entries: [] }, { status: 200 });
+  } catch (err) {
+    return NextResponse.json(
+      {
+        error: 'bootstrap_failed',
+        message: err instanceof Error ? err.message : 'Failed to load bootstrap data',
+      },
+      { status: 500 }
+    );
   }
 }
-
