@@ -1,11 +1,9 @@
-# ─── Stage 1: deps ───────────────────────────────────────────────────────────
 FROM node:20-alpine AS deps
 WORKDIR /app
 
 COPY package.json package-lock.json* ./
 RUN npm install --frozen-lockfile=false
 
-# ─── Stage 2: builder ────────────────────────────────────────────────────────
 FROM node:20-alpine AS builder
 WORKDIR /app
 
@@ -15,19 +13,17 @@ COPY . .
 # Ensure next.config.mjs exists (repo may have saved it with a duplicate suffix)
 RUN [ -f "next.config.mjs" ] || mv "next.config (1).mjs" next.config.mjs
 
-# Accept real credentials as build args (set these in Render → Environment)
-ARG NEXT_PUBLIC_SUPABASE_URL
-ARG NEXT_PUBLIC_SUPABASE_ANON_KEY
-
-# Fall back to placeholders so the build never fails due to missing env vars.
-ENV NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL:-https://placeholder.supabase.co}
-ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY:-placeholder-key-for-build-only}
+# Build-time env fallbacks so prerender doesn't fail if Render vars are not injected at build step
+ARG DATABASE_URL
+ARG NEXTAUTH_SECRET
+ARG NEXTAUTH_URL
+ENV DATABASE_URL=${DATABASE_URL:-postgresql://placeholder:placeholder@localhost:5432/placeholder}
+ENV NEXTAUTH_SECRET=${NEXTAUTH_SECRET:-placeholder-nextauth-secret}
+ENV NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:10000}
 
 ENV NEXT_TELEMETRY_DISABLED=1
-
 RUN npm run build
 
-# ─── Stage 3: runner ─────────────────────────────────────────────────────────
 FROM node:20-alpine AS runner
 WORKDIR /app
 
@@ -37,12 +33,9 @@ ENV PORT=10000
 ENV NEXT_TELEMETRY_DISABLED=1
 
 RUN addgroup --system --gid 1001 nodejs \
- && adduser  --system --uid 1001 nextjs
+ && adduser --system --uid 1001 nextjs
 
-# Copy the standalone output (already includes its own node_modules + server.js)
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
-
-# Overlay static assets and public folder on top of standalone output
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 
