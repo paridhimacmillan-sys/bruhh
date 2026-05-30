@@ -82,9 +82,17 @@ export async function bootstrapStore(): Promise<void> {
         '/api/bootstrap',
         { cache: 'no-store' }
       );
-      if (data.machines.length > 0) machines = data.machines;
-      if (data.items.length > 0) items = data.items;
-      if (data.entries.length > 0) entries = data.entries;
+      const hasDbData =
+        data.machines.length > 0 || data.items.length > 0 || data.entries.length > 0;
+
+      if (hasDbData) {
+        if (data.machines.length > 0) machines = data.machines;
+        if (data.items.length > 0) items = data.items;
+        if (data.entries.length > 0) entries = data.entries;
+      } else {
+        // If DB is empty (fresh deploy), recover from browser snapshot when available.
+        loadLocalSnapshot();
+      }
       dbReady = true;
       notify();
     } catch (err) {
@@ -231,4 +239,3 @@ export function getDashboardData(date: string, shift: string | 'all') {
     avgHourlyGap: Math.max(0, avgHourlyGap),
   };
 }
-
