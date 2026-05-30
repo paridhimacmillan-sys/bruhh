@@ -32,7 +32,6 @@ export default function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const { access } = useAccess();
-  const rejectionMapperUrl = process.env.NEXT_PUBLIC_REJECTION_MAPPER_URL || 'https://attendance.aicreator.co.in';
 
   const isActive = (href: string) => {
     if (href === '/') return pathname === '/';
@@ -91,22 +90,6 @@ export default function Sidebar() {
             </Link>
           );
         })}
-        {!collapsed && (
-          <>
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-widest px-2 mb-2 mt-4">
-              Connectors
-            </p>
-            <a
-              href={rejectionMapperUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="sidebar-nav-item"
-            >
-              <Database size={18} className="shrink-0" />
-              <span className="flex-1 truncate">Rejection Mapper</span>
-            </a>
-          </>
-        )}
       </nav>
 
       <div className="px-3 pb-3 border-t border-border pt-3 space-y-1">
