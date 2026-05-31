@@ -117,7 +117,11 @@ export default function Sidebar() {
         </div>
         {!collapsed && (
           <a
-            href={access.authenticated ? '/api/auth/signout' : '/api/auth/signin'}
+            href={
+              access.authenticated
+                ? '/api/auth/signout?callbackUrl=/'
+                : '/api/auth/signin?callbackUrl=/'
+            }
             className="sidebar-nav-item"
           >
             <Settings size={18} className="shrink-0" />
