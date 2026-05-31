@@ -3,7 +3,10 @@ import Google from 'next-auth/providers/google';
 import sql from '@/lib/db';
 
 function isConfigured() {
-  return Boolean(process.env.AUTH_GOOGLE_ID && process.env.AUTH_GOOGLE_SECRET);
+  return Boolean(
+    (process.env.AUTH_GOOGLE_ID || process.env.GOOGLE_CLIENT_ID) &&
+    (process.env.AUTH_GOOGLE_SECRET || process.env.GOOGLE_CLIENT_SECRET)
+  );
 }
 
 async function upsertAppUser(email: string | null | undefined, name: string | null | undefined) {
@@ -18,7 +21,14 @@ async function upsertAppUser(email: string | null | undefined, name: string | nu
 }
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
-  providers: isConfigured() ? [Google] : [],
+  providers: isConfigured()
+    ? [
+        Google({
+          clientId: process.env.AUTH_GOOGLE_ID || process.env.GOOGLE_CLIENT_ID || '',
+          clientSecret: process.env.AUTH_GOOGLE_SECRET || process.env.GOOGLE_CLIENT_SECRET || '',
+        }),
+      ]
+    : [],
   session: { strategy: 'jwt' },
   callbacks: {
     async jwt({ token, account, profile }) {
@@ -30,4 +40,3 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     },
   },
 });
-
