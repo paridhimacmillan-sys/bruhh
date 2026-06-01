@@ -21,8 +21,11 @@ export function useAccess() {
 
   useEffect(() => {
     let mounted = true;
-    fetch('/api/access', { cache: 'no-store' })
-      .then((r) => r.json())
+    fetch('/api/me', { cache: 'no-store' })
+      .then(async (r) => {
+        if (r.status === 401) return DEFAULT_ACCESS;
+        return r.json();
+      })
       .then((data) => {
         if (!mounted) return;
         setAccess(data?.authenticated ? data : DEFAULT_ACCESS);
