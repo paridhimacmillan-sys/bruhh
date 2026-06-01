@@ -1,27 +1,25 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
-import { getAccessInfo } from '@/lib/access';
+import sql from '@/lib/db';
 
 export async function GET() {
-  try {
-    const session = await auth();
-    if (!session?.user?.email) {
-      return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
-    }
+  const session = await auth();
+  const email = session?.user?.email?.toLowerCase() ?? null;
+  if (!email) return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
 
-    const access = await getAccessInfo(session.user.email);
-    return NextResponse.json(access, { status: 200 });
-  } catch (err) {
-    console.error('[api/current-user] failed:', err);
-    return NextResponse.json(
-      {
-        authenticated: false,
-        email: null,
-        role: null,
-        isAdmin: false,
-      },
-      { status: 200 }
-    );
+  let role: 'admin' | 'employee' | null = null;
+  try {
+    const rows = await sql<{ role: string }[]>`SELECT role FROM app_users WHERE email = ${email} LIMIT 1`;
+    role = rows?.[0]?.role === 'admin' ? 'admin' : 'employee';
+  } catch {
+    role = null;
   }
+
+  return NextResponse.json({
+    authenticated: true,
+    email,
+    role,
+    isAdmin: role === 'admin',
+  });
 }
 
