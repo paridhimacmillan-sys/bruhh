@@ -32,6 +32,13 @@ export default function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const { access } = useAccess();
+  const roleLabel = !access.authenticated
+    ? 'Guest'
+    : access.role === 'admin'
+      ? 'Admin'
+      : access.role === 'employee'
+        ? 'Employee'
+        : 'Role syncing...';
 
   const isActive = (href: string) => {
     if (href === '/') return pathname === '/';
@@ -111,7 +118,7 @@ export default function Sidebar() {
           {!collapsed && (
             <div className="overflow-hidden flex-1">
               <p className="text-xs font-semibold text-foreground truncate">{access.email ?? 'Not signed in'}</p>
-              <p className="text-xs text-muted-foreground truncate">{access.isAdmin ? 'Admin' : 'Employee'}</p>
+              <p className="text-xs text-muted-foreground truncate">{roleLabel}</p>
             </div>
           )}
         </div>
