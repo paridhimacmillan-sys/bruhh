@@ -1,122 +1,119 @@
 import NextAuth from 'next-auth';
 import Google from 'next-auth/providers/google';
+import Credentials from 'next-auth/providers/credentials';
+import { promisify } from 'util';
+import { scrypt, timingSafeEqual } from 'crypto';
 import sql from '@/lib/db';
 
-function normalizeEmail(email: string | null | undefined): string | null {
-  if (!email) return null;
-  return email.trim().toLowerCase();
+const scryptAsync = promisify(scrypt);
+
+async function ensureAuthSchema() {
+  await sql`
+    CREATE TABLE IF NOT EXISTS app_users (
+      email text PRIMARY KEY,
+      full_name text NOT NULL DEFAULT '',
+      role text NOT NULL DEFAULT 'employee',
+      provider text NOT NULL DEFAULT 'local',
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )
+  `;
+  await sql`ALTER TABLE app_users ADD COLUMN IF NOT EXISTS username text`;
+  await sql`ALTER TABLE app_users ADD COLUMN IF NOT EXISTS password_hash text`;
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_app_users_username ON app_users(lower(username)) WHERE username IS NOT NULL`;
 }
 
-function getAllowedDomains(): string[] {
-  const raw = process.env.ALLOWED_EMAIL_DOMAINS ?? '';
-  return raw
-    .split(',')
-    .map((x) => x.trim().toLowerCase())
-    .filter(Boolean);
+async function comparePassword(supplied: string, stored: string): Promise<boolean> {
+  const [hashed, salt] = stored.split('.');
+  if (!hashed || !salt) return false;
+  const hashedBuf = Buffer.from(hashed, 'hex');
+  const suppliedBuf = (await scryptAsync(supplied, salt, 64)) as Buffer;
+  return timingSafeEqual(hashedBuf, suppliedBuf);
 }
 
-function isAllowedEmail(email: string | null): boolean {
-  if (!email) return false;
-  const allowedDomains = getAllowedDomains();
-  if (allowedDomains.length === 0) return true;
-  const domain = email.split('@')[1]?.toLowerCase() ?? '';
-  return allowedDomains.includes(domain);
-}
-
-function getAdminEmails(): Set<string> {
-  const raw = process.env.ADMIN_EMAILS ?? '';
-  const emails = raw
-    .split(',')
-    .map((x) => x.trim().toLowerCase())
-    .filter(Boolean);
-  return new Set(emails);
-}
-
-function isConfigured() {
-  return Boolean(
-    process.env.GOOGLE_CLIENT_ID &&
-    process.env.GOOGLE_CLIENT_SECRET
-  );
-}
-
-async function safeSqlRoleFromAppUsers(email: string): Promise<'admin' | 'employee' | null> {
-  try {
-    const rows = await sql<{ role: string }[]>`
-      SELECT role
-      FROM app_users
-      WHERE lower(email) = ${email}
-      LIMIT 1
-    `;
-    const role = rows?.[0]?.role?.toLowerCase?.() ?? null;
-    if (role === 'admin') return 'admin';
-    if (role === 'employee') return 'employee';
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-async function upsertAppUser(email: string | null | undefined, name: string | null | undefined) {
-  const normalizedEmail = normalizeEmail(email);
-  if (!normalizedEmail) return;
-
-  const adminEmails = getAdminEmails();
-  const existingRole = await safeSqlRoleFromAppUsers(normalizedEmail);
-
-  // Role precedence:
-  // 1) Explicit ADMIN_EMAILS override
-  // 2) Existing app_users role
-  // 3) Employee default
-  const resolvedRole: 'admin' | 'employee' =
-    adminEmails.has(normalizedEmail)
-      ? 'admin'
-      : existingRole ?? 'employee';
-
+async function upsertGoogleUser(email: string, name: string | null | undefined) {
+  await ensureAuthSchema();
   await sql`
     INSERT INTO app_users (email, full_name, role, provider)
-    VALUES (${normalizedEmail}, ${name ?? ''}, ${resolvedRole}, 'google')
+    VALUES (${email.toLowerCase()}, ${name ?? ''}, 'employee', 'google')
     ON CONFLICT (email) DO UPDATE SET
       full_name = COALESCE(NULLIF(EXCLUDED.full_name, ''), app_users.full_name),
-      role = EXCLUDED.role,
-      provider = 'google'
+      provider = 'google',
+      updated_at = now()
   `;
+}
+
+async function getRoleByEmail(email: string): Promise<'admin' | 'employee'> {
+  try {
+    const rows = await sql<{ role: string }[]>`
+      SELECT role FROM app_users WHERE email = ${email.toLowerCase()} LIMIT 1
+    `;
+    return rows?.[0]?.role === 'admin' ? 'admin' : 'employee';
+  } catch {
+    return 'employee';
+  }
 }
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   trustHost: true,
-  providers: isConfigured()
-    ? [
-        Google({
-          clientId: process.env.GOOGLE_CLIENT_ID || '',
-          clientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
-          authorization: {
-            params: {
-              prompt: 'select_account',
-            },
-          },
-        }),
-      ]
-    : [],
   session: { strategy: 'jwt' },
+  providers: [
+    Credentials({
+      name: 'Credentials',
+      credentials: {
+        identifier: { label: 'Email or Username', type: 'text' },
+        password: { label: 'Password', type: 'password' },
+      },
+      async authorize(credentials) {
+        const identifier = String(credentials?.identifier ?? '').trim().toLowerCase();
+        const password = String(credentials?.password ?? '');
+        if (!identifier || !password) return null;
+        await ensureAuthSchema();
+        const rows = await sql<any[]>`
+          SELECT * FROM app_users
+          WHERE lower(email) = ${identifier}
+             OR lower(COALESCE(username, '')) = ${identifier}
+          LIMIT 1
+        `;
+        const user = rows?.[0];
+        if (!user?.email || !user?.password_hash) return null;
+        const ok = await comparePassword(password, String(user.password_hash));
+        if (!ok) return null;
+        return {
+          id: String(user.email),
+          email: String(user.email).toLowerCase(),
+          name: user.full_name ? String(user.full_name) : String(user.email),
+          role: user.role === 'admin' ? 'admin' : 'employee',
+        } as any;
+      },
+    }),
+    Google({
+      clientId: process.env.GOOGLE_CLIENT_ID || '',
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
+      authorization: { params: { prompt: 'select_account' } },
+    }),
+  ],
   callbacks: {
-    async signIn({ account, profile }) {
-      if (account?.provider !== 'google') return true;
-      const googleEmail = normalizeEmail((profile as { email?: string } | undefined)?.email ?? null);
-      return isAllowedEmail(googleEmail);
-    },
-    async jwt({ token, account, profile }) {
+    async jwt({ token, account, profile, user }) {
       if (account?.provider === 'google') {
-        const googleEmail = normalizeEmail((profile as { email?: string } | undefined)?.email ?? null);
-        if (googleEmail) token.email = googleEmail;
-        await upsertAppUser(googleEmail ?? token.email ?? null, token.name);
+        const email = ((profile as { email?: string } | undefined)?.email ?? token.email ?? '').toString().toLowerCase();
+        if (!email) return token;
+        token.email = email;
+        await upsertGoogleUser(email, token.name ?? null);
+        token.role = await getRoleByEmail(email);
+      } else if (account?.provider === 'credentials' && user?.email) {
+        token.email = String(user.email).toLowerCase();
+        token.role = (user as any).role ?? 'employee';
       }
       return token;
     },
     async session({ session, token }) {
-      if (token?.email && session.user) {
+      if (session.user && token.email) {
         session.user.email = String(token.email).toLowerCase();
+        (session.user as any).role = token.role ?? 'employee';
       }
       return session;
     },
   },
 });
+
