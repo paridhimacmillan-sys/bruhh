@@ -7,10 +7,27 @@ export interface AccessInfo {
   isAdmin: boolean;
 }
 
-export async function getRoleByEmail(email: string | null | undefined): Promise<'admin' | 'employee' | null> {
+function normalizeEmail(email: string | null | undefined): string | null {
   if (!email) return null;
+  return email.trim().toLowerCase();
+}
+
+function getAdminEmails(): Set<string> {
+  const raw = process.env.ADMIN_EMAILS ?? '';
+  return new Set(
+    raw
+      .split(',')
+      .map((x) => x.trim().toLowerCase())
+      .filter(Boolean)
+  );
+}
+
+export async function getRoleByEmail(email: string | null | undefined): Promise<'admin' | 'employee' | null> {
+  const normalized = normalizeEmail(email);
+  if (!normalized) return null;
+  if (getAdminEmails().has(normalized)) return 'admin';
   try {
-    const rows = await sql`SELECT role FROM app_users WHERE email = ${email.toLowerCase()} LIMIT 1`;
+    const rows = await sql`SELECT role FROM app_users WHERE email = ${normalized} LIMIT 1`;
     if (rows.length === 0) return null;
     return rows[0].role === 'admin' ? 'admin' : 'employee';
   } catch (err) {
