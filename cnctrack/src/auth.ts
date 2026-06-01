@@ -34,26 +34,9 @@ function getAdminEmails(): Set<string> {
 
 function isConfigured() {
   return Boolean(
-    (process.env.AUTH_GOOGLE_ID || process.env.GOOGLE_CLIENT_ID) &&
-    (process.env.AUTH_GOOGLE_SECRET || process.env.GOOGLE_CLIENT_SECRET)
+    process.env.GOOGLE_CLIENT_ID &&
+    process.env.GOOGLE_CLIENT_SECRET
   );
-}
-
-async function safeSqlRoleFromSourceUsers(email: string): Promise<'admin' | 'employee' | null> {
-  try {
-    const rows = await sql<{ role: string }[]>`
-      SELECT role
-      FROM users
-      WHERE lower(email) = ${email}
-      LIMIT 1
-    `;
-    const sourceRole = rows?.[0]?.role?.toLowerCase?.() ?? null;
-    if (sourceRole === 'admin' || sourceRole === 'owner') return 'admin';
-    if (sourceRole === 'employee' || sourceRole === 'member' || sourceRole === 'user') return 'employee';
-    return null;
-  } catch {
-    return null;
-  }
 }
 
 async function safeSqlRoleFromAppUsers(email: string): Promise<'admin' | 'employee' | null> {
@@ -78,18 +61,16 @@ async function upsertAppUser(email: string | null | undefined, name: string | nu
   if (!normalizedEmail) return;
 
   const adminEmails = getAdminEmails();
-  const sourceRole = await safeSqlRoleFromSourceUsers(normalizedEmail);
   const existingRole = await safeSqlRoleFromAppUsers(normalizedEmail);
 
   // Role precedence:
   // 1) Explicit ADMIN_EMAILS override
-  // 2) Rejection Mapper source role (users table)
-  // 3) Existing app_users role (never downgrade on transient source errors)
-  // 4) Employee default
+  // 2) Existing app_users role
+  // 3) Employee default
   const resolvedRole: 'admin' | 'employee' =
     adminEmails.has(normalizedEmail)
       ? 'admin'
-      : sourceRole ?? existingRole ?? 'employee';
+      : existingRole ?? 'employee';
 
   await sql`
     INSERT INTO app_users (email, full_name, role, provider)
@@ -106,8 +87,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   providers: isConfigured()
     ? [
         Google({
-          clientId: process.env.AUTH_GOOGLE_ID || process.env.GOOGLE_CLIENT_ID || '',
-          clientSecret: process.env.AUTH_GOOGLE_SECRET || process.env.GOOGLE_CLIENT_SECRET || '',
+          clientId: process.env.GOOGLE_CLIENT_ID || '',
+          clientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
           authorization: {
             params: {
               prompt: 'select_account',
