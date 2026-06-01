@@ -99,8 +99,13 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         const email = ((profile as { email?: string } | undefined)?.email ?? token.email ?? '').toString().toLowerCase();
         if (!email) return token;
         token.email = email;
-        await upsertGoogleUser(email, token.name ?? null);
-        token.role = await getRoleByEmail(email);
+        try {
+          await upsertGoogleUser(email, token.name ?? null);
+          token.role = await getRoleByEmail(email);
+        } catch (error) {
+          console.error('[auth] Google profile sync failed:', error);
+          token.role = token.role ?? 'employee';
+        }
       } else if (account?.provider === 'credentials' && user?.email) {
         token.email = String(user.email).toLowerCase();
         token.role = (user as any).role ?? 'employee';
@@ -116,4 +121,3 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     },
   },
 });
-
