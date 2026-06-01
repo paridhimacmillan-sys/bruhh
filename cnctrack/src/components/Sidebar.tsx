@@ -40,6 +40,7 @@ export default function Sidebar() {
         ? 'Employee'
         : 'Role syncing...';
 
+
   const isActive = (href: string) => {
     if (href === '/') return pathname === '/';
     return pathname.startsWith(href);
@@ -124,15 +125,11 @@ export default function Sidebar() {
         </div>
         {!collapsed && (
           <a
-            href={
-              access.authenticated
-                ? '/api/auth/signout?callbackUrl=/'
-                : '/api/auth/signin?callbackUrl=/'
-            }
+            href={access.authenticated ? '/api/auth/signout?callbackUrl=/login' : '/login'}
             className="sidebar-nav-item"
           >
             <Settings size={18} className="shrink-0" />
-            <span className="flex-1 truncate">{access.authenticated ? 'Sign Out' : 'Sign In (Google)'}</span>
+            <span className="flex-1 truncate">{access.authenticated ? 'Sign Out' : 'Sign In'}</span>
           </a>
         )}
       </div>
