@@ -21,7 +21,7 @@ export function useAccess() {
 
   useEffect(() => {
     let mounted = true;
-    fetch('/api/me', { cache: 'no-store' })
+    fetch('/api/current-user', { cache: 'no-store' })
       .then(async (r) => {
         if (r.status === 401) return DEFAULT_ACCESS;
         return r.json();
