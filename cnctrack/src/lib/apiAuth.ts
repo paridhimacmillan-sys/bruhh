@@ -1,10 +1,30 @@
 import { auth } from '@/auth';
-import { getAccessInfo } from '@/lib/access';
+import sql from '@/lib/db';
 
-export async function requireAdmin() {
-  const session = await auth();
-  const email = session?.user?.email ?? null;
-  const access = await getAccessInfo(email);
-  return access.isAdmin;
+function parseAdminEmails(): Set<string> {
+  const raw = process.env.ADMIN_EMAILS ?? '';
+  return new Set(
+    raw
+      .split(',')
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean)
+  );
 }
 
+export async function requireAdmin(): Promise<boolean> {
+  const session = await auth();
+  const email = session?.user?.email?.toLowerCase();
+  if (!email) return false;
+
+  const adminEmails = parseAdminEmails();
+  if (adminEmails.has(email)) return true;
+
+  try {
+    const rows = await sql<{ role: string }[]>`
+      SELECT role FROM app_users WHERE email = ${email} LIMIT 1
+    `;
+    return rows?.[0]?.role === 'admin';
+  } catch {
+    return false;
+  }
+}
