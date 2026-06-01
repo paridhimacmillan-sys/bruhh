@@ -2,6 +2,36 @@ import NextAuth from 'next-auth';
 import Google from 'next-auth/providers/google';
 import sql from '@/lib/db';
 
+function normalizeEmail(email: string | null | undefined): string | null {
+  if (!email) return null;
+  return email.trim().toLowerCase();
+}
+
+function getAllowedDomains(): string[] {
+  const raw = process.env.ALLOWED_EMAIL_DOMAINS ?? '';
+  return raw
+    .split(',')
+    .map((x) => x.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function isAllowedEmail(email: string | null): boolean {
+  if (!email) return false;
+  const allowedDomains = getAllowedDomains();
+  if (allowedDomains.length === 0) return true;
+  const domain = email.split('@')[1]?.toLowerCase() ?? '';
+  return allowedDomains.includes(domain);
+}
+
+function getAdminEmails(): Set<string> {
+  const raw = process.env.ADMIN_EMAILS ?? '';
+  const emails = raw
+    .split(',')
+    .map((x) => x.trim().toLowerCase())
+    .filter(Boolean);
+  return new Set(emails);
+}
+
 function isConfigured() {
   return Boolean(
     (process.env.AUTH_GOOGLE_ID || process.env.GOOGLE_CLIENT_ID) &&
@@ -9,51 +39,70 @@ function isConfigured() {
   );
 }
 
-async function upsertAppUser(email: string | null | undefined, name: string | null | undefined) {
-  if (!email) return;
-  const normalizedEmail = email.toLowerCase();
-
-  // Mirror admin role from Rejection Mapper by email when possible.
-  // If source is unavailable (timeouts), do not overwrite existing CNC role.
-  let mirroredRole: 'admin' | 'employee' | null = null;
+async function safeSqlRoleFromSourceUsers(email: string): Promise<'admin' | 'employee' | null> {
   try {
     const rows = await sql<{ role: string }[]>`
       SELECT role
       FROM users
-      WHERE lower(email) = ${normalizedEmail}
+      WHERE lower(email) = ${email}
       LIMIT 1
     `;
-    const sourceRole = rows?.[0]?.role ?? null;
-    if (sourceRole === 'admin') mirroredRole = 'admin';
-    else if (sourceRole === 'employee') mirroredRole = 'employee';
+    const sourceRole = rows?.[0]?.role?.toLowerCase?.() ?? null;
+    if (sourceRole === 'admin' || sourceRole === 'owner') return 'admin';
+    if (sourceRole === 'employee' || sourceRole === 'member' || sourceRole === 'user') return 'employee';
+    return null;
   } catch {
-    // Rejection Mapper table may not exist / may timeout; preserve existing role.
-    mirroredRole = null;
+    return null;
   }
+}
 
-  if (mirroredRole) {
-    await sql`
-      INSERT INTO app_users (email, full_name, role, provider)
-      VALUES (${normalizedEmail}, ${name ?? ''}, ${mirroredRole}, 'google')
-      ON CONFLICT (email) DO UPDATE SET
-        full_name = COALESCE(NULLIF(EXCLUDED.full_name, ''), app_users.full_name),
-        role = EXCLUDED.role,
-        provider = 'google'
+async function safeSqlRoleFromAppUsers(email: string): Promise<'admin' | 'employee' | null> {
+  try {
+    const rows = await sql<{ role: string }[]>`
+      SELECT role
+      FROM app_users
+      WHERE lower(email) = ${email}
+      LIMIT 1
     `;
-    return;
+    const role = rows?.[0]?.role?.toLowerCase?.() ?? null;
+    if (role === 'admin') return 'admin';
+    if (role === 'employee') return 'employee';
+    return null;
+  } catch {
+    return null;
   }
+}
 
-  // Source role unavailable: create/update user without changing existing role.
+async function upsertAppUser(email: string | null | undefined, name: string | null | undefined) {
+  const normalizedEmail = normalizeEmail(email);
+  if (!normalizedEmail) return;
+
+  const adminEmails = getAdminEmails();
+  const sourceRole = await safeSqlRoleFromSourceUsers(normalizedEmail);
+  const existingRole = await safeSqlRoleFromAppUsers(normalizedEmail);
+
+  // Role precedence:
+  // 1) Explicit ADMIN_EMAILS override
+  // 2) Rejection Mapper source role (users table)
+  // 3) Existing app_users role (never downgrade on transient source errors)
+  // 4) Employee default
+  const resolvedRole: 'admin' | 'employee' =
+    adminEmails.has(normalizedEmail)
+      ? 'admin'
+      : sourceRole ?? existingRole ?? 'employee';
+
   await sql`
     INSERT INTO app_users (email, full_name, role, provider)
-    VALUES (${normalizedEmail}, ${name ?? ''}, 'employee', 'google')
+    VALUES (${normalizedEmail}, ${name ?? ''}, ${resolvedRole}, 'google')
     ON CONFLICT (email) DO UPDATE SET
       full_name = COALESCE(NULLIF(EXCLUDED.full_name, ''), app_users.full_name),
+      role = EXCLUDED.role,
       provider = 'google'
   `;
 }
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
+  trustHost: true,
   providers: isConfigured()
     ? [
         Google({
@@ -69,9 +118,14 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     : [],
   session: { strategy: 'jwt' },
   callbacks: {
+    async signIn({ account, profile }) {
+      if (account?.provider !== 'google') return true;
+      const googleEmail = normalizeEmail((profile as { email?: string } | undefined)?.email ?? null);
+      return isAllowedEmail(googleEmail);
+    },
     async jwt({ token, account, profile }) {
       if (account?.provider === 'google') {
-        const googleEmail = (profile as { email?: string } | undefined)?.email?.toLowerCase() ?? null;
+        const googleEmail = normalizeEmail((profile as { email?: string } | undefined)?.email ?? null);
         if (googleEmail) token.email = googleEmail;
         await upsertAppUser(googleEmail ?? token.email ?? null, token.name);
       }
