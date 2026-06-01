@@ -3,27 +3,23 @@ import { auth } from '@/auth';
 
 export default auth((req) => {
   const { pathname, search } = req.nextUrl;
-  const isLoggedIn = Boolean(req.auth?.user);
   const isApi = pathname.startsWith('/api/');
-  const isLoginPage = pathname === '/login';
-  const isPublicAsset =
-    pathname.startsWith('/_next') ||
-    pathname === '/favicon.ico' ||
-    pathname.startsWith('/images') ||
-    pathname.startsWith('/icons');
+  const isPublicAsset = pathname.startsWith('/_next') || pathname === '/favicon.ico';
+  const isLogin = pathname === '/login';
+  const isLoggedIn = Boolean(req.auth?.user);
 
-  if (isPublicAsset || isApi) return NextResponse.next();
+  if (isApi || isPublicAsset) return NextResponse.next();
 
-  if (!isLoggedIn && !isLoginPage) {
+  if (!isLoggedIn && !isLogin) {
     const url = new URL('/login', req.nextUrl.origin);
-    const callbackUrl = `${pathname}${search || ''}`;
-    url.searchParams.set('callbackUrl', callbackUrl);
+    url.searchParams.set('callbackUrl', `${pathname}${search || ''}`);
     return NextResponse.redirect(url);
   }
 
-  if (isLoggedIn && isLoginPage) {
-    const callbackUrl = req.nextUrl.searchParams.get('callbackUrl') || '/';
-    return NextResponse.redirect(new URL(callbackUrl, req.nextUrl.origin));
+  if (isLoggedIn && isLogin) {
+    const callback = req.nextUrl.searchParams.get('callbackUrl');
+    const safe = callback && callback.startsWith('/') ? callback : '/';
+    return NextResponse.redirect(new URL(safe, req.nextUrl.origin));
   }
 
   return NextResponse.next();
@@ -32,3 +28,4 @@ export default auth((req) => {
 export const config = {
   matcher: ['/((?!.*\\..*|_next).*)', '/'],
 };
+
