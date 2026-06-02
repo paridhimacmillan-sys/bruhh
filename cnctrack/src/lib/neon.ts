@@ -93,6 +93,66 @@ export async function dbDeleteItem(id: string): Promise<void> {
   await sql`DELETE FROM items WHERE id = ${id}`;
 }
 
+async function dbEnsureShifts(): Promise<void> {
+  await sql`
+    CREATE TABLE IF NOT EXISTS shifts (
+      name TEXT PRIMARY KEY,
+      start_time TEXT NOT NULL DEFAULT '06:00',
+      end_time TEXT NOT NULL DEFAULT '14:00',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+  await sql`ALTER TABLE shifts ADD COLUMN IF NOT EXISTS start_time TEXT NOT NULL DEFAULT '06:00'`;
+  await sql`ALTER TABLE shifts ADD COLUMN IF NOT EXISTS end_time TEXT NOT NULL DEFAULT '14:00'`;
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_shifts_name_lower ON shifts(lower(name))`;
+}
+
+export interface ShiftDefinition {
+  name: string;
+  startTime: string;
+  endTime: string;
+}
+
+export async function dbGetShifts(): Promise<ShiftDefinition[]> {
+  await dbEnsureShifts();
+  const rows = await sql<{ name: string; start_time: string; end_time: string }[]>`
+    SELECT name, start_time, end_time FROM shifts ORDER BY created_at, name
+  `;
+  return rows.map((row) => ({ name: row.name, startTime: row.start_time, endTime: row.end_time }));
+}
+
+export async function dbAddShift(shift: ShiftDefinition): Promise<void> {
+  await dbEnsureShifts();
+  await sql`
+    INSERT INTO shifts (name, start_time, end_time)
+    VALUES (${shift.name.trim()}, ${shift.startTime}, ${shift.endTime})
+    ON CONFLICT (name) DO UPDATE SET
+      start_time = EXCLUDED.start_time,
+      end_time = EXCLUDED.end_time
+  `;
+}
+
+export async function dbGetOperators(): Promise<string[]> {
+  await sql`CREATE TABLE IF NOT EXISTS shift_operators (name TEXT PRIMARY KEY, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`;
+  const rows = await sql<{ name: string }[]>`SELECT name FROM shift_operators ORDER BY name`;
+  return rows.map((row) => row.name);
+}
+
+export async function dbAddOperator(name: string): Promise<void> {
+  await sql`CREATE TABLE IF NOT EXISTS shift_operators (name TEXT PRIMARY KEY, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`;
+  await sql`INSERT INTO shift_operators (name) VALUES (${name.trim()}) ON CONFLICT (name) DO NOTHING`;
+}
+
+export async function dbDeleteOperator(name: string): Promise<void> {
+  await sql`CREATE TABLE IF NOT EXISTS shift_operators (name TEXT PRIMARY KEY, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`;
+  await sql`DELETE FROM shift_operators WHERE lower(name) = ${name.trim().toLowerCase()}`;
+}
+
+export async function dbDeleteShift(name: string): Promise<void> {
+  await dbEnsureShifts();
+  await sql`DELETE FROM shifts WHERE lower(name) = ${name.trim().toLowerCase()}`;
+}
+
 // ─── Production Entries ───────────────────────────────────────────────────────
 
 export async function dbGetEntries(filters?: {
@@ -101,6 +161,7 @@ export async function dbGetEntries(filters?: {
   machineId?: string;
   shift?: string;
 }): Promise<ProductionEntry[]> {
+  await sql`ALTER TABLE production_entries ADD COLUMN IF NOT EXISTS opening_reading INTEGER NOT NULL DEFAULT 0`;
   const rows = await sql`
     SELECT * FROM production_entries
     WHERE
@@ -114,14 +175,16 @@ export async function dbGetEntries(filters?: {
 }
 
 export async function dbUpsertEntries(entries: ProductionEntry[]): Promise<void> {
+  await sql`ALTER TABLE production_entries ADD COLUMN IF NOT EXISTS opening_reading INTEGER NOT NULL DEFAULT 0`;
   for (const e of entries) {
     await sql`
       INSERT INTO production_entries
-        (id, date, machine_id, item_id, shift, entries, status, operator_name, notes, total_actual, total_expected)
+        (id, date, machine_id, item_id, shift, opening_reading, entries, status, operator_name, notes, total_actual, total_expected)
       VALUES
-        (${e.id}, ${e.date}, ${e.machineId}, ${e.itemId}, ${e.shift}, ${JSON.stringify(e.entries)}, ${e.status}, ${e.operatorName}, ${e.notes}, ${e.totalActual}, ${e.totalExpected})
+        (${e.id}, ${e.date}, ${e.machineId}, ${e.itemId}, ${e.shift}, ${e.openingReading ?? 0}, ${JSON.stringify(e.entries)}, ${e.status}, ${e.operatorName}, ${e.notes}, ${e.totalActual}, ${e.totalExpected})
       ON CONFLICT (date, machine_id, shift) DO UPDATE SET
         item_id        = EXCLUDED.item_id,
+        opening_reading = EXCLUDED.opening_reading,
         entries        = EXCLUDED.entries,
         status         = EXCLUDED.status,
         operator_name  = EXCLUDED.operator_name,
@@ -231,6 +294,7 @@ function rowToEntry(r: any): ProductionEntry {
     machineId: r.machine_id,
     itemId: r.item_id,
     shift: r.shift,
+    openingReading: Number(r.opening_reading ?? 0),
     entries: r.entries ?? [],
     status: r.status,
     operatorName: r.operator_name,
