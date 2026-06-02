@@ -11,16 +11,17 @@ import {
 import { getDashboardData, subscribe } from '@/lib/store';
 import { getTodayISOLocal } from '@/lib/date';
 import Icon from '@/components/ui/AppIcon';
+import { getDashboardShift, subscribeDashboardShift } from '@/lib/dashboardFilters';
 
 
 export default function KPIBentoGrid() {
-  const [dashData, setDashData] = useState(() => getDashboardData(getTodayISOLocal(), 'A'));
+  const [dashData, setDashData] = useState(() => getDashboardData(getTodayISOLocal(), getDashboardShift()));
 
   useEffect(() => {
-    const unsub = subscribe(() => {
-      setDashData(getDashboardData(getTodayISOLocal(), 'A'));
-    });
-    return unsub;
+    const refresh = () => setDashData(getDashboardData(getTodayISOLocal(), getDashboardShift()));
+    const unsubStore = subscribe(refresh);
+    const unsubShift = subscribeDashboardShift(refresh);
+    return () => { unsubStore(); unsubShift(); };
   }, []);
 
   const { totalActual, totalExpected, efficiency, onTargetMachines, downMachines, activeMachines, avgHourlyGap } = dashData;
@@ -93,7 +94,7 @@ export default function KPIBentoGrid() {
     {
       id: 'kpi-shift-efficiency',
       hero: false,
-      label: 'Shift A Efficiency',
+      label: getDashboardShift() === 'all' ? 'All Shifts Efficiency' : `Shift ${getDashboardShift()} Efficiency`,
       value: efficiency?.toString(),
       unit: '%',
       sub: `${totalActual?.toLocaleString()} of ${totalExpected?.toLocaleString()} expected`,
