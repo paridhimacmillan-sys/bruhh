@@ -4,6 +4,7 @@ import { AlertTriangle, CheckCircle2, Clock, ChevronDown } from 'lucide-react';
 import { getMachines, getItems } from '@/lib/store';
 import { Machine, Item } from '@/lib/mockData';
 import { GridRow } from './ProductionEntryClient';
+import { getOperators, subscribeOperators } from '@/lib/operators';
 
 type Shift = string;
 
@@ -31,11 +32,14 @@ export default function EntryGrid({
   const [machines, setMachines] = useState<Machine[]>(() => getMachines());
   const [items, setItems] = useState<Item[]>(() => getItems());
   const [expandedNotes, setExpandedNotes] = useState<number | null>(null);
+  const [operators, setOperators] = useState<string[]>(() => getOperators());
 
   useEffect(() => {
     setMachines(getMachines());
     setItems(getItems());
   }, [rows]);
+
+  useEffect(() => subscribeOperators(() => setOperators([...getOperators()])), []);
 
   if (rows.length === 0) {
     return (
@@ -75,7 +79,6 @@ export default function EntryGrid({
                 </th>
               ))}
               <th className="text-right px-3 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider min-w-[80px]">Total</th>
-              <th className="text-right px-3 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider min-w-[80px]">Target</th>
               <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider min-w-[80px]">Variance</th>
               <th className="text-center px-3 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider min-w-[60px]">Notes</th>
             </tr>
@@ -122,13 +125,14 @@ export default function EntryGrid({
                     </td>
 
                     <td className="px-3 py-3">
-                      <input
-                        type="text"
+                      <select
                         value={row.operatorName}
                         onChange={(e) => onOperatorChange(machineIdx, e.target.value)}
-                        placeholder="Operator name"
                         className="w-full px-2 py-1 text-xs border border-transparent hover:border-border focus:border-border rounded bg-transparent focus:bg-card focus:outline-none focus:ring-1 focus:ring-ring transition-colors truncate"
-                      />
+                      >
+                        <option value="">Unassigned</option>
+                        {operators.map((operator) => <option key={operator} value={operator}>{operator}</option>)}
+                      </select>
                     </td>
 
                     <td className="px-1 py-2 text-center bg-muted/10">
@@ -175,10 +179,7 @@ export default function EntryGrid({
 
                     <td className="px-3 py-3 text-right">
                       <span className="font-mono-nums font-bold text-foreground text-xs">{totalActual > 0 ? totalActual.toLocaleString() : '-'}</span>
-                      <p className="text-xs text-muted-foreground font-mono-nums">{loggedHours}/8 hrs</p>
-                    </td>
-                    <td className="px-3 py-3 text-right">
-                      <span className="font-mono-nums text-xs text-muted-foreground">{totalExpected.toLocaleString()}</span>
+                      <p className="text-xs text-muted-foreground font-mono-nums">{loggedHours}/{shiftHours.length} hrs</p>
                     </td>
                     <td className="px-4 py-3 text-right">
                       <span className={`font-mono-nums text-xs font-semibold ${variance > 0 ? 'text-success' : variance < 0 ? 'text-danger' : 'text-muted-foreground'}`}>
@@ -204,7 +205,7 @@ export default function EntryGrid({
 
                   {isNotesExpanded && (
                     <tr className="border-b border-border bg-muted/10">
-                      <td colSpan={15} className="px-4 py-2">
+                      <td colSpan={shiftHours.length + 7} className="px-4 py-2">
                         <div className="flex items-center gap-2">
                           <span className="text-xs font-semibold text-muted-foreground shrink-0">Note ({machine?.machineNumber}):</span>
                           <input
@@ -227,7 +228,7 @@ export default function EntryGrid({
           <tfoot>
             <tr className="bg-muted/30 border-t-2 border-border">
               <td className="px-4 py-3 text-xs font-semibold text-foreground sticky left-0 bg-muted/30" colSpan={4}>Shift Total</td>
-              {Array.from({ length: 8 }, (_, i) => {
+              {Array.from({ length: shiftHours.length }, (_, i) => {
                 const colTotal = rows.reduce((sum, row) => sum + (row.entries[i]?.actual ?? 0), 0);
                 const colExpected = rows.reduce((sum, row) => sum + (row.entries[i]?.expected ?? 0), 0);
                 const colPct = colExpected > 0 ? Math.round((colTotal / colExpected) * 100) : 0;
@@ -240,9 +241,6 @@ export default function EntryGrid({
               })}
               <td className="px-3 py-3 text-right">
                 <span className="font-mono-nums font-bold text-foreground text-sm">{rows.reduce((s, r) => s + r.entries.reduce((ss, e) => ss + e.actual, 0), 0).toLocaleString()}</span>
-              </td>
-              <td className="px-3 py-3 text-right">
-                <span className="font-mono-nums text-xs text-muted-foreground">{rows.reduce((s, r) => s + r.entries.reduce((ss, e) => ss + e.expected, 0), 0).toLocaleString()}</span>
               </td>
               <td className="px-4 py-3 text-right">
                 <span className="font-mono-nums text-xs font-bold text-foreground">
@@ -261,4 +259,3 @@ export default function EntryGrid({
     </div>
   );
 }
-
