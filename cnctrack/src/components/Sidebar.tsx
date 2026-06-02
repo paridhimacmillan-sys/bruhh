@@ -125,7 +125,7 @@ export default function Sidebar() {
         </div>
         {!collapsed && (
           <a
-            href={access.authenticated ? '/api/auth/signout?callbackUrl=/login' : '/login'}
+            href={access.authenticated ? '/api/logout' : '/login'}
             className="sidebar-nav-item"
           >
             <Settings size={18} className="shrink-0" />
