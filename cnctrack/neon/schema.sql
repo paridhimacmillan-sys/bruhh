@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS production_entries (
   machine_id     TEXT NOT NULL REFERENCES machines(id) ON DELETE CASCADE,
   item_id        TEXT NOT NULL REFERENCES items(id) ON DELETE RESTRICT,
   shift          TEXT NOT NULL,
+  opening_reading INTEGER NOT NULL DEFAULT 0,
   entries        JSONB NOT NULL DEFAULT '[]',
   status         TEXT NOT NULL DEFAULT 'draft'
                    CHECK (status IN ('draft','submitted','flagged')),
@@ -49,9 +50,25 @@ CREATE TABLE IF NOT EXISTS production_entries (
 );
 ALTER TABLE production_entries
   DROP CONSTRAINT IF EXISTS production_entries_shift_check;
+ALTER TABLE production_entries
+  ADD COLUMN IF NOT EXISTS opening_reading INTEGER NOT NULL DEFAULT 0;
 
 CREATE INDEX IF NOT EXISTS idx_entries_date    ON production_entries(date);
 CREATE INDEX IF NOT EXISTS idx_entries_machine ON production_entries(machine_id);
+
+-- Configurable shifts
+CREATE TABLE IF NOT EXISTS shifts (
+  name       TEXT PRIMARY KEY,
+  start_time TEXT NOT NULL DEFAULT '06:00',
+  end_time   TEXT NOT NULL DEFAULT '14:00',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_shifts_name_lower ON shifts(lower(name));
+
+CREATE TABLE IF NOT EXISTS shift_operators (
+  name       TEXT PRIMARY KEY,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 
 -- ─── Alert Thresholds ────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS alert_thresholds (
