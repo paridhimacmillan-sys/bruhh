@@ -13,3 +13,12 @@ export async function getRoleByEmail(email: string | null | undefined): Promise<
   }
 }
 
+export async function getAccessInfo(email: string | null | undefined) {
+  const role = await getRoleByEmail(email);
+  return {
+    authenticated: Boolean(email),
+    email: email?.toLowerCase() ?? null,
+    role,
+    isAdmin: role === 'admin',
+  };
+}
