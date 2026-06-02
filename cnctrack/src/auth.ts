@@ -4,6 +4,7 @@ import Credentials from 'next-auth/providers/credentials';
 import { promisify } from 'util';
 import { scrypt, timingSafeEqual } from 'crypto';
 import sql from '@/lib/db';
+import { findSharedUser, findSharedUserByEmail } from '@/lib/authDb';
 
 const scryptAsync = promisify(scrypt);
 
@@ -28,30 +29,21 @@ async function comparePassword(supplied: string, stored: string): Promise<boolea
   if (!hashed || !salt) return false;
   const hashedBuf = Buffer.from(hashed, 'hex');
   const suppliedBuf = (await scryptAsync(supplied, salt, 64)) as Buffer;
+  if (hashedBuf.length !== suppliedBuf.length) return false;
   return timingSafeEqual(hashedBuf, suppliedBuf);
 }
 
-async function upsertGoogleUser(email: string, name: string | null | undefined) {
+async function syncCncUser(email: string, name: string | null | undefined, role: string) {
   await ensureAuthSchema();
   await sql`
     INSERT INTO app_users (email, full_name, role, provider)
-    VALUES (${email.toLowerCase()}, ${name ?? ''}, 'employee', 'google')
+    VALUES (${email.toLowerCase()}, ${name ?? ''}, ${role === 'admin' ? 'admin' : 'employee'}, 'google')
     ON CONFLICT (email) DO UPDATE SET
       full_name = COALESCE(NULLIF(EXCLUDED.full_name, ''), app_users.full_name),
+      role = EXCLUDED.role,
       provider = 'google',
       updated_at = now()
   `;
-}
-
-async function getRoleByEmail(email: string): Promise<'admin' | 'employee'> {
-  try {
-    const rows = await sql<{ role: string }[]>`
-      SELECT role FROM app_users WHERE email = ${email.toLowerCase()} LIMIT 1
-    `;
-    return rows?.[0]?.role === 'admin' ? 'admin' : 'employee';
-  } catch {
-    return 'employee';
-  }
 }
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
@@ -68,21 +60,14 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         const identifier = String(credentials?.identifier ?? '').trim().toLowerCase();
         const password = String(credentials?.password ?? '');
         if (!identifier || !password) return null;
-        await ensureAuthSchema();
-        const rows = await sql<any[]>`
-          SELECT * FROM app_users
-          WHERE lower(email) = ${identifier}
-             OR lower(COALESCE(username, '')) = ${identifier}
-          LIMIT 1
-        `;
-        const user = rows?.[0];
-        if (!user?.email || !user?.password_hash) return null;
-        const ok = await comparePassword(password, String(user.password_hash));
+        const user = await findSharedUser(identifier);
+        if (!user?.email || !user?.password) return null;
+        const ok = await comparePassword(password, String(user.password));
         if (!ok) return null;
         return {
           id: String(user.email),
           email: String(user.email).toLowerCase(),
-          name: user.full_name ? String(user.full_name) : String(user.email),
+          name: user.username ? String(user.username) : String(user.email),
           role: user.role === 'admin' ? 'admin' : 'employee',
         } as any;
       },
@@ -94,14 +79,26 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     }),
   ],
   callbacks: {
+    async signIn({ account, profile }) {
+      if (account?.provider !== 'google') return true;
+      const email = (profile as { email?: string } | undefined)?.email?.toLowerCase();
+      if (!email) return false;
+      try {
+        return Boolean(await findSharedUserByEmail(email));
+      } catch (error) {
+        console.error('[auth] Shared user lookup failed:', error);
+        return false;
+      }
+    },
     async jwt({ token, account, profile, user }) {
       if (account?.provider === 'google') {
         const email = ((profile as { email?: string } | undefined)?.email ?? token.email ?? '').toString().toLowerCase();
         if (!email) return token;
         token.email = email;
         try {
-          await upsertGoogleUser(email, token.name ?? null);
-          token.role = await getRoleByEmail(email);
+          const sharedUser = await findSharedUserByEmail(email);
+          token.role = sharedUser?.role === 'admin' ? 'admin' : 'employee';
+          await syncCncUser(email, token.name ?? null, String(token.role));
         } catch (error) {
           console.error('[auth] Google profile sync failed:', error);
           token.role = token.role ?? 'employee';
