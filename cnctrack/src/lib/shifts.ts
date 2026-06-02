@@ -1,77 +1,82 @@
 'use client';
 
+export interface ShiftDefinition {
+  name: string;
+  startTime: string;
+  endTime: string;
+}
+
 type Listener = () => void;
 
-const KEY = 'machinetrack.shifts.v1';
-const DEFAULT_SHIFTS = ['A', 'B', 'C'];
-const listeners: Set<Listener> = new Set();
-
-let shifts: string[] = [...DEFAULT_SHIFTS];
-
-function canUseLocalStorage() {
-  return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
-}
-
-function normalizeShiftName(name: string): string {
-  return name.trim();
-}
-
-function persist() {
-  if (!canUseLocalStorage()) return;
-  window.localStorage.setItem(KEY, JSON.stringify(shifts));
-}
+const DEFAULT_SHIFTS: ShiftDefinition[] = [
+  { name: 'A', startTime: '06:00', endTime: '14:00' },
+  { name: 'B', startTime: '14:00', endTime: '22:00' },
+  { name: 'C', startTime: '22:00', endTime: '06:00' },
+];
+const listeners = new Set<Listener>();
+let shifts: ShiftDefinition[] = [...DEFAULT_SHIFTS];
 
 function notify() {
-  listeners.forEach((l) => l());
+  listeners.forEach((listener) => listener());
 }
 
-export function bootstrapShifts() {
-  if (!canUseLocalStorage()) return;
+export async function bootstrapShifts() {
   try {
-    const raw = window.localStorage.getItem(KEY);
-    if (!raw) return;
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) {
-      const clean = parsed
-        .map((s) => normalizeShiftName(String(s)))
-        .filter(Boolean);
-      if (clean.length > 0) shifts = [...new Set(clean)];
-    }
-  } catch {
-    // no-op
+    const response = await fetch('/api/shifts', { cache: 'no-store' });
+    if (!response.ok) throw new Error(`API /api/shifts failed: ${response.status}`);
+    shifts = (await response.json()) as ShiftDefinition[];
+    notify();
+  } catch (error) {
+    console.warn('[MachineTrack] Shift bootstrap failed:', error);
   }
 }
 
+export function getShiftDefinitions(): ShiftDefinition[] {
+  return shifts;
+}
+
 export function getShifts(): string[] {
-  return shifts.length > 0 ? shifts : [...DEFAULT_SHIFTS];
+  return shifts.map((shift) => shift.name);
 }
 
-export function setShifts(next: string[]) {
-  const clean = next.map(normalizeShiftName).filter(Boolean);
-  shifts = clean.length > 0 ? [...new Set(clean)] : [...DEFAULT_SHIFTS];
-  persist();
-  notify();
+export function getShiftHours(name: string): string[] {
+  const shift = shifts.find((candidate) => candidate.name === name);
+  if (!shift) return [];
+  const [startHour, startMinute] = shift.startTime.split(':').map(Number);
+  const [endHour, endMinute] = shift.endTime.split(':').map(Number);
+  const start = startHour * 60 + startMinute;
+  const end = endHour * 60 + endMinute;
+  const duration = ((end - start + 24 * 60) % (24 * 60)) || 24 * 60;
+  const count = Math.ceil(duration / 60);
+  return Array.from({ length: count }, (_, index) => {
+    const minutes = (start + index * 60) % (24 * 60);
+    return `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+  });
 }
 
-export function addShift(name: string) {
-  const n = normalizeShiftName(name);
-  if (!n) return;
-  if (shifts.some((s) => s.toLowerCase() === n.toLowerCase())) return;
-  shifts = [...shifts, n];
-  persist();
-  notify();
+export async function addShift(shift: ShiftDefinition) {
+  const response = await fetch('/api/shifts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(shift),
+  });
+  if (!response.ok) throw new Error(`API /api/shifts failed: ${response.status}`);
+  await bootstrapShifts();
 }
 
-export function removeShift(name: string) {
-  const n = normalizeShiftName(name);
-  const next = shifts.filter((s) => s.toLowerCase() !== n.toLowerCase());
-  shifts = next.length > 0 ? next : [...DEFAULT_SHIFTS];
-  persist();
-  notify();
+export async function removeShift(name: string) {
+  const response = await fetch('/api/shifts', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  if (!response.ok) throw new Error(`API /api/shifts failed: ${response.status}`);
+  await bootstrapShifts();
 }
 
-export function subscribeShifts(fn: Listener) {
-  listeners.add(fn);
-  return () => listeners.delete(fn);
+export function subscribeShifts(listener: Listener) {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
 }
-
