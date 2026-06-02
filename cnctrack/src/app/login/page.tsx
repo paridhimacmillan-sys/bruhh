@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation';
+import { AuthError } from 'next-auth';
 import { auth, signIn } from '@/auth';
 
 type Props = {
@@ -10,7 +11,14 @@ async function loginWithCredentials(formData: FormData) {
   const identifier = String(formData.get('identifier') ?? '');
   const password = String(formData.get('password') ?? '');
   const callbackUrl = String(formData.get('callbackUrl') ?? '/');
-  await signIn('credentials', { identifier, password, redirectTo: callbackUrl });
+  try {
+    await signIn('credentials', { identifier, password, redirectTo: callbackUrl });
+  } catch (error) {
+    if (error instanceof AuthError) {
+      redirect(`/login?error=${encodeURIComponent(error.type)}`);
+    }
+    throw error;
+  }
 }
 
 export default async function LoginPage({ searchParams }: Props) {
@@ -60,7 +68,7 @@ export default async function LoginPage({ searchParams }: Props) {
         </a>
 
         {params.error ? (
-          <p className="text-xs text-danger">Login failed. Please check credentials or try another account.</p>
+          <p className="text-xs text-danger">Login failed. Check your credentials or choose the Google account used in Rejection Mapper.</p>
         ) : null}
       </div>
     </main>
