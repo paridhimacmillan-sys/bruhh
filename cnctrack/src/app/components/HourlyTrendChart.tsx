@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { getDashboardData, subscribe } from '@/lib/store';
 import { getTodayISOLocal } from '@/lib/date';
+import { getDashboardShift, subscribeDashboardShift } from '@/lib/dashboardFilters';
 
 const CustomTooltip = ({ active, payload, label }: any) => {
   if (!active || !payload?.length) return null;
@@ -29,13 +30,17 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 };
 
 export default function HourlyTrendChart() {
-  const [data, setData] = useState(() => getDashboardData(getTodayISOLocal(), 'A').hourlyTrend);
+  const [data, setData] = useState(() => getDashboardData(getTodayISOLocal(), getDashboardShift()).hourlyTrend);
+  const [shift, setShift] = useState(() => getDashboardShift());
 
   useEffect(() => {
-    const unsub = subscribe(() => {
-      setData(getDashboardData(getTodayISOLocal(), 'A').hourlyTrend);
-    });
-    return unsub;
+    const refresh = () => {
+      setShift(getDashboardShift());
+      setData(getDashboardData(getTodayISOLocal(), getDashboardShift()).hourlyTrend);
+    };
+    const unsubStore = subscribe(refresh);
+    const unsubShift = subscribeDashboardShift(refresh);
+    return () => { unsubStore(); unsubShift(); };
   }, []);
 
   const maxTarget = Math.max(...data.map((d) => d.target), 0);
@@ -45,7 +50,7 @@ export default function HourlyTrendChart() {
       <div className="flex items-center justify-between mb-4">
         <div>
           <h3 className="text-sm font-semibold text-foreground">Hourly Production Trend</h3>
-          <p className="text-xs text-muted-foreground mt-0.5">All active machines combined — Shift A</p>
+          <p className="text-xs text-muted-foreground mt-0.5">All active machines combined - {shift === 'all' ? 'all shifts' : `Shift ${shift}`}</p>
         </div>
         <div className="flex items-center gap-4 text-xs">
           <span className="flex items-center gap-1.5">
@@ -100,3 +105,4 @@ export default function HourlyTrendChart() {
     </div>
   );
 }
+
