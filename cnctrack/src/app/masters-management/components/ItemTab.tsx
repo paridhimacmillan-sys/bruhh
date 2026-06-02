@@ -87,11 +87,16 @@ export default function ItemTab() {
         : b.itemName.localeCompare(a.itemName);
     });
 
-  const handleSave = (data: Partial<Item>) => {
+  const handleSave = async (data: Partial<Item>) => {
     if (!access.isAdmin) { toast.error('Admin access required'); return; }
     if (editItem) {
-      updateItem(editItem.id, data);
-      toast.success(`${data.itemName} updated`);
+      try {
+        await updateItem(editItem.id, data);
+        toast.success(`${data.itemName} updated`);
+      } catch {
+        toast.error('Item could not be updated');
+        return;
+      }
     } else {
       const newItem: Item = {
         id: `item-${Date.now()}`,
