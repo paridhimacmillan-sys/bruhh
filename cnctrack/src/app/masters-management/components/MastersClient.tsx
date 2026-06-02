@@ -3,15 +3,17 @@ import React, { useState } from 'react';
 import MachineTab from './MachineTab';
 import ItemTab from './ItemTab';
 import ShiftTab from './ShiftTab';
+import OperatorTab from './OperatorTab';
 
 const TABS = [
   { key: 'tab-machines', label: 'Machine Master', id: 'machines' },
   { key: 'tab-items', label: 'Item Master', id: 'items' },
   { key: 'tab-shifts', label: 'Shift Master', id: 'shifts' },
+  { key: 'tab-operators', label: 'Shift Operator', id: 'operators' },
 ];
 
 export default function MastersClient() {
-  const [activeTab, setActiveTab] = useState<'machines' | 'items' | 'shifts'>('machines');
+  const [activeTab, setActiveTab] = useState<'machines' | 'items' | 'shifts' | 'operators'>('machines');
 
   return (
     <div className="space-y-6">
@@ -31,7 +33,7 @@ export default function MastersClient() {
               key={tab.key}
               role="tab"
               aria-selected={activeTab === tab.id}
-              onClick={() => setActiveTab(tab.id as 'machines' | 'items' | 'shifts')}
+              onClick={() => setActiveTab(tab.id as 'machines' | 'items' | 'shifts' | 'operators')}
               className={`px-5 py-2.5 text-sm font-semibold border-b-2 transition-colors -mb-px ${
                 activeTab === tab.id
                   ? 'border-primary text-primary' :'border-transparent text-muted-foreground hover:text-foreground hover:border-border'
@@ -45,7 +47,7 @@ export default function MastersClient() {
 
       {/* Tab content */}
       <div className="fade-in">
-        {activeTab === 'machines' ? <MachineTab /> : activeTab === 'items' ? <ItemTab /> : <ShiftTab />}
+        {activeTab === 'machines' ? <MachineTab /> : activeTab === 'items' ? <ItemTab /> : activeTab === 'shifts' ? <ShiftTab /> : <OperatorTab />}
       </div>
     </div>
   );
