@@ -4,19 +4,22 @@ import { AlertTriangle, Clock } from 'lucide-react';
 import StatusBadge from '@/components/ui/StatusBadge';
 import { getMachines, getItems, getDashboardData, subscribe } from '@/lib/store';
 import { getTodayISOLocal } from '@/lib/date';
+import { getDashboardShift, subscribeDashboardShift } from '@/lib/dashboardFilters';
 
 export default function MachineStatusTable() {
   const [machines, setMachines] = useState(() => getMachines());
   const [items, setItems] = useState(() => getItems());
-  const [machineOutput, setMachineOutput] = useState(() => getDashboardData(getTodayISOLocal(), 'A')?.machineOutput);
+  const [machineOutput, setMachineOutput] = useState(() => getDashboardData(getTodayISOLocal(), getDashboardShift())?.machineOutput);
 
   useEffect(() => {
-    const unsub = subscribe(() => {
+    const refresh = () => {
       setMachines(getMachines());
       setItems(getItems());
-      setMachineOutput(getDashboardData(getTodayISOLocal(), 'A')?.machineOutput);
-    });
-    return unsub;
+      setMachineOutput(getDashboardData(getTodayISOLocal(), getDashboardShift())?.machineOutput);
+    };
+    const unsubStore = subscribe(refresh);
+    const unsubShift = subscribeDashboardShift(refresh);
+    return () => { unsubStore(); unsubShift(); };
   }, []);
 
   return (
