@@ -3,6 +3,7 @@ import React, { useState, useRef, useCallback } from 'react';
 import { Upload, FileSpreadsheet, AlertCircle, CheckCircle2, X, Eye, Download } from 'lucide-react';
 import Modal from '@/components/ui/Modal';
 import { getMachines, getItems } from '@/lib/store';
+import { getShiftHours } from '@/lib/shifts';
 import { GridRow } from './ProductionEntryClient';
 
 type Shift = string;
@@ -74,7 +75,8 @@ async function parseFile(file: File): Promise<Record<string, string>[]> {
 function validateRows(
   rawData: Record<string, string>[],
   mapping: ColumnMapping,
-  existingMachineNumbers: Set<string>
+  existingMachineNumbers: Set<string>,
+  hourCount: number
 ): ParsedRow[] {
   const machines = getMachines();
   const items = getItems();
@@ -85,9 +87,9 @@ function validateRows(
     const rawItem = (row[mapping.itemCol] ?? '').trim();
     const rawOperator = (row[mapping.operatorCol] ?? '').trim();
 
-    // Detect hour columns: H1..H8 or prefix+1..prefix+8
+    // Detect one hour column for each configured hour in the selected shift.
     const rawHours: string[] = [];
-    for (let i = 1; i <= 8; i++) {
+    for (let i = 1; i <= hourCount; i++) {
       const key = `${mapping.hourPrefix}${i}`;
       const altKey = `H${i}`;
       rawHours.push(row[key] ?? row[altKey] ?? '0');
@@ -108,7 +110,7 @@ function validateRows(
     // Resolve item
     const item = items.find(
       (i) => i.itemName.toLowerCase().includes(rawItem.toLowerCase()) ||
-             rawItem.toLowerCase().includes(i.itemName.split(' — ')[0].toLowerCase())
+             rawItem.toLowerCase().includes(i.itemName.split(' â€” ')[0].toLowerCase())
     );
     if (!rawItem) {
       errors.push('Item column is empty');
@@ -183,7 +185,7 @@ export default function ImportModal({ open, onClose, onImport, date, shift }: Pr
       const rawData = await parseFile(file);
       // Get existing machine numbers for duplicate detection
       const existingMachineNums = new Set<string>();
-      const validated = validateRows(rawData, mapping, existingMachineNums);
+      const validated = validateRows(rawData, mapping, existingMachineNums, getShiftHours(shift).length);
       setParsed(validated);
     } catch (err) {
       setParsed([]);
@@ -198,9 +200,11 @@ export default function ImportModal({ open, onClose, onImport, date, shift }: Pr
 
   const handleConfirmImport = () => {
     const machines = getMachines();
+    const items = getItems();
     const gridRows: GridRow[] = validRows.map((r) => {
       const machine = machines.find((m) => m.id === r.resolvedMachineId);
-      const rate = machine?.expectedPerHour ?? 60;
+      const item = items.find((candidate) => candidate.id === r.resolvedItemId);
+      const rate = Number(item?.rates.find((override) => override.machineId === machine?.id)?.rate ?? item?.defaultRate ?? machine?.expectedPerHour ?? 60);
       return {
         machineId: r.resolvedMachineId!,
         itemId: r.resolvedItemId!,
@@ -231,10 +235,11 @@ export default function ImportModal({ open, onClose, onImport, date, shift }: Pr
   const downloadTemplate = () => {
     const machines = getMachines();
     const items = getItems();
-    const header = 'Machine,Item,Operator,H1,H2,H3,H4,H5,H6,H7,H8';
+    const hourCount = getShiftHours(shift).length;
+    const header = ['Machine', 'Item', 'Operator', ...Array.from({ length: hourCount }, (_, index) => `H${index + 1}`)].join(',');
     const example = machines.slice(0, 2).map((m) => {
       const item = items.find((i) => m.assignedItems?.includes(i.id)) ?? items[0];
-      return `${m.machineNumber},${item?.itemName?.split(' — ')[0] ?? 'Item Name'},,0,0,0,0,0,0,0,0`;
+      return [m.machineNumber, item?.itemName?.split(' - ')[0] ?? 'Item Name', '', ...Array.from({ length: hourCount }, () => '0')].join(',');
     });
     const csv = [header, ...example].join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
@@ -254,7 +259,7 @@ export default function ImportModal({ open, onClose, onImport, date, shift }: Pr
       subtitle={
         step === 'upload' ?'Upload an Excel (.xlsx) or CSV file'
           : step === 'preview'
-          ? `Preview — ${parsed.length} rows parsed`
+          ? `Preview â€” ${parsed.length} rows parsed`
           : 'Validating file...'
       }
       size="xl"
@@ -385,7 +390,7 @@ export default function ImportModal({ open, onClose, onImport, date, shift }: Pr
               ))}
             </div>
             <p className="text-xs text-muted-foreground mt-2">
-              Hour columns are auto-detected as H1–H8 or {mapping.hourPrefix}1–{mapping.hourPrefix}8. Machine numbers must match master exactly.
+              Hour columns are auto-detected as H1â€“H8 or {mapping.hourPrefix}1â€“{mapping.hourPrefix}8. Machine numbers must match master exactly.
             </p>
           </div>
 
@@ -458,7 +463,7 @@ export default function ImportModal({ open, onClose, onImport, date, shift }: Pr
                     <th className="text-left px-3 py-2 font-semibold text-muted-foreground">Machine</th>
                     <th className="text-left px-3 py-2 font-semibold text-muted-foreground">Item</th>
                     <th className="text-left px-3 py-2 font-semibold text-muted-foreground">Operator</th>
-                    {Array.from({ length: 8 }, (_, i) => (
+                    {Array.from({ length: getShiftHours(shift).length }, (_, i) => (
                       <th key={`prev-h-${i}`} className="text-center px-2 py-2 font-semibold text-muted-foreground">H{i + 1}</th>
                     ))}
                     <th className="text-center px-3 py-2 font-semibold text-muted-foreground">Status</th>
@@ -477,10 +482,10 @@ export default function ImportModal({ open, onClose, onImport, date, shift }: Pr
                     >
                       <td className="px-3 py-2 font-mono-nums font-semibold text-foreground">{row.rawMachine}</td>
                       <td className="px-3 py-2 text-muted-foreground truncate max-w-[120px]">{row.rawItem}</td>
-                      <td className="px-3 py-2 text-muted-foreground truncate max-w-[100px]">{row.rawOperator || '—'}</td>
+                      <td className="px-3 py-2 text-muted-foreground truncate max-w-[100px]">{row.rawOperator || 'â€”'}</td>
                       {row.rawHours.map((h, hi) => (
                         <td key={`ph-${idx}-${hi}`} className="px-2 py-2 text-center font-mono-nums text-foreground">
-                          {h === '0' || h === '' ? <span className="text-muted-foreground/40">—</span> : h}
+                          {h === '0' || h === '' ? <span className="text-muted-foreground/40">â€”</span> : h}
                         </td>
                       ))}
                       <td className="px-3 py-2 text-center">
@@ -519,7 +524,7 @@ export default function ImportModal({ open, onClose, onImport, date, shift }: Pr
                 <div key={`err-detail-${idx}`} className="ml-4">
                   <p className="text-xs font-medium text-foreground">{row.rawMachine} / {row.rawItem}</p>
                   {row.errors.map((err, ei) => (
-                    <p key={`err-msg-${idx}-${ei}`} className="text-xs text-danger/80 ml-2">• {err}</p>
+                    <p key={`err-msg-${idx}-${ei}`} className="text-xs text-danger/80 ml-2">â€¢ {err}</p>
                   ))}
                 </div>
               ))}
@@ -530,7 +535,7 @@ export default function ImportModal({ open, onClose, onImport, date, shift }: Pr
             <div className="warning-card p-3 rounded-md">
               <p className="text-xs font-semibold text-warning flex items-center gap-1.5">
                 <AlertCircle size={12} />
-                {dupRows.length} duplicate row{dupRows.length > 1 ? 's' : ''} detected and skipped — same machine/item combination appears more than once
+                {dupRows.length} duplicate row{dupRows.length > 1 ? 's' : ''} detected and skipped â€” same machine/item combination appears more than once
               </p>
             </div>
           )}
