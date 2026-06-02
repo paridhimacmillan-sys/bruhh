@@ -1,20 +1,32 @@
 'use client';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { RefreshCw, Calendar, ChevronDown } from 'lucide-react';
 import { getTodayISOLocal } from '@/lib/date';
+import { getShifts, subscribeShifts } from '@/lib/shifts';
+import { getDashboardShift, setDashboardShift } from '@/lib/dashboardFilters';
 
-const SHIFTS = ['All Shifts', 'Shift A', 'Shift B', 'Shift C'];
 const TODAY = getTodayISOLocal();
 const DATES = [`${TODAY} (Today)`];
 
 export default function DashboardHeader() {
-  const [shift, setShift] = useState('Shift A');
+  const [shifts, setShifts] = useState(() => getShifts());
+  const [shift, setShift] = useState(() => getDashboardShift());
   const [refreshing, setRefreshing] = useState(false);
 
   const handleRefresh = () => {
     setRefreshing(true);
     setTimeout(() => setRefreshing(false), 1200);
   };
+
+  useEffect(() => subscribeShifts(() => {
+    const next = getShifts();
+    setShifts(next);
+    setShift((current) => {
+      const fallback = current === 'all' || next.includes(current) ? current : 'all';
+      setDashboardShift(fallback);
+      return fallback;
+    });
+  }), []);
 
   return (
     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -43,11 +55,14 @@ export default function DashboardHeader() {
         <div className="relative">
           <select
             value={shift}
-            onChange={(e) => setShift(e?.target?.value)}
+            onChange={(e) => {
+              setShift(e.target.value);
+              setDashboardShift(e.target.value);
+            }}
             className="appearance-none pl-3 pr-8 py-2 text-sm border border-border rounded-md bg-card text-foreground font-medium focus:outline-none focus:ring-2 focus:ring-ring cursor-pointer"
           >
-            {SHIFTS?.map((s) => (
-              <option key={`shift-${s}`} value={s}>{s}</option>
+            {['all', ...shifts].map((s) => (
+              <option key={`shift-${s}`} value={s}>{s === 'all' ? 'All Shifts' : `Shift ${s}`}</option>
             ))}
           </select>
           <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
