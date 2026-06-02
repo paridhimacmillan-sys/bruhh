@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 import { getMachines, getItems, getEntries, subscribe } from '@/lib/store';
 import { ProductionEntry, Machine, Item } from '@/lib/mockData';
-import { getShifts, subscribeShifts } from '@/lib/shifts';
+import { getShiftHours, getShifts, subscribeShifts } from '@/lib/shifts';
 
 type Shift = string;
 
@@ -129,7 +129,9 @@ function EntryDetailRow({
   const eff = entry.totalExpected > 0 ? Math.round((entry.totalActual / entry.totalExpected) * 100) : 0;
   const loggedHours = entry.entries.filter((e) => e.actual > 0).length || 1;
   const avgPerHour = Math.round(entry.totalActual / loggedHours);
-  const shiftHours = SHIFT_HOURS[entry.shift as Shift] ?? SHIFT_HOURS.A;
+  const shiftHours = getShiftHours(entry.shift).length > 0
+    ? getShiftHours(entry.shift)
+    : (SHIFT_HOURS[entry.shift as Shift] ?? SHIFT_HOURS.A);
 
   return (
     <>
