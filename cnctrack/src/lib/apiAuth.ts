@@ -15,6 +15,7 @@ export async function requireAdmin(): Promise<boolean> {
   const session = await auth();
   const email = session?.user?.email?.toLowerCase();
   if (!email) return false;
+  if ((session.user as { role?: string }).role === 'admin') return true;
 
   const adminEmails = parseAdminEmails();
   if (adminEmails.has(email)) return true;
