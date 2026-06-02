@@ -13,12 +13,6 @@ async function loginWithCredentials(formData: FormData) {
   await signIn('credentials', { identifier, password, redirectTo: callbackUrl });
 }
 
-async function loginWithGoogle(formData: FormData) {
-  'use server';
-  const callbackUrl = String(formData.get('callbackUrl') ?? '/');
-  await signIn('google', { redirectTo: callbackUrl });
-}
-
 export default async function LoginPage({ searchParams }: Props) {
   const session = await auth();
   const params = await searchParams;
@@ -58,15 +52,12 @@ export default async function LoginPage({ searchParams }: Props) {
           </button>
         </form>
 
-        <form action={loginWithGoogle}>
-          <input type="hidden" name="callbackUrl" value={callbackUrl} />
-          <button
-            type="submit"
-            className="inline-flex w-full items-center justify-center rounded-md border border-border px-4 py-2.5 text-sm font-semibold hover:bg-muted transition-colors"
-          >
-            Continue with Google
-          </button>
-        </form>
+        <a
+          href={`/api/login/google?callbackUrl=${encodeURIComponent(callbackUrl)}`}
+          className="inline-flex w-full items-center justify-center rounded-md border border-border px-4 py-2.5 text-sm font-semibold hover:bg-muted transition-colors"
+        >
+          Continue with Google
+        </a>
 
         {params.error ? (
           <p className="text-xs text-danger">Login failed. Please check credentials or try another account.</p>
