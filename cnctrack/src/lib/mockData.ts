@@ -32,7 +32,7 @@ export interface Item {
 }
 
 export interface HourlyEntry {
-  hour: number; // 1-8 per shift
+  hour: number; // Position inside the configured shift duration.
   actual: number;
   expected: number;
   closingReading?: number | null;
