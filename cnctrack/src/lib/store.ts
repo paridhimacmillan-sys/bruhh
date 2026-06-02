@@ -140,7 +140,7 @@ export async function updateItem(id: string, data: Partial<Item>) {
   items = items.map((i) => (i.id === id ? { ...i, ...data } : i));
   notify();
   saveLocalSnapshot();
-  if (dbReady) await api(`/api/items/${id}`, { method: 'PATCH', body: JSON.stringify(data) }).catch(console.error);
+  if (dbReady) await api(`/api/items/${id}`, { method: 'PATCH', body: JSON.stringify(data) });
 }
 
 export async function deleteItem(id: string) {
@@ -164,7 +164,7 @@ export async function upsertEntries(newEntries: ProductionEntry[]) {
   entries = updated;
   notify();
   saveLocalSnapshot();
-  if (dbReady) await api('/api/entries', { method: 'POST', body: JSON.stringify(newEntries) }).catch(console.error);
+  if (dbReady) await api('/api/entries', { method: 'POST', body: JSON.stringify(newEntries) });
 }
 
 export async function fetchEntriesForRange(dateFrom: string, dateTo: string): Promise<ProductionEntry[]> {
@@ -209,7 +209,8 @@ export function getDashboardData(date: string, shift: string | 'all') {
     };
   });
 
-  const hourlyTrend = Array.from({ length: 8 }, (_, i) => {
+  const trendHourCount = filteredEntries.reduce((max, entry) => Math.max(max, entry.entries.length), 0);
+  const hourlyTrend = Array.from({ length: trendHourCount }, (_, i) => {
     const actual = filteredEntries.reduce((s, e) => s + (e.entries[i]?.actual ?? 0), 0);
     const target = filteredEntries.reduce((s, e) => s + (e.entries[i]?.expected ?? 0), 0);
     return { hour: `H${i + 1}`, actual, target };
