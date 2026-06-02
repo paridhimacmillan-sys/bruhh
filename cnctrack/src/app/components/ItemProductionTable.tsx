@@ -2,15 +2,16 @@
 import React, { useState, useEffect } from 'react';
 import { getDashboardData, subscribe } from '@/lib/store';
 import { getTodayISOLocal } from '@/lib/date';
+import { getDashboardShift, subscribeDashboardShift } from '@/lib/dashboardFilters';
 
 export default function ItemProductionTable() {
-  const [itemOutput, setItemOutput] = useState(() => getDashboardData(getTodayISOLocal(), 'A')?.itemOutput);
+  const [itemOutput, setItemOutput] = useState(() => getDashboardData(getTodayISOLocal(), getDashboardShift())?.itemOutput);
 
   useEffect(() => {
-    const unsub = subscribe(() => {
-      setItemOutput(getDashboardData(getTodayISOLocal(), 'A')?.itemOutput);
-    });
-    return unsub;
+    const refresh = () => setItemOutput(getDashboardData(getTodayISOLocal(), getDashboardShift())?.itemOutput);
+    const unsubStore = subscribe(refresh);
+    const unsubShift = subscribeDashboardShift(refresh);
+    return () => { unsubStore(); unsubShift(); };
   }, []);
 
   const activeItems = itemOutput?.filter((i) => i?.totalTarget > 0 || i?.totalActual > 0);
