@@ -12,6 +12,7 @@ import {
 } from 'recharts';
 import { getDashboardData, subscribe } from '@/lib/store';
 import { getTodayISOLocal } from '@/lib/date';
+import { getDashboardShift, subscribeDashboardShift } from '@/lib/dashboardFilters';
 
 const CustomTooltip = ({ active, payload, label }: any) => {
   if (!active || !payload?.length) return null;
@@ -38,13 +39,13 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 };
 
 export default function MachineDailyChart() {
-  const [data, setData] = useState(() => getDashboardData(getTodayISOLocal(), 'A').machineOutput);
+  const [data, setData] = useState(() => getDashboardData(getTodayISOLocal(), getDashboardShift()).machineOutput);
 
   useEffect(() => {
-    const unsub = subscribe(() => {
-      setData(getDashboardData(getTodayISOLocal(), 'A').machineOutput);
-    });
-    return unsub;
+    const refresh = () => setData(getDashboardData(getTodayISOLocal(), getDashboardShift()).machineOutput);
+    const unsubStore = subscribe(refresh);
+    const unsubShift = subscribeDashboardShift(refresh);
+    return () => { unsubStore(); unsubShift(); };
   }, []);
 
   return (
