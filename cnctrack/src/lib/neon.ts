@@ -30,19 +30,58 @@ export interface AlertEvent {
 
 // ─── Machines ────────────────────────────────────────────────────────────────
 
+async function dbEnsureMachines(): Promise<void> {
+  await sql`
+    CREATE TABLE IF NOT EXISTS machines (
+      id TEXT PRIMARY KEY,
+      machine_type TEXT NOT NULL DEFAULT '',
+      machine_number TEXT NOT NULL UNIQUE,
+      machine_target_rate INTEGER NOT NULL DEFAULT 60,
+      status TEXT NOT NULL DEFAULT 'active',
+      current_item TEXT,
+      operator_name TEXT,
+      last_entry_time TEXT,
+      assigned_items JSONB NOT NULL DEFAULT '[]',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+  await sql`ALTER TABLE machines ADD COLUMN IF NOT EXISTS machine_type TEXT NOT NULL DEFAULT ''`;
+  await sql`ALTER TABLE machines ADD COLUMN IF NOT EXISTS machine_number TEXT NOT NULL DEFAULT ''`;
+  await sql`ALTER TABLE machines ADD COLUMN IF NOT EXISTS machine_target_rate INTEGER NOT NULL DEFAULT 60`;
+  await sql`ALTER TABLE machines ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'`;
+  await sql`ALTER TABLE machines ADD COLUMN IF NOT EXISTS current_item TEXT`;
+  await sql`ALTER TABLE machines ADD COLUMN IF NOT EXISTS operator_name TEXT`;
+  await sql`ALTER TABLE machines ADD COLUMN IF NOT EXISTS last_entry_time TEXT`;
+  await sql`ALTER TABLE machines ADD COLUMN IF NOT EXISTS assigned_items JSONB NOT NULL DEFAULT '[]'`;
+  await sql`ALTER TABLE machines ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`;
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_machines_number_unique ON machines(machine_number)`;
+}
+
 export async function dbGetMachines(): Promise<Machine[]> {
+  await dbEnsureMachines();
   const rows = await sql`SELECT * FROM machines ORDER BY machine_number`;
   return rows.map(rowToMachine);
 }
 
 export async function dbAddMachine(m: Machine): Promise<void> {
+  await dbEnsureMachines();
   await sql`
     INSERT INTO machines (id, machine_type, machine_number, machine_target_rate, status, current_item, operator_name, last_entry_time, assigned_items, created_at)
     VALUES (${m.id}, ${m.machineType}, ${m.machineNumber}, ${m.expectedPerHour}, ${m.status}, ${m.currentItem}, ${m.operatorName}, ${m.lastEntryTime}, ${JSON.stringify(m.assignedItems)}, ${m.createdAt})
+    ON CONFLICT (id) DO UPDATE SET
+      machine_type = EXCLUDED.machine_type,
+      machine_number = EXCLUDED.machine_number,
+      machine_target_rate = EXCLUDED.machine_target_rate,
+      status = EXCLUDED.status,
+      current_item = EXCLUDED.current_item,
+      operator_name = EXCLUDED.operator_name,
+      last_entry_time = EXCLUDED.last_entry_time,
+      assigned_items = EXCLUDED.assigned_items
   `;
 }
 
 export async function dbUpdateMachine(id: string, data: Partial<Machine>): Promise<void> {
+  await dbEnsureMachines();
   const m = data as Partial<Machine>;
   await sql`
     UPDATE machines SET
@@ -59,24 +98,54 @@ export async function dbUpdateMachine(id: string, data: Partial<Machine>): Promi
 }
 
 export async function dbDeleteMachine(id: string): Promise<void> {
+  await dbEnsureMachines();
   await sql`DELETE FROM machines WHERE id = ${id}`;
 }
 
 // ─── Items ───────────────────────────────────────────────────────────────────
 
+async function dbEnsureItems(): Promise<void> {
+  await sql`
+    CREATE TABLE IF NOT EXISTS items (
+      id TEXT PRIMARY KEY,
+      item_name TEXT NOT NULL DEFAULT '',
+      default_rate INTEGER NOT NULL DEFAULT 60,
+      rates JSONB NOT NULL DEFAULT '[]',
+      status TEXT NOT NULL DEFAULT 'active',
+      unit TEXT NOT NULL DEFAULT 'pcs/hr',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+  await sql`ALTER TABLE items ADD COLUMN IF NOT EXISTS item_name TEXT NOT NULL DEFAULT ''`;
+  await sql`ALTER TABLE items ADD COLUMN IF NOT EXISTS default_rate INTEGER NOT NULL DEFAULT 60`;
+  await sql`ALTER TABLE items ADD COLUMN IF NOT EXISTS rates JSONB NOT NULL DEFAULT '[]'`;
+  await sql`ALTER TABLE items ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'`;
+  await sql`ALTER TABLE items ADD COLUMN IF NOT EXISTS unit TEXT NOT NULL DEFAULT 'pcs/hr'`;
+  await sql`ALTER TABLE items ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`;
+}
+
 export async function dbGetItems(): Promise<Item[]> {
+  await dbEnsureItems();
   const rows = await sql`SELECT * FROM items ORDER BY item_name`;
   return rows.map(rowToItem);
 }
 
 export async function dbAddItem(item: Item): Promise<void> {
+  await dbEnsureItems();
   await sql`
     INSERT INTO items (id, item_name, default_rate, rates, status, unit, created_at)
     VALUES (${item.id}, ${item.itemName}, ${item.defaultRate}, ${JSON.stringify(item.rates)}, ${item.status}, ${item.unit}, ${item.createdAt})
+    ON CONFLICT (id) DO UPDATE SET
+      item_name = EXCLUDED.item_name,
+      default_rate = EXCLUDED.default_rate,
+      rates = EXCLUDED.rates,
+      status = EXCLUDED.status,
+      unit = EXCLUDED.unit
   `;
 }
 
 export async function dbUpdateItem(id: string, data: Partial<Item>): Promise<void> {
+  await dbEnsureItems();
   const i = data as Partial<Item>;
   await sql`
     UPDATE items SET
@@ -90,6 +159,7 @@ export async function dbUpdateItem(id: string, data: Partial<Item>): Promise<voi
 }
 
 export async function dbDeleteItem(id: string): Promise<void> {
+  await dbEnsureItems();
   await sql`DELETE FROM items WHERE id = ${id}`;
 }
 
