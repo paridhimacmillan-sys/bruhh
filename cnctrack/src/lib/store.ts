@@ -23,6 +23,13 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
       ...(init?.headers ?? {}),
     },
   });
+  if (res.status === 401) {
+    // Session is stale — redirect immediately regardless of where in the app they are.
+    bootstrapError = 'SESSION_INVALID';
+    notify();
+    window.location.href = '/api/auth/signin?error=SessionExpired';
+    throw new Error('SESSION_INVALID');
+  }
   if (!res.ok) throw new Error(`API ${url} failed: ${res.status}`);
   return res.json() as Promise<T>;
 }
@@ -37,6 +44,10 @@ let items: Item[] = [...INITIAL_ITEMS];
 let entries: ProductionEntry[] = [...INITIAL_ENTRIES];
 let dbReady = false;
 let bootstrapPromise: Promise<void> | null = null;
+let bootstrapError: string | null = null;
+
+export function getBootstrapError(): string | null { return bootstrapError; }
+export function isDbReady(): boolean { return dbReady; }
 
 export async function refreshStore(): Promise<void> {
   const data = await api<{ machines: Machine[]; items: Item[]; entries: ProductionEntry[] }>(
@@ -49,12 +60,17 @@ export async function refreshStore(): Promise<void> {
   items = data.items;
   entries = data.entries;
   dbReady = true;
+  bootstrapError = null;
   notify();
 }
 
 export async function bootstrapStore(): Promise<void> {
   if (bootstrapPromise) return bootstrapPromise;
   bootstrapPromise = refreshStore().catch((err) => {
+    if (bootstrapError !== 'SESSION_INVALID') {
+      bootstrapError = err?.message ?? 'Failed to load data';
+    }
+    bootstrapPromise = null; // allow retry on next call
     notify();
     console.warn('[MachineTrack] API bootstrap failed:', err);
   });
