@@ -1,22 +1,27 @@
 import { NextResponse } from 'next/server';
-import { dbGetEntries, dbGetItems, dbGetMachines } from '@/lib/neon';
+import { dbAdoptLegacyOrganizationData, dbGetEntries, dbGetItems, dbGetMachines } from '@/lib/neon';
+import { requireOrganizationId } from '@/lib/apiAuth';
 
 export async function GET() {
-  try {
-    const [machines, items, entries] = await Promise.all([
-      dbGetMachines(),
-      dbGetItems(),
-      dbGetEntries(),
-    ]);
-    return NextResponse.json({ machines, items, entries });
-  } catch (err) {
-    return NextResponse.json(
-      {
-        error: 'bootstrap_failed',
-        message: err instanceof Error ? err.message : 'Failed to load bootstrap data',
-      },
-      { status: 500 }
-    );
+  const organizationId = await requireOrganizationId();
+  if (!organizationId) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+  await dbAdoptLegacyOrganizationData(organizationId);
+  const [machinesResult, itemsResult, entriesResult] = await Promise.allSettled([
+    dbGetMachines(organizationId),
+    dbGetItems(organizationId),
+    dbGetEntries({ organizationId }),
+  ]);
+
+  return NextResponse.json({
+    machines: machinesResult.status === 'fulfilled' ? machinesResult.value : [],
+    items: itemsResult.status === 'fulfilled' ? itemsResult.value : [],
+    entries: entriesResult.status === 'fulfilled' ? entriesResult.value : [],
+    errors: {
+      machines: machinesResult.status === 'rejected' ? String(machinesResult.reason) : null,
+      items: itemsResult.status === 'rejected' ? String(itemsResult.reason) : null,
+      entries: entriesResult.status === 'rejected' ? String(entriesResult.reason) : null,
+    },
+  });
 }
-   
