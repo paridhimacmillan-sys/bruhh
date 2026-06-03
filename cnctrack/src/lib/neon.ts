@@ -36,7 +36,7 @@ async function dbEnsureMachines(): Promise<void> {
       id TEXT PRIMARY KEY,
       machine_type TEXT NOT NULL DEFAULT '',
       machine_number TEXT NOT NULL UNIQUE,
-      machine_target_rate INTEGER NOT NULL DEFAULT 60,
+      machine_target_rate INTEGER NOT NULL,
       status TEXT NOT NULL DEFAULT 'active',
       current_item TEXT,
       operator_name TEXT,
@@ -47,7 +47,8 @@ async function dbEnsureMachines(): Promise<void> {
   `;
   await sql`ALTER TABLE machines ADD COLUMN IF NOT EXISTS machine_type TEXT NOT NULL DEFAULT ''`;
   await sql`ALTER TABLE machines ADD COLUMN IF NOT EXISTS machine_number TEXT NOT NULL DEFAULT ''`;
-  await sql`ALTER TABLE machines ADD COLUMN IF NOT EXISTS machine_target_rate INTEGER NOT NULL DEFAULT 60`;
+  await sql`ALTER TABLE machines ADD COLUMN IF NOT EXISTS machine_target_rate INTEGER`;
+  await sql`ALTER TABLE machines ALTER COLUMN machine_target_rate DROP DEFAULT`;
   await sql`ALTER TABLE machines ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'`;
   await sql`ALTER TABLE machines ADD COLUMN IF NOT EXISTS current_item TEXT`;
   await sql`ALTER TABLE machines ADD COLUMN IF NOT EXISTS operator_name TEXT`;
@@ -109,7 +110,7 @@ async function dbEnsureItems(): Promise<void> {
     CREATE TABLE IF NOT EXISTS items (
       id TEXT PRIMARY KEY,
       item_name TEXT NOT NULL DEFAULT '',
-      default_rate INTEGER NOT NULL DEFAULT 60,
+      default_rate INTEGER NOT NULL,
       rates JSONB NOT NULL DEFAULT '[]',
       status TEXT NOT NULL DEFAULT 'active',
       unit TEXT NOT NULL DEFAULT 'pcs/hr',
@@ -117,7 +118,8 @@ async function dbEnsureItems(): Promise<void> {
     )
   `;
   await sql`ALTER TABLE items ADD COLUMN IF NOT EXISTS item_name TEXT NOT NULL DEFAULT ''`;
-  await sql`ALTER TABLE items ADD COLUMN IF NOT EXISTS default_rate INTEGER NOT NULL DEFAULT 60`;
+  await sql`ALTER TABLE items ADD COLUMN IF NOT EXISTS default_rate INTEGER`;
+  await sql`ALTER TABLE items ALTER COLUMN default_rate DROP DEFAULT`;
   await sql`ALTER TABLE items ADD COLUMN IF NOT EXISTS rates JSONB NOT NULL DEFAULT '[]'`;
   await sql`ALTER TABLE items ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'`;
   await sql`ALTER TABLE items ADD COLUMN IF NOT EXISTS unit TEXT NOT NULL DEFAULT 'pcs/hr'`;
@@ -333,7 +335,7 @@ function rowToMachine(r: any): Machine {
     id: r.id,
     machineType: r.machine_type,
     machineNumber: r.machine_number,
-    expectedPerHour: Number(r.machine_target_rate ?? 60),
+    expectedPerHour: Number(r.machine_target_rate ?? 0),
     status: r.status,
     currentItem: r.current_item,
     operatorName: r.operator_name,
@@ -348,7 +350,7 @@ function rowToItem(r: any): Item {
   return {
     id: r.id,
     itemName: r.item_name,
-    defaultRate: r.default_rate,
+    defaultRate: Number(r.default_rate ?? 0),
     rates: r.rates ?? [],
     status: r.status,
     unit: r.unit,
