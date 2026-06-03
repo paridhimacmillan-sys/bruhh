@@ -11,44 +11,8 @@ import {
 
 type Listener = () => void;
 const listeners: Set<Listener> = new Set();
-const LOCAL_KEY = 'cnctrack.store.v1';
-
 function notify() {
   listeners.forEach((l) => l());
-}
-
-function canUseLocalStorage(): boolean {
-  return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
-}
-
-function saveLocalSnapshot() {
-  if (!canUseLocalStorage() || dbReady) return;
-  try {
-    window.localStorage.setItem(
-      LOCAL_KEY,
-      JSON.stringify({ machines, items, entries })
-    );
-  } catch (err) {
-    console.warn('[MachineTrack] Failed to save local snapshot:', err);
-  }
-}
-
-function loadLocalSnapshot() {
-  if (!canUseLocalStorage()) return;
-  try {
-    const raw = window.localStorage.getItem(LOCAL_KEY);
-    if (!raw) return;
-    const parsed = JSON.parse(raw) as {
-      machines?: Machine[];
-      items?: Item[];
-      entries?: ProductionEntry[];
-    };
-    if (Array.isArray(parsed.machines) && parsed.machines.length > 0) machines = parsed.machines;
-    if (Array.isArray(parsed.items) && parsed.items.length > 0) items = parsed.items;
-    if (Array.isArray(parsed.entries) && parsed.entries.length > 0) entries = parsed.entries;
-  } catch (err) {
-    console.warn('[MachineTrack] Failed to load local snapshot:', err);
-  }
 }
 
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
@@ -74,85 +38,80 @@ let entries: ProductionEntry[] = [...INITIAL_ENTRIES];
 let dbReady = false;
 let bootstrapPromise: Promise<void> | null = null;
 
+export async function refreshStore(): Promise<void> {
+  const data = await api<{ machines: Machine[]; items: Item[]; entries: ProductionEntry[] }>(
+    '/api/bootstrap',
+    { cache: 'no-store' }
+  );
+  // Neon is the single source of truth. Replacing empty arrays matters:
+  // otherwise different browsers can retain different stale inventories.
+  machines = data.machines;
+  items = data.items;
+  entries = data.entries;
+  dbReady = true;
+  notify();
+}
+
 export async function bootstrapStore(): Promise<void> {
   if (bootstrapPromise) return bootstrapPromise;
-  bootstrapPromise = (async () => {
-    try {
-      const data = await api<{ machines: Machine[]; items: Item[]; entries: ProductionEntry[] }>(
-        '/api/bootstrap',
-        { cache: 'no-store' }
-      );
-      const hasDbData =
-        data.machines.length > 0 || data.items.length > 0 || data.entries.length > 0;
-
-      if (hasDbData) {
-        if (data.machines.length > 0) machines = data.machines;
-        if (data.items.length > 0) items = data.items;
-        if (data.entries.length > 0) entries = data.entries;
-      } else {
-        // If DB is empty (fresh deploy), recover from browser snapshot when available.
-        loadLocalSnapshot();
-      }
-      dbReady = true;
-      notify();
-    } catch (err) {
-      loadLocalSnapshot();
-      notify();
-      console.warn('[MachineTrack] API bootstrap failed; using local snapshot:', err);
-    }
-  })();
+  bootstrapPromise = refreshStore().catch((err) => {
+    notify();
+    console.warn('[MachineTrack] API bootstrap failed:', err);
+  });
   return bootstrapPromise;
 }
 
 export function getMachines(): Machine[] { return machines; }
 
 export async function addMachine(m: Machine) {
+  if (!dbReady) throw new Error('Database is still loading');
+  await api('/api/machines', { method: 'POST', body: JSON.stringify(m) });
   machines = [...machines, m];
   notify();
-  saveLocalSnapshot();
-  if (dbReady) await api('/api/machines', { method: 'POST', body: JSON.stringify(m) }).catch(console.error);
 }
 
 export async function updateMachine(id: string, data: Partial<Machine>) {
+  if (!dbReady) throw new Error('Database is still loading');
+  await api(`/api/machines/${id}`, { method: 'PATCH', body: JSON.stringify(data) });
   machines = machines.map((m) => (m.id === id ? { ...m, ...data } : m));
   notify();
-  saveLocalSnapshot();
-  if (dbReady) await api(`/api/machines/${id}`, { method: 'PATCH', body: JSON.stringify(data) }).catch(console.error);
 }
 
 export async function deleteMachine(id: string) {
+  if (!dbReady) throw new Error('Database is still loading');
+  await api(`/api/machines/${id}`, { method: 'DELETE' });
   machines = machines.filter((m) => m.id !== id);
   notify();
-  saveLocalSnapshot();
-  if (dbReady) await api(`/api/machines/${id}`, { method: 'DELETE' }).catch(console.error);
 }
 
 export function getItems(): Item[] { return items; }
 
 export async function addItem(item: Item) {
+  if (!dbReady) throw new Error('Database is still loading');
+  await api('/api/items', { method: 'POST', body: JSON.stringify(item) });
   items = [...items, item];
   notify();
-  saveLocalSnapshot();
-  if (dbReady) await api('/api/items', { method: 'POST', body: JSON.stringify(item) }).catch(console.error);
 }
 
 export async function updateItem(id: string, data: Partial<Item>) {
+  if (!dbReady) throw new Error('Database is still loading');
+  await api(`/api/items/${id}`, { method: 'PATCH', body: JSON.stringify(data) });
   items = items.map((i) => (i.id === id ? { ...i, ...data } : i));
   notify();
-  saveLocalSnapshot();
-  if (dbReady) await api(`/api/items/${id}`, { method: 'PATCH', body: JSON.stringify(data) });
 }
 
 export async function deleteItem(id: string) {
+  if (!dbReady) throw new Error('Database is still loading');
+  await api(`/api/items/${id}`, { method: 'DELETE' });
   items = items.filter((i) => i.id !== id);
   notify();
-  saveLocalSnapshot();
-  if (dbReady) await api(`/api/items/${id}`, { method: 'DELETE' }).catch(console.error);
 }
 
 export function getEntries(): ProductionEntry[] { return entries; }
 
 export async function upsertEntries(newEntries: ProductionEntry[]) {
+  if (!dbReady) throw new Error('Database is still loading');
+  await api('/api/entries', { method: 'POST', body: JSON.stringify(newEntries) });
   const updated = [...entries];
   newEntries.forEach((ne) => {
     const idx = updated.findIndex(
@@ -163,8 +122,6 @@ export async function upsertEntries(newEntries: ProductionEntry[]) {
   });
   entries = updated;
   notify();
-  saveLocalSnapshot();
-  if (dbReady) await api('/api/entries', { method: 'POST', body: JSON.stringify(newEntries) });
 }
 
 export async function fetchEntriesForRange(dateFrom: string, dateTo: string): Promise<ProductionEntry[]> {
