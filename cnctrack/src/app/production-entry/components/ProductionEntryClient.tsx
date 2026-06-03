@@ -91,7 +91,7 @@ function buildInitialRows(date: string, shift: Shift): GridRow[] {
     const itemId = machine.currentItem ?? (items.find((i) => i.status === 'active')?.id ?? items[0]?.id ?? '');
     const item = items.find((candidate) => candidate.id === itemId);
     const machineSpecificRate = item?.rates.find((override) => override.machineId === machine.id)?.rate;
-    const rate = Number(machineSpecificRate ?? item?.defaultRate ?? machine.expectedPerHour ?? 60);
+    const rate = Number(machineSpecificRate ?? item?.defaultRate ?? machine.expectedPerHour ?? 0);
     const hourCount = getShiftHours(shift).length;
     return {
       machineId: machine.id,
@@ -213,7 +213,7 @@ export default function ProductionEntryClient() {
       const next = [...prev];
       const machine = getMachines().find((candidate) => candidate.id === next[machineIdx].machineId);
       const item = getItems().find((candidate) => candidate.id === itemId);
-      const rate = Number(item?.rates.find((override) => override.machineId === machine?.id)?.rate ?? item?.defaultRate ?? machine?.expectedPerHour ?? 60);
+      const rate = Number(item?.rates.find((override) => override.machineId === machine?.id)?.rate ?? item?.defaultRate ?? machine?.expectedPerHour ?? 0);
       next[machineIdx] = {
         ...next[machineIdx],
         itemId,
