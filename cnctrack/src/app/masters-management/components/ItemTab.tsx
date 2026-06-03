@@ -41,8 +41,9 @@ export default function ItemTab() {
     return errs;
   };
 
-  const handleItemImport = (rows: ImportRow[]) => {
-    rows.forEach((row) => {
+  const handleItemImport = async (rows: ImportRow[]) => {
+    try {
+      await Promise.all(rows.map((row) => {
       const newItem: Item = {
         id: `item-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         itemName: row['itemname'] ?? '',
@@ -52,9 +53,12 @@ export default function ItemTab() {
         unit: 'pcs/hr',
         createdAt: new Date().toISOString().split('T')[0],
       };
-      addItem(newItem);
-    });
-    toast.success(`${rows.length} item${rows.length !== 1 ? 's' : ''} imported successfully`);
+        return addItem(newItem);
+      }));
+      toast.success(`${rows.length} item${rows.length !== 1 ? 's' : ''} imported successfully`);
+    } catch {
+      toast.error('Items could not be imported');
+    }
   };
 
   useEffect(() => {
@@ -107,20 +111,29 @@ export default function ItemTab() {
         unit: 'pcs/hr',
         createdAt: new Date().toISOString().split('T')[0],
       };
-      addItem(newItem);
-      toast.success(`${newItem.itemName} added to Item Master`);
+      try {
+        await addItem(newItem);
+        toast.success(`${newItem.itemName} added to Item Master`);
+      } catch {
+        toast.error('Item could not be saved');
+        return;
+      }
     }
     setAddOpen(false);
     setEditItem(null);
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!access.isAdmin) { toast.error('Admin access required'); return; }
     if (!deleteId) return;
     const it = items.find((x) => x.id === deleteId);
-    deleteItem(deleteId);
-    setDeleteId(null);
-    toast.success(`${it?.itemName ?? 'Item'} removed from master`);
+    try {
+      await deleteItem(deleteId);
+      setDeleteId(null);
+      toast.success(`${it?.itemName ?? 'Item'} removed from master`);
+    } catch {
+      toast.error('Item could not be removed');
+    }
   };
 
   return (
