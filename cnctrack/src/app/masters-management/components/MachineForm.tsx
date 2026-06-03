@@ -8,7 +8,7 @@ const STATUS_OPTIONS = ['active', 'idle', 'maintenance', 'offline'];
 interface MachineFormData {
   machineNumber: string;
   machineType: string;
-  expectedPerHour: number;
+  expectedPerHour?: number;
   status: string;
   operatorName: string;
   assignedItems: string[];
@@ -32,7 +32,7 @@ export default function MachineForm({ initial, items, onSave, onCancel }: Props)
     defaultValues: {
       machineNumber: initial?.machineNumber ?? '',
       machineType: initial?.machineType ?? '',
-      expectedPerHour: initial?.expectedPerHour ?? 60,
+      expectedPerHour: initial?.expectedPerHour ?? undefined,
       status: initial?.status ?? 'active',
       operatorName: initial?.operatorName ?? '',
       assignedItems: initial?.assignedItems ?? [],
@@ -101,7 +101,7 @@ export default function MachineForm({ initial, items, onSave, onCancel }: Props)
                 valueAsNumber: true,
               })}
               className="w-full px-3 py-2 pr-16 text-sm border border-border rounded-md bg-card focus:outline-none focus:ring-2 focus:ring-ring font-mono-nums"
-              placeholder="60"
+              placeholder="e.g. 45"
             />
             <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">pcs/hr</span>
           </div>
