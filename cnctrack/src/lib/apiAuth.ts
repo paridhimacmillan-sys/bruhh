@@ -1,4 +1,5 @@
 import { auth } from '@/auth';
+import { findSharedUserByEmail } from '@/lib/authDb';
 import sql from '@/lib/db';
 
 function parseAdminEmails(): Set<string> {
@@ -27,5 +28,34 @@ export async function requireAdmin(): Promise<boolean> {
     return rows?.[0]?.role === 'admin';
   } catch {
     return false;
+  }
+}
+
+export async function requireOrganizationId(): Promise<number | null> {
+  const session = await auth();
+  const sessionOrg = (session?.user as { organizationId?: unknown } | undefined)?.organizationId;
+  if (typeof sessionOrg === 'number' && Number.isFinite(sessionOrg)) return sessionOrg;
+  if (typeof sessionOrg === 'string' && sessionOrg.trim()) {
+    const parsed = Number(sessionOrg);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+
+  const email = session?.user?.email?.toLowerCase();
+  if (!email) return null;
+  try {
+    const rows = await sql<{ organization_id: number | null }[]>`
+      SELECT organization_id FROM app_users WHERE email = ${email} LIMIT 1
+    `;
+    const localOrganizationId = rows?.[0]?.organization_id ?? null;
+    if (localOrganizationId) return localOrganizationId;
+  } catch {
+    // Fall through to Rejection Mapper's user table below.
+  }
+
+  try {
+    const sharedUser = await findSharedUserByEmail(email);
+    return sharedUser?.organizationId ?? null;
+  } catch {
+    return null;
   }
 }
