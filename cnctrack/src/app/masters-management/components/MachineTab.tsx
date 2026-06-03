@@ -27,20 +27,16 @@ export default function MachineTab() {
   const [statusFilter, setStatusFilter] = useState<'all' | MachineStatus>('all');
   const [importOpen, setImportOpen] = useState(false);
 
-  const MACHINE_TEMPLATE_HEADERS = ['machineNumber', 'machineType', 'expectedPerHour', 'status', 'operatorName'];
+  const MACHINE_TEMPLATE_HEADERS = ['machineNumber', 'machineType', 'status', 'operatorName'];
   const MACHINE_TEMPLATE_SAMPLE = [
-    ['MCH-001', 'Machine Type A', '75', 'active', 'John Doe'] ,
-    ['MCH-002', 'Machine Type B', '120', 'idle', ''] ,
+    ['MCH-001', 'Machine Type A', 'active', 'John Doe'] ,
+    ['MCH-002', 'Machine Type B', 'idle', ''] ,
   ];
 
   const validateMachineRow = (row: ImportRow, index: number): ImportError[] => {
     const errs: ImportError[] = [];
     if (!row['machinenumber']?.trim()) errs.push({ row: index, field: 'machineNumber', message: 'Required' });
     if (!row['machinetype']?.trim()) errs.push({ row: index, field: 'machineType', message: 'Required' });
-    const expected = Number(row['expectedperhour']);
-    if (!row['expectedperhour'] || isNaN(expected) || expected <= 0) {
-      errs.push({ row: index, field: 'expectedPerHour', message: 'Must be a number greater than 0' });
-    }
     const validStatuses = ['active', 'idle', 'maintenance', 'offline'];
     if (row['status'] && !validStatuses.includes(row['status'].toLowerCase())) {
       errs.push({ row: index, field: 'status', message: `Must be one of: ${validStatuses.join(', ')}` });
@@ -55,7 +51,7 @@ export default function MachineTab() {
         id: `machine-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         machineNumber: row['machinenumber'] ?? '',
         machineType: row['machinetype'] ?? '',
-        expectedPerHour: Number(row['expectedperhour']),
+        expectedPerHour: 0,
         status: (row['status']?.toLowerCase() as MachineStatus) || 'active',
         operatorName: row['operatorname']?.trim() || null,
         currentItem: null,
@@ -122,7 +118,7 @@ export default function MachineTab() {
           id: `machine-${Date.now()}`,
           machineType: data.machineType ?? '',
           machineNumber: data.machineNumber ?? '',
-          expectedPerHour: Number(data.expectedPerHour),
+          expectedPerHour: 0,
           status: (data.status as MachineStatus) ?? 'active',
           currentItem: null,
           operatorName: data.operatorName ?? null,
@@ -229,7 +225,6 @@ export default function MachineTab() {
                   </th>
                 ))}
                 <th className="text-left px-3 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Operator</th>
-                <th className="text-right px-3 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Target/hr</th>
                 <th className="text-left px-3 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Assigned Items</th>
                 <th className="text-right px-3 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Last Entry</th>
                 <th className="text-left px-3 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Created</th>
@@ -266,9 +261,6 @@ export default function MachineTab() {
                       </td>
                       <td className="px-3 py-3 text-xs text-muted-foreground">
                         {machine.operatorName ?? <span className="italic text-muted-foreground/60">Unassigned</span>}
-                      </td>
-                      <td className="px-3 py-3 text-right font-mono-nums text-xs text-foreground">
-                        {machine.expectedPerHour}
                       </td>
                       <td className="px-3 py-3">
                         <div className="flex flex-wrap gap-1">
