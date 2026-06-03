@@ -46,8 +46,9 @@ export default function MachineTab() {
     return errs;
   };
 
-  const handleMachineImport = (rows: ImportRow[]) => {
-    rows.forEach((row) => {
+  const handleMachineImport = async (rows: ImportRow[]) => {
+    try {
+      await Promise.all(rows.map((row) => {
       const newM: Machine = {
         id: `machine-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         machineNumber: row['machinenumber'] ?? '',
@@ -60,9 +61,12 @@ export default function MachineTab() {
         assignedItems: [],
         createdAt: new Date().toISOString().split('T')[0],
       };
-      addMachine(newM);
-    });
-    toast.success(`${rows.length} machine${rows.length !== 1 ? 's' : ''} imported successfully`);
+        return addMachine(newM);
+      }));
+      toast.success(`${rows.length} machine${rows.length !== 1 ? 's' : ''} imported successfully`);
+    } catch {
+      toast.error('Machines could not be imported');
+    }
   };
 
   useEffect(() => {
@@ -103,38 +107,47 @@ export default function MachineTab() {
         : String(bv).localeCompare(String(av));
     });
 
-  const handleSave = (data: Partial<Machine>) => {
+  const handleSave = async (data: Partial<Machine>) => {
     if (!access.isAdmin) { toast.error('Admin access required'); return; }
-    if (editMachine) {
-      updateMachine(editMachine.id, data);
-      toast.success(`${data.machineNumber} updated successfully`);
-    } else {
-      const newM: Machine = {
-        id: `machine-${Date.now()}`,
-        machineType: data.machineType ?? '',
-        machineNumber: data.machineNumber ?? '',
-        expectedPerHour: Number(data.expectedPerHour) || 60,
-        status: (data.status as MachineStatus) ?? 'active',
-        currentItem: null,
-        operatorName: data.operatorName ?? null,
-        lastEntryTime: null,
-        assignedItems: data.assignedItems ?? [],
-        createdAt: new Date().toISOString().split('T')[0],
-      };
-      addMachine(newM);
-      toast.success(`${newM.machineNumber} added to Machine Master`);
+    try {
+      if (editMachine) {
+        await updateMachine(editMachine.id, data);
+        toast.success(`${data.machineNumber} updated successfully`);
+      } else {
+        const newM: Machine = {
+          id: `machine-${Date.now()}`,
+          machineType: data.machineType ?? '',
+          machineNumber: data.machineNumber ?? '',
+          expectedPerHour: Number(data.expectedPerHour) || 60,
+          status: (data.status as MachineStatus) ?? 'active',
+          currentItem: null,
+          operatorName: data.operatorName ?? null,
+          lastEntryTime: null,
+          assignedItems: data.assignedItems ?? [],
+          createdAt: new Date().toISOString().split('T')[0],
+        };
+        await addMachine(newM);
+        toast.success(`${newM.machineNumber} added to Machine Master`);
+      }
+    } catch {
+      toast.error('Machine could not be saved');
+      return;
     }
     setAddOpen(false);
     setEditMachine(null);
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!access.isAdmin) { toast.error('Admin access required'); return; }
     if (!deleteId) return;
     const m = machines.find((x) => x.id === deleteId);
-    deleteMachine(deleteId);
-    setDeleteId(null);
-    toast.success(`${m?.machineNumber ?? 'Machine'} removed from master`);
+    try {
+      await deleteMachine(deleteId);
+      setDeleteId(null);
+      toast.success(`${m?.machineNumber ?? 'Machine'} removed from master`);
+    } catch {
+      toast.error('Machine could not be removed');
+    }
   };
 
   const STATUS_OPTIONS: Array<'all' | MachineStatus> = ['all', 'active', 'idle', 'maintenance', 'offline'];
