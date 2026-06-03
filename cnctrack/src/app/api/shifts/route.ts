@@ -1,15 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { dbAddShift, dbDeleteShift, dbGetShifts } from '@/lib/neon';
-import { requireAdmin } from '@/lib/apiAuth';
+import { requireAdmin, requireOrganizationId } from '@/lib/apiAuth';
 
 export async function GET() {
-  return NextResponse.json(await dbGetShifts());
+  const organizationId = await requireOrganizationId();
+  if (!organizationId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  return NextResponse.json(await dbGetShifts(organizationId));
 }
 
 export async function POST(req: NextRequest) {
   if (!(await requireAdmin())) {
     return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
   }
+  const organizationId = await requireOrganizationId();
+  if (!organizationId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const body = await req.json();
   const shift = {
     name: String(body?.name ?? '').trim(),
@@ -19,7 +23,7 @@ export async function POST(req: NextRequest) {
   if (!shift.name || !/^\d{2}:\d{2}$/.test(shift.startTime) || !/^\d{2}:\d{2}$/.test(shift.endTime)) {
     return NextResponse.json({ error: 'Shift name, start time and end time are required' }, { status: 400 });
   }
-  await dbAddShift(shift);
+  await dbAddShift(shift, organizationId);
   return NextResponse.json({ ok: true });
 }
 
@@ -27,10 +31,12 @@ export async function DELETE(req: NextRequest) {
   if (!(await requireAdmin())) {
     return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
   }
+  const organizationId = await requireOrganizationId();
+  if (!organizationId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const name = String((await req.json())?.name ?? '').trim();
   if (!name) {
     return NextResponse.json({ error: 'Shift name is required' }, { status: 400 });
   }
-  await dbDeleteShift(name);
+  await dbDeleteShift(name, organizationId);
   return NextResponse.json({ ok: true });
 }
