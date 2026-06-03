@@ -204,7 +204,7 @@ export default function ImportModal({ open, onClose, onImport, date, shift }: Pr
     const gridRows: GridRow[] = validRows.map((r) => {
       const machine = machines.find((m) => m.id === r.resolvedMachineId);
       const item = items.find((candidate) => candidate.id === r.resolvedItemId);
-      const rate = Number(item?.rates.find((override) => override.machineId === machine?.id)?.rate ?? item?.defaultRate ?? machine?.expectedPerHour ?? 60);
+      const rate = Number(item?.rates.find((override) => override.machineId === machine?.id)?.rate ?? item?.defaultRate ?? machine?.expectedPerHour ?? 0);
       return {
         machineId: r.resolvedMachineId!,
         itemId: r.resolvedItemId!,
