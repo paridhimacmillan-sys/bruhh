@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS machines (
   id              TEXT PRIMARY KEY,
   machine_type    TEXT NOT NULL,
   machine_number  TEXT NOT NULL UNIQUE,
-  machine_target_rate INTEGER NOT NULL DEFAULT 60,
+  machine_target_rate INTEGER NOT NULL,
   status          TEXT NOT NULL DEFAULT 'active'
                     CHECK (status IN ('active','idle','maintenance','offline')),
   current_item    TEXT,
@@ -17,19 +17,23 @@ CREATE TABLE IF NOT EXISTS machines (
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 ALTER TABLE machines
-  ADD COLUMN IF NOT EXISTS machine_target_rate INTEGER NOT NULL DEFAULT 60;
+  ADD COLUMN IF NOT EXISTS machine_target_rate INTEGER;
+ALTER TABLE machines
+  ALTER COLUMN machine_target_rate DROP DEFAULT;
 
 -- ─── Items ──────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS items (
   id           TEXT PRIMARY KEY,
   item_name    TEXT NOT NULL,
-  default_rate INTEGER NOT NULL DEFAULT 60,
+  default_rate INTEGER NOT NULL,
   rates        JSONB NOT NULL DEFAULT '[]',
   status       TEXT NOT NULL DEFAULT 'active'
                  CHECK (status IN ('active','inactive')),
   unit         TEXT NOT NULL DEFAULT 'pcs/hr',
   created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+ALTER TABLE items
+  ALTER COLUMN default_rate DROP DEFAULT;
 
 -- ─── Production Entries ──────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS production_entries (
