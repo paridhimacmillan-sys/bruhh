@@ -32,8 +32,8 @@ export default function ItemTab() {
     const errs: ImportError[] = [];
     if (!row['itemname']?.trim()) errs.push({ row: index, field: 'itemName', message: 'Required' });
     const rate = Number(row['defaultrate']);
-    if (!row['defaultrate'] || isNaN(rate) || rate < 0) {
-      errs.push({ row: index, field: 'defaultRate', message: 'Must be a non-negative number' });
+    if (!row['defaultrate'] || isNaN(rate) || rate <= 0) {
+      errs.push({ row: index, field: 'defaultRate', message: 'Must be greater than 0' });
     }
     if (row['status'] && !['active', 'inactive'].includes(row['status'].toLowerCase())) {
       errs.push({ row: index, field: 'status', message: 'Must be "active" or "inactive"' });
@@ -47,7 +47,7 @@ export default function ItemTab() {
       const newItem: Item = {
         id: `item-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         itemName: row['itemname'] ?? '',
-        defaultRate: Number(row['defaultrate']) || 0,
+        defaultRate: Number(row['defaultrate']),
         rates: [],
         status: (row['status']?.toLowerCase() as 'active' | 'inactive') || 'active',
         unit: 'pcs/hr',
@@ -105,7 +105,7 @@ export default function ItemTab() {
       const newItem: Item = {
         id: `item-${Date.now()}`,
         itemName: data.itemName ?? '',
-        defaultRate: data.defaultRate ?? 0,
+        defaultRate: Number(data.defaultRate),
         rates: data.rates ?? [],
         status: data.status ?? 'active',
         unit: 'pcs/hr',
