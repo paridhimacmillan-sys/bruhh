@@ -33,15 +33,10 @@ export async function requireAdmin(): Promise<boolean> {
 
 export async function requireOrganizationId(): Promise<number | null> {
   const session = await auth();
-  const sessionOrg = (session?.user as { organizationId?: unknown } | undefined)?.organizationId;
-  if (typeof sessionOrg === 'number' && Number.isFinite(sessionOrg)) return sessionOrg;
-  if (typeof sessionOrg === 'string' && sessionOrg.trim()) {
-    const parsed = Number(sessionOrg);
-    if (Number.isFinite(parsed)) return parsed;
-  }
-
   const email = session?.user?.email?.toLowerCase();
   if (!email) return null;
+
+  // 1. Always try the live DB first — JWT can be stale (minted before org was assigned).
   try {
     const rows = await sql<{ organization_id: number | null }[]>`
       SELECT organization_id FROM app_users WHERE email = ${email} LIMIT 1
@@ -49,9 +44,18 @@ export async function requireOrganizationId(): Promise<number | null> {
     const localOrganizationId = rows?.[0]?.organization_id ?? null;
     if (localOrganizationId) return localOrganizationId;
   } catch {
-    // Fall through to Rejection Mapper's user table below.
+    // DB unreachable — fall through and try the JWT cache below.
   }
 
+  // 2. Fall back to the JWT value (avoids a hard failure if app_users DB is momentarily down).
+  const sessionOrg = (session?.user as { organizationId?: unknown } | undefined)?.organizationId;
+  if (typeof sessionOrg === 'number' && Number.isFinite(sessionOrg)) return sessionOrg;
+  if (typeof sessionOrg === 'string' && sessionOrg.trim()) {
+    const parsed = Number(sessionOrg);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+
+  // 3. Last resort: check the shared Rejection Mapper users table.
   try {
     const sharedUser = await findSharedUserByEmail(email);
     return sharedUser?.organizationId ?? null;
