@@ -14,11 +14,13 @@ async function ensureAuthSchema() {
       email text PRIMARY KEY,
       full_name text NOT NULL DEFAULT '',
       role text NOT NULL DEFAULT 'employee',
+      organization_id integer,
       provider text NOT NULL DEFAULT 'local',
       created_at timestamptz NOT NULL DEFAULT now(),
       updated_at timestamptz NOT NULL DEFAULT now()
     )
   `;
+  await sql`ALTER TABLE app_users ADD COLUMN IF NOT EXISTS organization_id integer`;
   await sql`ALTER TABLE app_users ADD COLUMN IF NOT EXISTS username text`;
   await sql`ALTER TABLE app_users ADD COLUMN IF NOT EXISTS password_hash text`;
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_app_users_username ON app_users(lower(username)) WHERE username IS NOT NULL`;
@@ -33,14 +35,15 @@ async function comparePassword(supplied: string, stored: string): Promise<boolea
   return timingSafeEqual(hashedBuf, suppliedBuf);
 }
 
-async function syncCncUser(email: string, name: string | null | undefined, role: string) {
+async function syncCncUser(email: string, name: string | null | undefined, role: string, organizationId: number | null) {
   await ensureAuthSchema();
   await sql`
-    INSERT INTO app_users (email, full_name, role, provider)
-    VALUES (${email.toLowerCase()}, ${name ?? ''}, ${role === 'admin' ? 'admin' : 'employee'}, 'google')
+    INSERT INTO app_users (email, full_name, role, organization_id, provider)
+    VALUES (${email.toLowerCase()}, ${name ?? ''}, ${role === 'admin' ? 'admin' : 'employee'}, ${organizationId}, 'google')
     ON CONFLICT (email) DO UPDATE SET
       full_name = COALESCE(NULLIF(EXCLUDED.full_name, ''), app_users.full_name),
       role = EXCLUDED.role,
+      organization_id = COALESCE(EXCLUDED.organization_id, app_users.organization_id),
       provider = 'google',
       updated_at = now()
   `;
@@ -64,11 +67,14 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         if (!user?.email || !user?.password) return null;
         const ok = await comparePassword(password, String(user.password));
         if (!ok) return null;
+        const role = user.role === 'admin' ? 'admin' : 'employee';
+        await syncCncUser(user.email, user.username, role, user.organizationId ?? null);
         return {
           id: String(user.email),
           email: String(user.email).toLowerCase(),
           name: user.username ? String(user.username) : String(user.email),
-          role: user.role === 'admin' ? 'admin' : 'employee',
+          role,
+          organizationId: user.organizationId ?? null,
         } as any;
       },
     }),
@@ -98,7 +104,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         try {
           const sharedUser = await findSharedUserByEmail(email);
           token.role = sharedUser?.role === 'admin' ? 'admin' : 'employee';
-          await syncCncUser(email, token.name ?? null, String(token.role));
+          (token as any).organizationId = sharedUser?.organizationId ?? null;
+          await syncCncUser(email, token.name ?? null, String(token.role), sharedUser?.organizationId ?? null);
         } catch (error) {
           console.error('[auth] Google profile sync failed:', error);
           token.role = token.role ?? 'employee';
@@ -106,6 +113,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       } else if (account?.provider === 'credentials' && user?.email) {
         token.email = String(user.email).toLowerCase();
         token.role = (user as any).role ?? 'employee';
+        (token as any).organizationId = (user as any).organizationId ?? null;
       }
       return token;
     },
@@ -113,6 +121,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       if (session.user && token.email) {
         session.user.email = String(token.email).toLowerCase();
         (session.user as any).role = token.role ?? 'employee';
+        (session.user as any).organizationId = (token as any).organizationId ?? null;
       }
       return session;
     },
