@@ -6,6 +6,7 @@ import StatusBadge from '@/components/ui/StatusBadge';
 import Modal from '@/components/ui/Modal';
 import { Machine, MachineStatus } from '@/lib/mockData';
 import { getMachines, getItems, addMachine, updateMachine, deleteMachine, subscribe } from '@/lib/store';
+import { getOperators, subscribeOperators } from '@/lib/operators';
 import MachineForm from './MachineForm';
 import ImportModal, { ImportRow, ImportError } from './ImportModal';
 import { useAccess } from '@/lib/useAccess';
@@ -16,6 +17,7 @@ export default function MachineTab() {
   const { access } = useAccess();
   const [machines, setMachines] = useState<Machine[]>(() => getMachines());
   const [items, setItems] = useState(() => getItems());
+  const [operators, setOperators] = useState<string[]>(() => getOperators());
   const [search, setSearch] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('machineNumber');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
@@ -76,6 +78,8 @@ export default function MachineTab() {
     });
     return unsub;
   }, []);
+
+  useEffect(() => subscribeOperators(() => setOperators([...getOperators()])), []);
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
@@ -339,6 +343,7 @@ export default function MachineTab() {
         <MachineForm
           initial={editMachine ?? undefined}
           items={items}
+          operators={operators}
           onSave={handleSave}
           onCancel={() => { setAddOpen(false); setEditMachine(null); }}
         />
