@@ -17,11 +17,12 @@ interface MachineFormData {
 interface Props {
   initial?: Machine;
   items: Item[];
+  operators: string[];
   onSave: (data: Partial<Machine>) => void;
   onCancel: () => void;
 }
 
-export default function MachineForm({ initial, items, onSave, onCancel }: Props) {
+export default function MachineForm({ initial, items, operators, onSave, onCancel }: Props) {
   const {
     register,
     handleSubmit,
@@ -40,6 +41,10 @@ export default function MachineForm({ initial, items, onSave, onCancel }: Props)
   });
 
   const assignedItems = watch('assignedItems');
+  const operatorOptions = Array.from(new Set([
+    ...(initial?.operatorName ? [initial.operatorName] : []),
+    ...operators,
+  ].filter(Boolean)));
 
   const toggleItem = (itemId: string) => {
     const current = assignedItems ?? [];
@@ -128,12 +133,23 @@ export default function MachineForm({ initial, items, onSave, onCancel }: Props)
         </div>
         <div>
           <label className="block text-xs font-semibold text-foreground mb-1">Assigned Operator</label>
-          <p className="text-xs text-muted-foreground mb-1.5">Primary operator (optional)</p>
-          <input
+          <p className="text-xs text-muted-foreground mb-1.5">Choose from Shift Operator Master</p>
+          <select
             {...register('operatorName')}
-            className="w-full px-3 py-2 text-sm border border-border rounded-md bg-card focus:outline-none focus:ring-2 focus:ring-ring"
-            placeholder="Operator name"
-          />
+            className="w-full px-3 py-2 text-sm border border-border rounded-md bg-card focus:outline-none focus:ring-2 focus:ring-ring appearance-none cursor-pointer"
+          >
+            <option value="">Unassigned</option>
+            {operatorOptions.map((operator) => (
+              <option key={`machine-operator-${operator}`} value={operator}>
+                {operator}
+              </option>
+            ))}
+          </select>
+          {operatorOptions.length === 0 && (
+            <p className="text-xs text-muted-foreground mt-1">
+              Add operators in Shift Operator Master first.
+            </p>
+          )}
         </div>
       </div>
 
