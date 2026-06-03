@@ -1,5 +1,5 @@
 'use client';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -18,6 +18,7 @@ import {
 import AppLogo from '@/components/ui/AppLogo';
 import NotificationBell from '@/components/ui/NotificationBell';
 import { useAccess } from '@/lib/useAccess';
+import { getMachines, subscribe } from '@/lib/store';
 
 const NAV_ITEMS = [
   { key: 'nav-dashboard', label: 'Production Dashboard', href: '/', icon: LayoutDashboard, badge: null },
@@ -31,6 +32,9 @@ export default function Sidebar() {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [activeMachineCount, setActiveMachineCount] = useState(() =>
+    getMachines().filter((machine) => machine.status !== 'offline').length
+  );
   const { access } = useAccess();
   const roleLabel = !access.authenticated
     ? 'Guest'
@@ -45,6 +49,10 @@ export default function Sidebar() {
     if (href === '/') return pathname === '/';
     return pathname.startsWith(href);
   };
+
+  useEffect(() => subscribe(() => {
+    setActiveMachineCount(getMachines().filter((machine) => machine.status !== 'offline').length);
+  }), []);
 
   const SidebarContent = () => (
     <div className="flex flex-col h-full">
@@ -63,7 +71,7 @@ export default function Sidebar() {
           <Activity size={14} className="text-primary shrink-0" />
           <div className="overflow-hidden">
             <p className="text-xs font-semibold text-foreground truncate">Shop Floor A</p>
-            <p className="text-xs text-muted-foreground truncate">4 machines active</p>
+            <p className="text-xs text-muted-foreground truncate">{activeMachineCount} machines active</p>
           </div>
         </div>
       )}
