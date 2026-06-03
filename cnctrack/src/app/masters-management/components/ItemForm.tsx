@@ -6,9 +6,9 @@ import { Item, Machine } from '@/lib/mockData';
 
 interface ItemFormData {
   itemName: string;
-  defaultRate: number;
+  defaultRate?: number;
   status: 'active' | 'inactive';
-  rates: { machineId: string; rate: number }[];
+  rates: { machineId: string; rate?: number }[];
 }
 
 interface Props {
@@ -27,7 +27,7 @@ export default function ItemForm({ initial, machines, onSave, onCancel }: Props)
   } = useForm<ItemFormData>({
     defaultValues: {
       itemName: initial?.itemName ?? '',
-      defaultRate: initial?.defaultRate ?? 60,
+      defaultRate: initial?.defaultRate ?? undefined,
       status: initial?.status ?? 'active',
       rates: initial?.rates ?? [],
     },
@@ -38,6 +38,7 @@ export default function ItemForm({ initial, machines, onSave, onCancel }: Props)
   const onSubmit = (data: ItemFormData) => {
     onSave({
       ...data,
+      defaultRate: Number(data.defaultRate),
       rates: data.rates.map((r) => ({ machineId: r.machineId, rate: Number(r.rate) })),
     });
   };
@@ -72,6 +73,7 @@ export default function ItemForm({ initial, machines, onSave, onCancel }: Props)
                 required: 'Rate is required',
                 min: { value: 1, message: 'Rate must be at least 1' },
                 max: { value: 9999, message: 'Rate cannot exceed 9999' },
+                valueAsNumber: true,
               })}
               className="w-full px-3 py-2 pr-16 text-sm border border-border rounded-md bg-card focus:outline-none focus:ring-2 focus:ring-ring font-mono-nums"
               placeholder="80"
@@ -103,7 +105,7 @@ export default function ItemForm({ initial, machines, onSave, onCancel }: Props)
           {availableMachines.length > 0 && (
             <button
               type="button"
-              onClick={() => append({ machineId: availableMachines[0].id, rate: 60 })}
+              onClick={() => append({ machineId: availableMachines[0].id, rate: undefined })}
               className="flex items-center gap-1.5 text-xs font-semibold text-primary hover:text-primary/80 transition-colors"
             >
               <Plus size={13} />
@@ -132,7 +134,12 @@ export default function ItemForm({ initial, machines, onSave, onCancel }: Props)
               <div className="relative w-32">
                 <input
                   type="number"
-                  {...register(`rates.${index}.rate`, { min: 1, max: 9999 })}
+                  {...register(`rates.${index}.rate`, {
+                    required: 'Rate is required',
+                    min: 1,
+                    max: 9999,
+                    valueAsNumber: true,
+                  })}
                   className="w-full px-3 py-2 pr-14 text-sm border border-border rounded-md bg-card focus:outline-none focus:ring-2 focus:ring-ring font-mono-nums"
                   placeholder="80"
                 />
