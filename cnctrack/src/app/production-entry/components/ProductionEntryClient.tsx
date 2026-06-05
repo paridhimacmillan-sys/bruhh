@@ -78,16 +78,24 @@ function getCarryForwardExpected(
   return splitExpectedAcrossHours(nextTotalExpected, hourCount);
 }
 
-function buildInitialRows(date: string, shift: Shift): GridRow[] {
-  if (!shift) return [];
+function buildInitialRows(date: string, shift: Shift): { rows: GridRow[]; lockedHours: number[] } {
+  if (!shift) return { rows: [], lockedHours: [] };
   const machines = getMachines();
   const items = getItems();
   const entries = getEntries();
   const activeMachines = machines.filter((m) => m.status !== 'offline');
-  return activeMachines.map((machine) => {
+
+  // Locked hours are the union of lockedHours across all machine entries for this date+shift.
+  // All machines save together per hour, so the union should always be identical across rows.
+  let lockedHours: number[] = [];
+
+  const rows = activeMachines.map((machine) => {
     const existing = entries.find(
       (e) => e.date === date && e.machineId === machine.id && e.shift === shift
     );
+    if (existing?.lockedHours?.length) {
+      lockedHours = Array.from(new Set([...lockedHours, ...existing.lockedHours]));
+    }
     const itemId = machine.currentItem ?? (items.find((i) => i.status === 'active')?.id ?? items[0]?.id ?? '');
     const item = items.find((candidate) => candidate.id === itemId);
     const machineSpecificRate = item?.rates.find((override) => override.machineId === machine.id)?.rate;
@@ -124,18 +132,21 @@ function buildInitialRows(date: string, shift: Shift): GridRow[] {
       notes: existing?.notes ?? '',
     };
   });
-}
 
+  return { rows, lockedHours };
+}
 export default function ProductionEntryClient() {
   const { access } = useAccess();
   const [date, setDate] = useState(getTodayISOLocal());
   const [shifts, setShifts] = useState<string[]>(() => getShifts());
   const [shift, setShift] = useState<Shift>(() => getShifts()[0] ?? '');
-  const [rows, setRows] = useState<GridRow[]>(() => buildInitialRows(getTodayISOLocal(), getShifts()[0] ?? ''));
+  const [rows, setRows] = useState<GridRow[]>(() => buildInitialRows(getTodayISOLocal(), getShifts()[0] ?? '').rows);
+  const [lockedHours, setLockedHours] = useState<number[]>(() => buildInitialRows(getTodayISOLocal(), getShifts()[0] ?? '').lockedHours);
   const [importOpen, setImportOpen] = useState(false);
   const [copyOpen, setCopyOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [savingHour, setSavingHour] = useState<number | null>(null);
 
   const isSavingRef = React.useRef(false);
 
@@ -146,7 +157,9 @@ export default function ProductionEntryClient() {
       if (!next.includes(shift)) {
         const fallback = next[0] ?? '';
         setShift(fallback);
-        setRows(buildInitialRows(date, fallback));
+        const built = buildInitialRows(date, fallback);
+        setRows(built.rows);
+        setLockedHours(built.lockedHours);
       }
     });
     return unsubShifts;
@@ -157,7 +170,9 @@ export default function ProductionEntryClient() {
   useEffect(() => {
     const unsub = subscribe(() => {
       if (!isSavingRef.current) {
-        setRows(buildInitialRows(date, shift));
+        const built = buildInitialRows(date, shift);
+        setRows(built.rows);
+        setLockedHours(built.lockedHours);
       }
     });
     return unsub;
@@ -165,13 +180,17 @@ export default function ProductionEntryClient() {
 
   const handleShiftChange = (s: Shift) => {
     setShift(s);
-    setRows(buildInitialRows(date, s));
+    const built = buildInitialRows(date, s);
+    setRows(built.rows);
+    setLockedHours(built.lockedHours);
     setSaved(false);
   };
 
   const handleDateChange = (d: string) => {
     setDate(d);
-    setRows(buildInitialRows(d, shift));
+    const built = buildInitialRows(d, shift);
+    setRows(built.rows);
+    setLockedHours(built.lockedHours);
     setSaved(false);
   };
 
@@ -191,17 +210,43 @@ export default function ProductionEntryClient() {
     setSaved(false);
   };
 
+  // Max tolerance: actual output > 150% of expected is physically implausible and blocked.
+  // 100–150% is suspicious — allowed but auto-flags the row.
+  const MAX_HARD_BLOCK = 1.5;
+
   const handleCellChange = (machineIdx: number, hourIdx: number, value: number) => {
     setRows((prev) => {
       const next = [...prev];
+      const row = next[machineIdx];
+      const entry = row.entries[hourIdx];
+      const expected = entry?.expected ?? 0;
+
+      // Compute what the actual output would be for this closing reading.
+      const prevReading = hourIdx === 0
+        ? row.openingReading
+        : (row.entries[hourIdx - 1]?.closingReading ?? row.openingReading);
+      const wouldBeActual = value > 0 ? Math.max(0, value - prevReading) : 0;
+
+      // Hard block: more than 150% of expected is not physically possible.
+      if (expected > 0 && wouldBeActual > expected * MAX_HARD_BLOCK) {
+        // Reject the change — return prev state unchanged, toast the error.
+        toast.error(
+          `Reading ${value} rejected for ${getMachines().find(m => m.id === row.machineId)?.machineNumber ?? 'machine'} at hour ${hourIdx + 1} — output would be ${wouldBeActual} pcs (max allowed: ${Math.floor(expected * MAX_HARD_BLOCK)} pcs = 150% of target ${expected})`,
+          { duration: 5000 }
+        );
+        return prev;
+      }
+
       const changed = next[machineIdx].entries.map((e, i) =>
         i === hourIdx ? { ...e, closingReading: value <= 0 ? null : value } : e
       );
       const rebuilt = recalculateEntriesFromReadings(next[machineIdx].openingReading, changed);
+      const isOverTarget = expected > 0 && wouldBeActual > expected * 1.0;
       next[machineIdx] = {
         ...next[machineIdx],
         entries: rebuilt,
-        status: 'draft',
+        // Auto-flag if any hour is suspicious (>100% but ≤150%)
+        status: isOverTarget ? 'flagged' : 'draft',
       };
       return next;
     });
@@ -243,6 +288,42 @@ export default function ProductionEntryClient() {
     setSaved(false);
   };
 
+  // Save a single hour column across all machines, then lock it.
+  const handleSaveHour = async (hourIdx: number) => {
+    if (!access.isAdmin) { toast.error('Admin access required'); return; }
+    if (lockedHours.includes(hourIdx)) return;
+    setSavingHour(hourIdx);
+    isSavingRef.current = true;
+    const newLockedHours = [...lockedHours, hourIdx];
+    const entries: ProductionEntry[] = rows.map((r) => ({
+      id: `entry-${date}-${shift}-${r.machineId}`,
+      date,
+      machineId: r.machineId,
+      itemId: r.itemId,
+      shift,
+      openingReading: r.openingReading,
+      entries: r.entries,
+      status: 'submitted' as const,
+      operatorName: r.operatorName,
+      notes: r.notes,
+      totalActual: r.entries.reduce((s, e) => s + e.actual, 0),
+      totalExpected: r.entries.reduce((s, e) => s + e.expected, 0),
+      lockedHours: newLockedHours,
+    }));
+    try {
+      await upsertEntries(entries);
+      setLockedHours(newLockedHours);
+      setRows((prev) => prev.map((r) => ({ ...r, status: 'submitted' as const })));
+      const shiftHourLabels = getShiftHours(shift);
+      toast.success(`Hour ${shiftHourLabels[hourIdx] ?? hourIdx + 1} saved and locked`);
+    } catch {
+      toast.error('Could not save hour — please retry');
+    } finally {
+      setSavingHour(null);
+      isSavingRef.current = false;
+    }
+  };
+
   const handleSave = async () => {
     if (!access.isAdmin) { toast.error('Admin access required'); return; }
     setSaving(true);
@@ -251,8 +332,7 @@ export default function ProductionEntryClient() {
     const updatedRows = rows.map((r) => ({ ...r, status: 'submitted' as const }));
     setRows(updatedRows);
 
-    // Persist to store
-    const entries: ProductionEntry[] = updatedRows.map((r, idx) => ({
+    const entries: ProductionEntry[] = updatedRows.map((r) => ({
       id: `entry-${date}-${shift}-${r.machineId}`,
       date,
       machineId: r.machineId,
@@ -265,6 +345,7 @@ export default function ProductionEntryClient() {
       notes: r.notes,
       totalActual: r.entries.reduce((s, e) => s + e.actual, 0),
       totalExpected: r.entries.reduce((s, e) => s + e.expected, 0),
+      lockedHours: Array.from({ length: getShiftHours(shift).length }, (_, i) => i),
     }));
     try {
       await upsertEntries(entries);
@@ -278,6 +359,7 @@ export default function ProductionEntryClient() {
     setSaving(false);
     isSavingRef.current = false;
     setSaved(true);
+    setLockedHours(Array.from({ length: getShiftHours(shift).length }, (_, i) => i));
     toast.success(`Production entries saved — ${date}, Shift ${shift}`);
   };
 
@@ -316,44 +398,46 @@ export default function ProductionEntryClient() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            disabled={!access.isAdmin}
-            onClick={() => setCopyOpen(true)}
-            className="flex items-center gap-2 px-3 py-2 text-sm font-medium border border-border rounded-md bg-card hover:bg-muted transition-colors"
-          >
-            <Copy size={14} />
-            Copy Previous Day
-          </button>
-          <button
-            disabled={!access.isAdmin}
-            onClick={() => setImportOpen(true)}
-            className="flex items-center gap-2 px-3 py-2 text-sm font-medium border border-border rounded-md bg-card hover:bg-muted transition-colors"
-          >
-            <Upload size={14} />
-            Import
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={saving || draftCount === 0 || !access.isAdmin}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-semibold bg-primary text-white rounded-md hover:bg-primary/90 transition-colors active:scale-95 disabled:opacity-60 min-w-[100px]"
-          >
-            {saving ? (
-              <>
-                <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                Saving...
-              </>
-            ) : saved ? (
-              <>
-                <CheckCircle2 size={14} />
-                Saved
-              </>
-            ) : (
-              <>
-                <Save size={14} />
-                Save Entries
-              </>
-            )}
-          </button>
+          {access.isAdmin && (
+            <>
+              <button
+                onClick={() => setCopyOpen(true)}
+                className="flex items-center gap-2 px-3 py-2 text-sm font-medium border border-border rounded-md bg-card hover:bg-muted transition-colors"
+              >
+                <Copy size={14} />
+                Copy Previous Day
+              </button>
+              <button
+                onClick={() => setImportOpen(true)}
+                className="flex items-center gap-2 px-3 py-2 text-sm font-medium border border-border rounded-md bg-card hover:bg-muted transition-colors"
+              >
+                <Upload size={14} />
+                Import
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={saving || draftCount === 0}
+                className="flex items-center gap-2 px-4 py-2 text-sm font-semibold bg-primary text-white rounded-md hover:bg-primary/90 transition-colors active:scale-95 disabled:opacity-60 min-w-[100px]"
+              >
+                {saving ? (
+                  <>
+                    <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Saving...
+                  </>
+                ) : saved ? (
+                  <>
+                    <CheckCircle2 size={14} />
+                    Saved
+                  </>
+                ) : (
+                  <>
+                    <Save size={14} />
+                    Save Entries
+                  </>
+                )}
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -442,11 +526,15 @@ export default function ProductionEntryClient() {
         rows={rows}
         shift={shift}
         shiftHours={getShiftHours(shift)}
+        lockedHours={lockedHours}
+        savingHour={savingHour}
+        isAdmin={access.isAdmin}
         onOpeningReadingChange={handleOpeningReadingChange}
         onCellChange={handleCellChange}
         onItemChange={handleItemChange}
         onOperatorChange={handleOperatorChange}
         onNotesChange={handleNotesChange}
+        onSaveHour={handleSaveHour}
       />
 
       {/* Modals */}
@@ -467,5 +555,3 @@ export default function ProductionEntryClient() {
     </div>
   );
 }
-
-
