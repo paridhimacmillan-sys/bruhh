@@ -140,3 +140,15 @@ export async function deleteOperatorUser(username: string, organizationId: numbe
       AND provider = 'local'
   `;
 }
+
+export async function updateOperatorPassword(username: string, organizationId: number, newPassword: string): Promise<void> {
+  const normalizedUsername = username.trim().toLowerCase();
+  const passwordHash = await hashPassword(newPassword);
+  await sql`
+    UPDATE app_users
+    SET password_hash = ${passwordHash}, updated_at = now()
+    WHERE lower(COALESCE(username, '')) = ${normalizedUsername}
+      AND organization_id = ${organizationId}
+      AND provider = 'local'
+  `;
+}
