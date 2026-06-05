@@ -14,6 +14,7 @@ import {
   X,
   FileBarChart2,
   History,
+  Users,
 } from 'lucide-react';
 import AppLogo from '@/components/ui/AppLogo';
 import NotificationBell from '@/components/ui/NotificationBell';
@@ -26,6 +27,7 @@ const ALL_NAV_ITEMS = [
   { key: 'nav-entry', label: 'Production Entry', href: '/production-entry', icon: ClipboardList, badge: 3, adminOnly: false },
   { key: 'nav-recent', label: 'Recent Entries', href: '/recent-entries', icon: History, badge: null, adminOnly: true },
   { key: 'nav-reports', label: 'Production Reports', href: '/reports', icon: FileBarChart2, badge: null, adminOnly: true },
+  { key: 'nav-users', label: 'Users', href: '/users', icon: Users, badge: null, adminOnly: true },
 ];
 
 export default function Sidebar() {
