@@ -12,22 +12,30 @@ interface Props {
   rows: GridRow[];
   shift: Shift;
   shiftHours: string[];
+  lockedHours: number[];
+  savingHour: number | null;
+  isAdmin: boolean;
   onOpeningReadingChange: (machineIdx: number, value: number) => void;
   onCellChange: (machineIdx: number, hourIdx: number, value: number) => void;
   onItemChange: (machineIdx: number, itemId: string) => void;
   onOperatorChange: (machineIdx: number, operatorName: string) => void;
   onNotesChange: (machineIdx: number, notes: string) => void;
+  onSaveHour: (hourIdx: number) => Promise<void>;
 }
 
 export default function EntryGrid({
   rows,
   shift,
   shiftHours,
+  lockedHours,
+  savingHour,
+  isAdmin,
   onOpeningReadingChange,
   onCellChange,
   onItemChange,
   onOperatorChange,
   onNotesChange,
+  onSaveHour,
 }: Props) {
   const [machines, setMachines] = useState<Machine[]>(() => getMachines());
   const [items, setItems] = useState<Item[]>(() => getItems());
@@ -73,11 +81,15 @@ export default function EntryGrid({
               <th className="text-left px-3 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider min-w-[180px]">Item</th>
               <th className="text-left px-3 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider min-w-[130px]">Operator</th>
               <th className="text-center px-1 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider min-w-[96px]">Opening</th>
-              {shiftHours.map((h, i) => (
-                <th key={`th-hour-${shift}-${i}`} className="text-center px-1 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider min-w-[72px]">
-                  <span className="font-mono-nums">{h}</span>
-                </th>
-              ))}
+              {shiftHours.map((h, i) => {
+                const isLocked = lockedHours.includes(i);
+                return (
+                  <th key={`th-hour-${shift}-${i}`} className={`text-center px-1 py-3 text-xs font-semibold uppercase tracking-wider min-w-[72px] ${isLocked ? 'text-success/80 bg-success/5' : 'text-muted-foreground'}`}>
+                    <span className="font-mono-nums">{h}</span>
+                    {isLocked && <span className="block text-[9px] mt-0.5 font-normal">saved</span>}
+                  </th>
+                );
+              })}
               <th className="text-right px-3 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider min-w-[80px]">Total</th>
               <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider min-w-[80px]">Variance</th>
               <th className="text-center px-3 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider min-w-[60px]">Notes</th>
@@ -113,7 +125,8 @@ export default function EntryGrid({
                         <select
                           value={row.itemId}
                           onChange={(e) => onItemChange(machineIdx, e.target.value)}
-                          className="w-full appearance-none pl-2 pr-6 py-1.5 text-xs border border-border rounded bg-card focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer truncate"
+                          disabled={!isAdmin}
+                          className="w-full appearance-none pl-2 pr-6 py-1.5 text-xs border border-border rounded bg-card focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer truncate disabled:opacity-60 disabled:cursor-default"
                         >
                           {items.filter((i) => i.status === 'active').map((i) => (
                             <option key={`item-opt-${row.machineId}-${i.id}`} value={i.id}>{i.itemName.split(' - ')[0]}</option>
@@ -128,7 +141,8 @@ export default function EntryGrid({
                       <select
                         value={row.operatorName}
                         onChange={(e) => onOperatorChange(machineIdx, e.target.value)}
-                        className="w-full px-2 py-1 text-xs border border-transparent hover:border-border focus:border-border rounded bg-transparent focus:bg-card focus:outline-none focus:ring-1 focus:ring-ring transition-colors truncate"
+                        disabled={!isAdmin}
+                        className="w-full px-2 py-1 text-xs border border-transparent hover:border-border focus:border-border rounded bg-transparent focus:bg-card focus:outline-none focus:ring-1 focus:ring-ring transition-colors truncate disabled:opacity-60 disabled:cursor-default disabled:hover:border-transparent"
                       >
                         <option value="">Unassigned</option>
                         {operators.map((operator) => <option key={operator} value={operator}>{operator}</option>)}
@@ -143,7 +157,8 @@ export default function EntryGrid({
                           const v = parseInt(e.target.value, 10);
                           onOpeningReadingChange(machineIdx, isNaN(v) ? 0 : Math.max(0, v));
                         }}
-                        className="grid-cell-input w-20"
+                        readOnly={!isAdmin}
+                        className="grid-cell-input w-20 read-only:opacity-60 read-only:cursor-default"
                         min={0}
                         max={999999999}
                         placeholder="Open"
@@ -153,21 +168,31 @@ export default function EntryGrid({
                     {row.entries.map((entry, hourIdx) => {
                       const pct = entry.expected > 0 ? (entry.actual / entry.expected) * 100 : 0;
                       const cellBg = entry.actual === 0 ? '' : pct >= 95 ? 'bg-success/10' : pct >= 80 ? 'bg-warning/10' : 'bg-danger/10';
+                      const isLocked = lockedHours.includes(hourIdx);
                       return (
-                        <td key={`cell-${row.machineId}-h${hourIdx}`} className={`px-1 py-2 text-center ${cellBg} transition-colors`}>
+                        <td key={`cell-${row.machineId}-h${hourIdx}`} className={`px-1 py-2 text-center ${cellBg} ${isLocked ? 'bg-muted/30' : ''} transition-colors`}>
                           <div className="flex flex-col items-center gap-0.5">
-                            <input
-                              type="number"
-                              value={entry.closingReading ?? ''}
-                              onChange={(e) => {
-                                const v = parseInt(e.target.value, 10);
-                                onCellChange(machineIdx, hourIdx, isNaN(v) ? 0 : Math.max(0, v));
-                              }}
-                              className="grid-cell-input w-14"
-                              min={0}
-                              max={999999999}
-                              placeholder="Close"
-                            />
+                            {(isLocked || !isAdmin) ? (
+                              <span className="w-14 text-center text-xs font-mono-nums font-semibold text-foreground/70 py-1">
+                                {entry.closingReading ?? '—'}
+                              </span>
+                            ) : (
+                              <input
+                                type="number"
+                                value={entry.closingReading ?? ''}
+                                onChange={(e) => {
+                                  const v = parseInt(e.target.value, 10);
+                                  onCellChange(machineIdx, hourIdx, isNaN(v) ? 0 : Math.max(0, v));
+                                }}
+                                className={`grid-cell-input w-14 ${entry.actual > entry.expected && entry.actual > 0 ? 'border-warning ring-1 ring-warning/50' : ''}`}
+                                min={0}
+                                max={999999999}
+                                placeholder="Close"
+                                title={entry.expected > 0
+                                  ? `Max allowed closing: prev + ${Math.floor(entry.expected * 1.5)} pcs (150% of target ${entry.expected})`
+                                  : 'Enter closing reading'}
+                              />
+                            )}
                             <span className="text-xs text-muted-foreground/60 font-mono-nums leading-none">{entry.actual}/{entry.expected}</span>
                             <span className={`text-[10px] font-mono-nums leading-none ${pct >= 95 ? 'text-success' : pct >= 80 ? 'text-warning' : entry.actual > 0 ? 'text-danger' : 'text-muted-foreground/50'}`}>
                               {entry.actual > 0 ? `${Math.round(pct)}%` : '-'}
@@ -253,6 +278,39 @@ export default function EntryGrid({
               </td>
               <td />
             </tr>
+            {/* Per-hour Save buttons row — admin only */}
+            {isAdmin && (
+            <tr className="border-t border-border bg-card">
+              <td className="px-4 py-2 text-xs text-muted-foreground font-semibold sticky left-0 bg-card" colSpan={4}>Save Hour</td>
+              {shiftHours.map((h, i) => {
+                const isLocked = lockedHours.includes(i);
+                const isSaving = savingHour === i;
+                return (
+                  <td key={`save-btn-${i}`} className="px-1 py-2 text-center">
+                    {isLocked ? (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-success px-2 py-1 rounded bg-success/10">
+                        ✓ Saved
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => onSaveHour(i)}
+                        disabled={isSaving || savingHour !== null}
+                        className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-1 rounded bg-primary text-white hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        title={`Save ${h}`}
+                      >
+                        {isSaving ? (
+                          <span className="w-2.5 h-2.5 border border-white border-t-transparent rounded-full animate-spin" />
+                        ) : (
+                          <span>Save {h}</span>
+                        )}
+                      </button>
+                    )}
+                  </td>
+                );
+              })}
+              <td colSpan={3} />
+            </tr>
+            )}
           </tfoot>
         </table>
       </div>
