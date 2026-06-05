@@ -4,7 +4,7 @@ import Credentials from 'next-auth/providers/credentials';
 import { promisify } from 'util';
 import { scrypt, timingSafeEqual } from 'crypto';
 import sql from '@/lib/db';
-import { findSharedUser, findSharedUserByEmail } from '@/lib/authDb';
+import { findSharedUser, findSharedUserByEmail, findAppUser } from '@/lib/authDb';
 
 const scryptAsync = promisify(scrypt);
 
@@ -63,7 +63,11 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         const identifier = String(credentials?.identifier ?? '').trim().toLowerCase();
         const password = String(credentials?.password ?? '');
         if (!identifier || !password) return null;
-        const user = await findSharedUser(identifier);
+
+        // 1. Try the shared Rejection Mapper users table.
+        let user = await findSharedUser(identifier);
+        // 2. Fall back to app_users (operator accounts created by admin in CNCTrack).
+        if (!user) user = await findAppUser(identifier);
         if (!user?.email || !user?.password) return null;
         const ok = await comparePassword(password, String(user.password));
         if (!ok) return null;
