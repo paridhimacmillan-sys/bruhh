@@ -1,7 +1,7 @@
 'use client';
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import {
   LayoutDashboard,
   Database,
@@ -20,28 +20,40 @@ import NotificationBell from '@/components/ui/NotificationBell';
 import { useAccess } from '@/lib/useAccess';
 import { getMachines, subscribe } from '@/lib/store';
 
-const NAV_ITEMS = [
-  { key: 'nav-dashboard', label: 'Production Dashboard', href: '/', icon: LayoutDashboard, badge: null },
-  { key: 'nav-masters', label: 'Masters Management', href: '/masters-management', icon: Database, badge: null },
-  { key: 'nav-entry', label: 'Production Entry', href: '/production-entry', icon: ClipboardList, badge: 3 },
-  { key: 'nav-recent', label: 'Recent Entries', href: '/recent-entries', icon: History, badge: null },
-  { key: 'nav-reports', label: 'Production Reports', href: '/reports', icon: FileBarChart2, badge: null },
+const ALL_NAV_ITEMS = [
+  { key: 'nav-dashboard', label: 'Production Dashboard', href: '/', icon: LayoutDashboard, badge: null, adminOnly: true },
+  { key: 'nav-masters', label: 'Masters Management', href: '/masters-management', icon: Database, badge: null, adminOnly: true },
+  { key: 'nav-entry', label: 'Production Entry', href: '/production-entry', icon: ClipboardList, badge: 3, adminOnly: false },
+  { key: 'nav-recent', label: 'Recent Entries', href: '/recent-entries', icon: History, badge: null, adminOnly: true },
+  { key: 'nav-reports', label: 'Production Reports', href: '/reports', icon: FileBarChart2, badge: null, adminOnly: true },
 ];
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [activeMachineCount, setActiveMachineCount] = useState(() =>
     getMachines().filter((machine) => machine.status !== 'offline').length
   );
-  const { access } = useAccess();
+  const { access, loading } = useAccess();
+
+  const isEmployee = !loading && access.authenticated && access.role === 'employee';
+  const navItems = ALL_NAV_ITEMS.filter((item) => !isEmployee || !item.adminOnly);
+
+  // Employees can only access the production entry page.
+  useEffect(() => {
+    if (isEmployee && pathname !== '/production-entry') {
+      router.replace('/production-entry');
+    }
+  }, [isEmployee, pathname, router]);
+
   const roleLabel = !access.authenticated
     ? 'Guest'
     : access.role === 'admin'
       ? 'Admin'
       : access.role === 'employee'
-        ? 'Employee'
+        ? 'Operator'
         : 'Role syncing...';
 
 
@@ -82,7 +94,7 @@ export default function Sidebar() {
             Operations
           </p>
         )}
-        {NAV_ITEMS.map((item) => {
+        {navItems.map((item) => {
           const Icon = item.icon;
           const active = isActive(item.href);
           return (
@@ -109,16 +121,18 @@ export default function Sidebar() {
       </nav>
 
       <div className="px-3 pb-3 border-t border-border pt-3 space-y-1">
-        <NotificationBell collapsed={collapsed} />
+        {!isEmployee && <NotificationBell collapsed={collapsed} />}
 
-        <Link
-          href="/settings"
-          className={`sidebar-nav-item ${collapsed ? 'justify-center px-2' : ''}`}
-          title={collapsed ? 'Settings' : undefined}
-        >
-          <Settings size={18} className="shrink-0" />
-          {!collapsed && <span className="flex-1 truncate">Settings</span>}
-        </Link>
+        {!isEmployee && (
+          <Link
+            href="/settings"
+            className={`sidebar-nav-item ${collapsed ? 'justify-center px-2' : ''}`}
+            title={collapsed ? 'Settings' : undefined}
+          >
+            <Settings size={18} className="shrink-0" />
+            {!collapsed && <span className="flex-1 truncate">Settings</span>}
+          </Link>
+        )}
 
         <div className={`flex items-center gap-2 px-2 py-2 mt-1 rounded-md hover:bg-muted transition-colors cursor-pointer ${collapsed ? 'justify-center' : ''}`}>
           <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center shrink-0">
@@ -179,4 +193,3 @@ export default function Sidebar() {
     </>
   );
 }
-
