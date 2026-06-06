@@ -199,26 +199,199 @@ export default function ProductionEntryClient() {
       return next;
     });
     setSaved(false);
+  const handleSaveHour = async (hourIdx: number) => {
+    if (!access.isAdmin) { toast.error('Admin access required'); return; }
+    if (lockedHours.includes(hourIdx)) return;
+    setSavingHour(hourIdx);
+    isSavingRef.current = true;
+    const newLockedHours = [...lockedHours, hourIdx];
+    const entries: ProductionEntry[] = rows.map((r) => ({
+      id: `entry-${date}-${shift}-${r.machineId}`,
+      date, machineId: r.machineId, itemId: r.itemId, shift,
+      openingReading: r.openingReading, entries: r.entries, status: 'submitted' as const,
+      operatorName: r.operatorName, notes: r.notes,
+      totalActual: r.entries.reduce((s, e) => s + e.actual, 0),
+      totalExpected: r.entries.reduce((s, e) => s + e.expected, 0),
+      lockedHours: newLockedHours,
+    }));
+    try {
+      await upsertEntries(entries);
+      setLockedHours(newLockedHours);
+      setRows((prev) => prev.map((r) => ({ ...r, status: 'submitted' as const })));
+      toast.success(`Hour ${getShiftHours(shift)[hourIdx] ?? hourIdx + 1} saved and locked`);
+    } catch {
+      toast.error('Could not save hour — please retry');
+    } finally {
+      setSavingHour(null);
+      isSavingRef.current = false;
+    }
   };
 
-  const handleItemChange = (machineIdx: number, itemId: string) => {
-    setRows((prev) => {
-      const next = [...prev];
-      const machine = getMachines().find((m) => m.id === next[machineIdx].machineId);
-      const item = getItems().find((i) => i.id === itemId);
-      const rate = Number(item?.rates.find((o) => o.machineId === machine?.id)?.rate ?? item?.defaultRate ?? machine?.expectedPerHour ?? 0);
-      next[machineIdx] = { ...next[machineIdx], itemId, entries: next[machineIdx].entries.map((e) => ({ ...e, expected: rate })), status: 'draft' };
-      return next;
-    });
-    setSaved(false);
+  const handleSave = async () => {
+    if (!access.isAdmin) { toast.error('Admin access required'); return; }
+    setSaving(true);
+    isSavingRef.current = true;
+    await new Promise((r) => setTimeout(r, 300));
+    const updatedRows = rows.map((r) => ({ ...r, status: 'submitted' as const }));
+    setRows(updatedRows);
+    const entries: ProductionEntry[] = updatedRows.map((r) => ({
+      id: `entry-${date}-${shift}-${r.machineId}`,
+      date, machineId: r.machineId, itemId: r.itemId, shift,
+      openingReading: r.openingReading, entries: r.entries, status: 'submitted',
+      operatorName: r.operatorName, notes: r.notes,
+      totalActual: r.entries.reduce((s, e) => s + e.actual, 0),
+      totalExpected: r.entries.reduce((s, e) => s + e.expected, 0),
+      lockedHours: Array.from({ length: getShiftHours(shift).length }, (_, i) => i),
+    }));
+    try {
+      await upsertEntries(entries);
+      setSaved(true);
+      setLockedHours(Array.from({ length: getShiftHours(shift).length }, (_, i) => i));
+      toast.success(`Entries saved — ${date}, Shift ${shift}`);
+    } catch {
+      toast.error('Could not save entries — please retry');
+    } finally {
+      setSaving(false);
+      isSavingRef.current = false;
+    }
   };
 
-  const handleOperatorChange = (machineIdx: number, operatorName: string) => {
-    setRows((prev) => { const next = [...prev]; next[machineIdx] = { ...next[machineIdx], operatorName }; return next; });
-    setSaved(false);
+  const handleDeleteEntries = async () => {
+    if (!access.isAdmin) return;
+    setDeleting(true);
+    isSavingRef.current = true;
+    try {
+      const res = await fetch(`/api/entries?date=${date}&shift=${encodeURIComponent(shift)}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error();
+      toast.success(`Entries deleted for ${date}, Shift ${shift}`);
+      setConfirmDelete(false);
+      setLockedHours([]);
+      setSaved(false);
+      const built = buildInitialRows(date, shift);
+      setRows(built.rows.map((r) => ({ ...r, openingReading: 0, entries: r.entries.map((e) => ({ ...e, actual: 0, closingReading: null })), status: 'draft' as const })));
+    } catch {
+      toast.error('Could not delete entries');
+    } finally {
+      setDeleting(false);
+      isSavingRef.current = false;
+    }
   };
 
-  const handleNotesChange = (machineIdx: number, notes: string) => {
-    setRows((prev) => { const next = [...prev]; next[machineIdx] = { ...next[machineIdx], notes }; return next; });
-    setSaved(false);
+  const handleCopyPrevious = (prevRows: GridRow[]) => {
+    if (!access.isAdmin) { toast.error('Admin access required'); return; }
+    setRows(prevRows.map((r) => ({ ...r, openingReading: 0, entries: r.entries.map((e) => ({ ...e, actual: 0, closingReading: null })), status: 'draft' as const })));
+    setCopyOpen(false);
+    toast.success('Previous day setup copied');
   };
+
+  const handleImportData = (importedRows: GridRow[]) => {
+    if (!access.isAdmin) { toast.error('Admin access required'); return; }
+    setRows(importedRows);
+    setImportOpen(false);
+    toast.success(`${importedRows.length} machine rows imported`);
+  };
+
+  const totalActual = rows.reduce((sum, r) => sum + r.entries.reduce((s, e) => s + e.actual, 0), 0);
+  const totalExpected = rows.reduce((sum, r) => sum + r.entries.reduce((s, e) => s + e.expected, 0), 0);
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold text-foreground">Production Entry</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">Log hourly production per machine — actual vs expected</p>
+        </div>
+        <div className="flex items-center gap-2">
+          {access.isAdmin && (
+            <>
+              <button onClick={() => setCopyOpen(true)} className="flex items-center gap-2 px-3 py-2 text-sm font-medium border border-border rounded-md bg-card hover:bg-muted transition-colors">
+                <Copy size={14} />Copy Previous Day
+              </button>
+              <button onClick={() => setImportOpen(true)} className="flex items-center gap-2 px-3 py-2 text-sm font-medium border border-border rounded-md bg-card hover:bg-muted transition-colors">
+                <Upload size={14} />Import
+              </button>
+              {hasEntryData && (
+                <button onClick={() => setConfirmDelete(true)} className="flex items-center gap-2 px-3 py-2 text-sm font-medium border border-danger/30 text-danger rounded-md bg-card hover:bg-danger/10 transition-colors">
+                  <Trash2 size={14} />Delete
+                </button>
+              )}
+              <button onClick={handleSave} disabled={saving} className="flex items-center gap-2 px-4 py-2 text-sm font-semibold bg-primary text-white rounded-md hover:bg-primary/90 transition-colors active:scale-95 disabled:opacity-60 min-w-[100px]">
+                {saving ? (<><span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />Saving...</>) : saved && !hasDraft ? (<><CheckCircle2 size={14} />Saved</>) : (<><Save size={14} />Save Entries</>)}
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+
+      <div className="card-base p-4 flex flex-col sm:flex-row gap-4 items-start sm:items-center">
+        <div className="flex items-center gap-3 flex-wrap flex-1">
+          <div>
+            <label className="block text-xs font-semibold text-muted-foreground mb-1">Date</label>
+            <input type="date" value={date} onChange={(e) => handleDateChange(e.target.value)} className="px-3 py-2 text-sm border border-border rounded-md bg-card focus:outline-none focus:ring-2 focus:ring-ring font-mono-nums" />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-muted-foreground mb-1">Shift</label>
+            <div className="flex gap-1">
+              {shifts.map((s) => (
+                <button key={`shift-btn-${s}`} onClick={() => handleShiftChange(s)} className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${shift === s ? 'bg-primary text-white' : 'bg-muted text-muted-foreground hover:bg-secondary'}`}>
+                  Shift {s}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="hidden sm:block">
+            <label className="block text-xs font-semibold text-muted-foreground mb-1">Hours</label>
+            <div className="flex gap-1 flex-wrap">
+              {getShiftHours(shift).map((h, i) => (
+                <span key={`hour-chip-${shift}-${i}`} className="text-xs font-mono-nums bg-muted px-2 py-1 rounded text-muted-foreground">{h}</span>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-3 flex-wrap shrink-0">
+          <div className="text-center">
+            <p className="text-xs text-muted-foreground">Total Actual</p>
+            <p className="font-mono-nums font-bold text-foreground text-sm">{totalActual.toLocaleString()}</p>
+          </div>
+          <div className="w-px h-8 bg-border" />
+          <div className="text-center">
+            <p className="text-xs text-muted-foreground">Efficiency</p>
+            <p className={`font-mono-nums font-bold text-sm ${totalExpected > 0 && (totalActual / totalExpected) >= 0.8 ? 'text-success' : totalExpected > 0 && (totalActual / totalExpected) >= 0.5 ? 'text-warning' : 'text-danger'}`}>
+              {totalExpected > 0 ? `${Math.round((totalActual / totalExpected) * 100)}%` : '—'}
+            </p>
+          </div>
+          {hasDraft && (<><div className="w-px h-8 bg-border" /><span className="flex items-center gap-1.5 text-xs font-semibold text-warning"><AlertCircle size={13} />unsaved changes</span></>)}
+          {flaggedCount > 0 && (<span className="flex items-center gap-1.5 text-xs font-semibold text-danger"><AlertCircle size={13} />{flaggedCount} flagged</span>)}
+        </div>
+      </div>
+
+      <EntryGrid
+        rows={rows} shift={shift} shiftHours={getShiftHours(shift)}
+        lockedHours={lockedHours} savingHour={savingHour} isAdmin={access.isAdmin}
+        onOpeningReadingChange={handleOpeningReadingChange} onCellChange={handleCellChange}
+        onItemChange={handleItemChange} onOperatorChange={handleOperatorChange}
+        onNotesChange={handleNotesChange} onSaveHour={handleSaveHour}
+      />
+
+      {confirmDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={() => setConfirmDelete(false)}>
+          <div className="w-full max-w-sm bg-card border border-border rounded-xl p-6 shadow-xl space-y-4" onClick={(e) => e.stopPropagation()}>
+            <div>
+              <h3 className="text-sm font-semibold text-foreground">Delete All Entries?</h3>
+              <p className="text-xs text-muted-foreground mt-1">Permanently deletes all entries for <strong>{date}</strong>, Shift <strong>{shift}</strong>. Cannot be undone.</p>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={handleDeleteEntries} disabled={deleting} className="flex-1 px-4 py-2 text-sm font-semibold bg-danger text-white rounded-md hover:bg-danger/90 disabled:opacity-60 transition-colors">
+                {deleting ? 'Deleting…' : 'Delete'}
+              </button>
+              <button onClick={() => setConfirmDelete(false)} className="flex-1 px-4 py-2 text-sm font-medium border border-border rounded-md hover:bg-muted transition-colors">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <ImportModal open={importOpen} onClose={() => setImportOpen(false)} onImport={handleImportData} date={date} shift={shift} />
+      <CopyPreviousModal open={copyOpen} onClose={() => setCopyOpen(false)} onCopy={handleCopyPrevious} currentDate={date} shift={shift} />
+    </div>
+  );
+}
