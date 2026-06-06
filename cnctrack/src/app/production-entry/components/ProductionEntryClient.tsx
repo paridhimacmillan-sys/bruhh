@@ -1,6 +1,6 @@
 'use client';
 import React, { useState, useEffect } from 'react';
-import { Copy, Upload, Save, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Copy, Upload, Save, AlertCircle, CheckCircle2, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import EntryGrid from './EntryGrid';
 import ImportModal from './ImportModal';
@@ -85,8 +85,6 @@ function buildInitialRows(date: string, shift: Shift): { rows: GridRow[]; locked
   const entries = getEntries();
   const activeMachines = machines.filter((m) => m.status !== 'offline');
 
-  // Locked hours are the union of lockedHours across all machine entries for this date+shift.
-  // All machines save together per hour, so the union should always be identical across rows.
   let lockedHours: number[] = [];
 
   const rows = activeMachines.map((machine) => {
@@ -119,9 +117,9 @@ function buildInitialRows(date: string, shift: Shift): { rows: GridRow[]; locked
             })
           )
         : (machineSpecificRate == null
-          ? getCarryForwardExpected(entries, date, machine.id, shift, rate, hourCount)
-          : Array.from({ length: hourCount }, () => rate)
-        ).map((expected, i) => ({
+            ? getCarryForwardExpected(entries, date, machine.id, shift, rate, hourCount)
+            : Array.from({ length: hourCount }, () => rate)
+          ).map((expected, i) => ({
             hour: i + 1,
             actual: 0,
             expected,
@@ -135,6 +133,7 @@ function buildInitialRows(date: string, shift: Shift): { rows: GridRow[]; locked
 
   return { rows, lockedHours };
 }
+
 export default function ProductionEntryClient() {
   const { access } = useAccess();
   const [date, setDate] = useState(getTodayISOLocal());
@@ -147,8 +146,16 @@ export default function ProductionEntryClient() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [savingHour, setSavingHour] = useState<number | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const isSavingRef = React.useRef(false);
+
+  const hasEntryData = rows.some(
+    (r) => r.openingReading > 0 || r.entries.some((e) => e.closingReading !== null)
+  );
+  const hasDraft = rows.some((r) => r.status === 'draft' || r.status === 'flagged');
+  const flaggedCount = rows.filter((r) => r.status === 'flagged').length;
 
   useEffect(() => {
     const unsubShifts = subscribeShifts(() => {
@@ -165,393 +172,8 @@ export default function ProductionEntryClient() {
     return unsubShifts;
   }, [date, shift]);
 
-  // Re-build rows when store changes (e.g. new machine/item added),
-  // but NOT while a save is in progress (would wipe the just-saved data).
   useEffect(() => {
     const unsub = subscribe(() => {
       if (!isSavingRef.current) {
         const built = buildInitialRows(date, shift);
         setRows(built.rows);
-        setLockedHours(built.lockedHours);
-      }
-    });
-    return unsub;
-  }, [date, shift]);
-
-  const handleShiftChange = (s: Shift) => {
-    setShift(s);
-    const built = buildInitialRows(date, s);
-    setRows(built.rows);
-    setLockedHours(built.lockedHours);
-    setSaved(false);
-  };
-
-  const handleDateChange = (d: string) => {
-    setDate(d);
-    const built = buildInitialRows(d, shift);
-    setRows(built.rows);
-    setLockedHours(built.lockedHours);
-    setSaved(false);
-  };
-
-  const handleOpeningReadingChange = (machineIdx: number, value: number) => {
-    setRows((prev) => {
-      const next = [...prev];
-      const openingReading = Math.max(0, value);
-      const rebuilt = recalculateEntriesFromReadings(openingReading, next[machineIdx].entries);
-      next[machineIdx] = {
-        ...next[machineIdx],
-        openingReading,
-        entries: rebuilt,
-        status: 'draft',
-      };
-      return next;
-    });
-    setSaved(false);
-  };
-
-  // Max tolerance: actual output > 150% of expected is physically implausible and blocked.
-  // 100–150% is suspicious — allowed but auto-flags the row.
-  const MAX_HARD_BLOCK = 1.5;
-
-  const handleCellChange = (machineIdx: number, hourIdx: number, value: number) => {
-    setRows((prev) => {
-      const next = [...prev];
-      const row = next[machineIdx];
-      const entry = row.entries[hourIdx];
-      const expected = entry?.expected ?? 0;
-
-      // Compute what the actual output would be for this closing reading.
-      const prevReading = hourIdx === 0
-        ? row.openingReading
-        : (row.entries[hourIdx - 1]?.closingReading ?? row.openingReading);
-      const wouldBeActual = value > 0 ? Math.max(0, value - prevReading) : 0;
-
-      // Hard block: more than 150% of expected is not physically possible.
-      if (expected > 0 && wouldBeActual > expected * MAX_HARD_BLOCK) {
-        // Reject the change — return prev state unchanged, toast the error.
-        toast.error(
-          `Reading ${value} rejected for ${getMachines().find(m => m.id === row.machineId)?.machineNumber ?? 'machine'} at hour ${hourIdx + 1} — output would be ${wouldBeActual} pcs (max allowed: ${Math.floor(expected * MAX_HARD_BLOCK)} pcs = 150% of target ${expected})`,
-          { duration: 5000 }
-        );
-        return prev;
-      }
-
-      const changed = next[machineIdx].entries.map((e, i) =>
-        i === hourIdx ? { ...e, closingReading: value <= 0 ? null : value } : e
-      );
-      const rebuilt = recalculateEntriesFromReadings(next[machineIdx].openingReading, changed);
-      const isOverTarget = expected > 0 && wouldBeActual > expected * 1.0;
-      next[machineIdx] = {
-        ...next[machineIdx],
-        entries: rebuilt,
-        // Auto-flag if any hour is suspicious (>100% but ≤150%)
-        status: isOverTarget ? 'flagged' : 'draft',
-      };
-      return next;
-    });
-    setSaved(false);
-  };
-
-  const handleItemChange = (machineIdx: number, itemId: string) => {
-    setRows((prev) => {
-      const next = [...prev];
-      const machine = getMachines().find((candidate) => candidate.id === next[machineIdx].machineId);
-      const item = getItems().find((candidate) => candidate.id === itemId);
-      const rate = Number(item?.rates.find((override) => override.machineId === machine?.id)?.rate ?? item?.defaultRate ?? machine?.expectedPerHour ?? 0);
-      next[machineIdx] = {
-        ...next[machineIdx],
-        itemId,
-        entries: next[machineIdx].entries.map((entry) => ({ ...entry, expected: rate })),
-        status: 'draft',
-      };
-      return next;
-    });
-    setSaved(false);
-  };
-
-  const handleOperatorChange = (machineIdx: number, operatorName: string) => {
-    setRows((prev) => {
-      const next = [...prev];
-      next[machineIdx] = { ...next[machineIdx], operatorName };
-      return next;
-    });
-    setSaved(false);
-  };
-
-  const handleNotesChange = (machineIdx: number, notes: string) => {
-    setRows((prev) => {
-      const next = [...prev];
-      next[machineIdx] = { ...next[machineIdx], notes };
-      return next;
-    });
-    setSaved(false);
-  };
-
-  // Save a single hour column across all machines, then lock it.
-  const handleSaveHour = async (hourIdx: number) => {
-    if (!access.isAdmin) { toast.error('Admin access required'); return; }
-    if (lockedHours.includes(hourIdx)) return;
-    setSavingHour(hourIdx);
-    isSavingRef.current = true;
-    const newLockedHours = [...lockedHours, hourIdx];
-    const entries: ProductionEntry[] = rows.map((r) => ({
-      id: `entry-${date}-${shift}-${r.machineId}`,
-      date,
-      machineId: r.machineId,
-      itemId: r.itemId,
-      shift,
-      openingReading: r.openingReading,
-      entries: r.entries,
-      status: 'submitted' as const,
-      operatorName: r.operatorName,
-      notes: r.notes,
-      totalActual: r.entries.reduce((s, e) => s + e.actual, 0),
-      totalExpected: r.entries.reduce((s, e) => s + e.expected, 0),
-      lockedHours: newLockedHours,
-    }));
-    try {
-      await upsertEntries(entries);
-      setLockedHours(newLockedHours);
-      setRows((prev) => prev.map((r) => ({ ...r, status: 'submitted' as const })));
-      const shiftHourLabels = getShiftHours(shift);
-      toast.success(`Hour ${shiftHourLabels[hourIdx] ?? hourIdx + 1} saved and locked`);
-    } catch {
-      toast.error('Could not save hour — please retry');
-    } finally {
-      setSavingHour(null);
-      isSavingRef.current = false;
-    }
-  };
-
-  const handleSave = async () => {
-    if (!access.isAdmin) { toast.error('Admin access required'); return; }
-    setSaving(true);
-    isSavingRef.current = true;
-    await new Promise((r) => setTimeout(r, 700));
-    const updatedRows = rows.map((r) => ({ ...r, status: 'submitted' as const }));
-    setRows(updatedRows);
-
-    const entries: ProductionEntry[] = updatedRows.map((r) => ({
-      id: `entry-${date}-${shift}-${r.machineId}`,
-      date,
-      machineId: r.machineId,
-      itemId: r.itemId,
-      shift,
-      openingReading: r.openingReading,
-      entries: r.entries,
-      status: 'submitted',
-      operatorName: r.operatorName,
-      notes: r.notes,
-      totalActual: r.entries.reduce((s, e) => s + e.actual, 0),
-      totalExpected: r.entries.reduce((s, e) => s + e.expected, 0),
-      lockedHours: Array.from({ length: getShiftHours(shift).length }, (_, i) => i),
-    }));
-    try {
-      await upsertEntries(entries);
-    } catch {
-      setSaving(false);
-      isSavingRef.current = false;
-      toast.error('Production entries could not be saved');
-      return;
-    }
-
-    setSaving(false);
-    isSavingRef.current = false;
-    setSaved(true);
-    setLockedHours(Array.from({ length: getShiftHours(shift).length }, (_, i) => i));
-    toast.success(`Production entries saved — ${date}, Shift ${shift}`);
-  };
-
-  const handleCopyPrevious = (prevRows: GridRow[]) => {
-    if (!access.isAdmin) { toast.error('Admin access required'); return; }
-    setRows(prevRows.map((r) => ({
-      ...r,
-      openingReading: 0,
-      entries: r.entries.map((e) => ({ ...e, actual: 0, closingReading: null })),
-      status: 'draft' as const,
-    })));
-    setCopyOpen(false);
-    toast.success('Previous day setup copied — actual values cleared for new entry');
-  };
-
-  const handleImportData = (importedRows: GridRow[]) => {
-    if (!access.isAdmin) { toast.error('Admin access required'); return; }
-    setRows(importedRows);
-    setImportOpen(false);
-    toast.success(`${importedRows.length} machine rows imported successfully`);
-  };
-
-  const totalActual = rows.reduce((sum, r) => sum + r.entries.reduce((s, e) => s + e.actual, 0), 0);
-  const totalExpected = rows.reduce((sum, r) => sum + r.entries.reduce((s, e) => s + e.expected, 0), 0);
-  const draftCount = rows.filter((r) => r.status === 'draft').length;
-  const flaggedCount = rows.filter((r) => r.status === 'flagged').length;
-
-  return (
-    <div className="space-y-5">
-      {/* Page header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold text-foreground">Production Entry</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Log hourly production per machine — actual vs expected
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          {access.isAdmin && (
-            <>
-              <button
-                onClick={() => setCopyOpen(true)}
-                className="flex items-center gap-2 px-3 py-2 text-sm font-medium border border-border rounded-md bg-card hover:bg-muted transition-colors"
-              >
-                <Copy size={14} />
-                Copy Previous Day
-              </button>
-              <button
-                onClick={() => setImportOpen(true)}
-                className="flex items-center gap-2 px-3 py-2 text-sm font-medium border border-border rounded-md bg-card hover:bg-muted transition-colors"
-              >
-                <Upload size={14} />
-                Import
-              </button>
-              <button
-                onClick={handleSave}
-                disabled={saving || draftCount === 0}
-                className="flex items-center gap-2 px-4 py-2 text-sm font-semibold bg-primary text-white rounded-md hover:bg-primary/90 transition-colors active:scale-95 disabled:opacity-60 min-w-[100px]"
-              >
-                {saving ? (
-                  <>
-                    <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    Saving...
-                  </>
-                ) : saved ? (
-                  <>
-                    <CheckCircle2 size={14} />
-                    Saved
-                  </>
-                ) : (
-                  <>
-                    <Save size={14} />
-                    Save Entries
-                  </>
-                )}
-              </button>
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* Filter bar */}
-      <div className="card-base p-4 flex flex-col sm:flex-row gap-4 items-start sm:items-center">
-        <div className="flex items-center gap-3 flex-wrap flex-1">
-          <div>
-            <label className="block text-xs font-semibold text-muted-foreground mb-1">Date</label>
-            <input
-              type="date"
-              value={date}
-              onChange={(e) => handleDateChange(e.target.value)}
-              className="px-3 py-2 text-sm border border-border rounded-md bg-card focus:outline-none focus:ring-2 focus:ring-ring font-mono-nums"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-muted-foreground mb-1">Shift</label>
-            <div className="flex gap-1">
-              {shifts.map((s) => (
-                <button
-                  key={`shift-btn-${s}`}
-                  onClick={() => handleShiftChange(s)}
-                  className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${
-                    shift === s
-                      ? 'bg-primary text-white' :'bg-muted text-muted-foreground hover:bg-secondary'
-                  }`}
-                >
-                  Shift {s}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="hidden sm:block">
-            <label className="block text-xs font-semibold text-muted-foreground mb-1">Hours</label>
-            <div className="flex gap-1 flex-wrap">
-              {getShiftHours(shift).map((h, i) => (
-                <span
-                  key={`hour-chip-${shift}-${i}`}
-                  className="text-xs font-mono-nums bg-muted px-2 py-1 rounded text-muted-foreground"
-                >
-                  {h}
-                </span>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Summary pills */}
-        <div className="flex items-center gap-3 flex-wrap shrink-0">
-          <div className="text-center">
-            <p className="text-xs text-muted-foreground">Total Actual</p>
-            <p className="font-mono-nums font-bold text-foreground text-sm">{totalActual.toLocaleString()}</p>
-          </div>
-          <div className="w-px h-8 bg-border" />
-          <div className="text-center">
-            <p className="text-xs text-muted-foreground">Efficiency</p>
-            <p className={`font-mono-nums font-bold text-sm ${
-              totalExpected > 0 && (totalActual / totalExpected) >= 0.8
-                ? 'text-success'
-                : totalExpected > 0 && (totalActual / totalExpected) >= 0.5
-                ? 'text-warning' :'text-danger'
-            }`}>
-              {totalExpected > 0 ? `${Math.round((totalActual / totalExpected) * 100)}%` : '—'}
-            </p>
-          </div>
-          {draftCount > 0 && (
-            <>
-              <div className="w-px h-8 bg-border" />
-              <span className="flex items-center gap-1.5 text-xs font-semibold text-warning">
-                <AlertCircle size={13} />
-                {draftCount} unsaved
-              </span>
-            </>
-          )}
-          {flaggedCount > 0 && (
-            <span className="flex items-center gap-1.5 text-xs font-semibold text-danger">
-              <AlertCircle size={13} />
-              {flaggedCount} flagged
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* Entry grid */}
-      <EntryGrid
-        rows={rows}
-        shift={shift}
-        shiftHours={getShiftHours(shift)}
-        lockedHours={lockedHours}
-        savingHour={savingHour}
-        isAdmin={access.isAdmin}
-        onOpeningReadingChange={handleOpeningReadingChange}
-        onCellChange={handleCellChange}
-        onItemChange={handleItemChange}
-        onOperatorChange={handleOperatorChange}
-        onNotesChange={handleNotesChange}
-        onSaveHour={handleSaveHour}
-      />
-
-      {/* Modals */}
-      <ImportModal
-        open={importOpen}
-        onClose={() => setImportOpen(false)}
-        onImport={handleImportData}
-        date={date}
-        shift={shift}
-      />
-      <CopyPreviousModal
-        open={copyOpen}
-        onClose={() => setCopyOpen(false)}
-        onCopy={handleCopyPrevious}
-        currentDate={date}
-        shift={shift}
-      />
-    </div>
-  );
-}
