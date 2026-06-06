@@ -309,6 +309,7 @@ export async function dbGetEntries(filters?: {
   if (!filters?.organizationId) return [];
   await sql`ALTER TABLE production_entries ADD COLUMN IF NOT EXISTS opening_reading INTEGER NOT NULL DEFAULT 0`;
   await sql`ALTER TABLE production_entries ADD COLUMN IF NOT EXISTS organization_id INTEGER NOT NULL DEFAULT 1`;
+  await sql`ALTER TABLE production_entries ADD COLUMN IF NOT EXISTS locked_hours INTEGER[] NOT NULL DEFAULT '{}'`;
   await sql`ALTER TABLE production_entries DROP CONSTRAINT IF EXISTS production_entries_date_machine_id_shift_key`;
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_entries_org_date_machine_shift_unique ON production_entries(organization_id, date, machine_id, shift)`;
   const rows = await sql`
@@ -327,24 +328,26 @@ export async function dbGetEntries(filters?: {
 export async function dbUpsertEntries(entries: ProductionEntry[], organizationId: number): Promise<void> {
   await sql`ALTER TABLE production_entries ADD COLUMN IF NOT EXISTS opening_reading INTEGER NOT NULL DEFAULT 0`;
   await sql`ALTER TABLE production_entries ADD COLUMN IF NOT EXISTS organization_id INTEGER NOT NULL DEFAULT 1`;
+  await sql`ALTER TABLE production_entries ADD COLUMN IF NOT EXISTS locked_hours INTEGER[] NOT NULL DEFAULT '{}'`;
   await sql`ALTER TABLE production_entries DROP CONSTRAINT IF EXISTS production_entries_date_machine_id_shift_key`;
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_entries_org_date_machine_shift_unique ON production_entries(organization_id, date, machine_id, shift)`;
   for (const e of entries) {
+    const lockedHours = e.lockedHours ?? [];
     await sql`
       INSERT INTO production_entries
-        (id, organization_id, date, machine_id, item_id, shift, opening_reading, entries, status, operator_name, notes, total_actual, total_expected)
+        (id, organization_id, date, machine_id, item_id, shift, opening_reading, entries, status, operator_name, notes, total_actual, total_expected, locked_hours)
       VALUES
-        (${e.id}, ${organizationId}, ${e.date}, ${e.machineId}, ${e.itemId}, ${e.shift}, ${e.openingReading ?? 0}, ${JSON.stringify(e.entries)}, ${e.status}, ${e.operatorName}, ${e.notes}, ${e.totalActual}, ${e.totalExpected})
+        (${e.id}, ${organizationId}, ${e.date}, ${e.machineId}, ${e.itemId}, ${e.shift}, ${e.openingReading ?? 0}, ${JSON.stringify(e.entries)}, ${e.status}, ${e.operatorName}, ${e.notes}, ${e.totalActual}, ${e.totalExpected}, ${lockedHours})
       ON CONFLICT (organization_id, date, machine_id, shift) DO UPDATE SET
-        organization_id = EXCLUDED.organization_id,
-        item_id        = EXCLUDED.item_id,
+        item_id         = EXCLUDED.item_id,
         opening_reading = EXCLUDED.opening_reading,
-        entries        = EXCLUDED.entries,
-        status         = EXCLUDED.status,
-        operator_name  = EXCLUDED.operator_name,
-        notes          = EXCLUDED.notes,
-        total_actual   = EXCLUDED.total_actual,
-        total_expected = EXCLUDED.total_expected
+        entries         = EXCLUDED.entries,
+        status          = EXCLUDED.status,
+        operator_name   = EXCLUDED.operator_name,
+        notes           = EXCLUDED.notes,
+        total_actual    = EXCLUDED.total_actual,
+        total_expected  = EXCLUDED.total_expected,
+        locked_hours    = EXCLUDED.locked_hours
     `;
   }
 }
@@ -455,5 +458,6 @@ function rowToEntry(r: any): ProductionEntry {
     notes: r.notes ?? '',
     totalActual: r.total_actual,
     totalExpected: r.total_expected,
+    lockedHours: r.locked_hours ?? [],
   };
 }
