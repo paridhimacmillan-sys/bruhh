@@ -59,9 +59,18 @@ function getCarryForwardExpected(
   if (!previous) {
     return Array.from({ length: hourCount }, () => Math.max(1, Math.round(fallbackPerHour)));
   }
-  const previousExpected = Math.max(0, previous.totalExpected || previous.entries.reduce((s, e) => s + (e.expected ?? 0), 0));
-  const previousActual = Math.max(0, previous.totalActual || previous.entries.reduce((s, e) => s + (e.actual ?? 0), 0));
-  const nextTotalExpected = previousActual > previousExpected ? Math.round((previousExpected + previousActual) / 2) : previousExpected;
+  const previousExpected = Math.max(
+    0,
+    previous.totalExpected || previous.entries.reduce((s, e) => s + (e.expected ?? 0), 0)
+  );
+  const previousActual = Math.max(
+    0,
+    previous.totalActual || previous.entries.reduce((s, e) => s + (e.actual ?? 0), 0)
+  );
+  const nextTotalExpected =
+    previousActual > previousExpected
+      ? Math.round((previousExpected + previousActual) / 2)
+      : previousExpected;
   return splitExpectedAcrossHours(nextTotalExpected, hourCount);
 }
 
@@ -73,26 +82,50 @@ function buildInitialRows(date: string, shift: Shift): { rows: GridRow[]; locked
   const activeMachines = machines.filter((m) => m.status !== 'offline');
   let lockedHours: number[] = [];
   const rows = activeMachines.map((machine) => {
-    const existing = entries.find((e) => e.date === date && e.machineId === machine.id && e.shift === shift);
+    const existing = entries.find(
+      (e) => e.date === date && e.machineId === machine.id && e.shift === shift
+    );
     if (existing?.lockedHours?.length) {
       lockedHours = Array.from(new Set([...lockedHours, ...existing.lockedHours]));
     }
-    const itemId = machine.currentItem ?? (items.find((i) => i.status === 'active')?.id ?? items[0]?.id ?? '');
+    const itemId =
+      machine.currentItem ??
+      (items.find((i) => i.status === 'active')?.id ?? items[0]?.id ?? '');
     const item = items.find((candidate) => candidate.id === itemId);
-    const machineSpecificRate = item?.rates.find((override) => override.machineId === machine.id)?.rate;
-    const rate = Number(machineSpecificRate ?? item?.defaultRate ?? machine.expectedPerHour ?? 0);
+    const machineSpecificRate = item?.rates.find(
+      (override) => override.machineId === machine.id
+    )?.rate;
+    const rate = Number(
+      machineSpecificRate ?? item?.defaultRate ?? machine.expectedPerHour ?? 0
+    );
     const hourCount = getShiftHours(shift).length;
     return {
       machineId: machine.id,
       itemId,
       openingReading: Number(existing?.openingReading ?? 0),
       entries: existing
-        ? recalculateEntriesFromReadings(Number(existing?.openingReading ?? 0), Array.from({ length: hourCount }, (_, index) => {
-            const entry = existing.entries[index];
-            return { hour: index + 1, actual: Number(entry?.actual ?? 0), expected: existing.totalActual === 0 ? rate : Number(entry?.expected ?? rate), closingReading: entry?.closingReading ?? null };
-          }))
-        : (machineSpecificRate == null ? getCarryForwardExpected(entries, date, machine.id, shift, rate, hourCount) : Array.from({ length: hourCount }, () => rate))
-            .map((expected, i) => ({ hour: i + 1, actual: 0, expected, closingReading: null })),
+        ? recalculateEntriesFromReadings(
+            Number(existing?.openingReading ?? 0),
+            Array.from({ length: hourCount }, (_, index) => {
+              const entry = existing.entries[index];
+              return {
+                hour: index + 1,
+                actual: Number(entry?.actual ?? 0),
+                expected:
+                  existing.totalActual === 0 ? rate : Number(entry?.expected ?? rate),
+                closingReading: entry?.closingReading ?? null,
+              };
+            })
+          )
+        : (machineSpecificRate == null
+            ? getCarryForwardExpected(entries, date, machine.id, shift, rate, hourCount)
+            : Array.from({ length: hourCount }, () => rate)
+          ).map((expected, i) => ({
+            hour: i + 1,
+            actual: 0,
+            expected,
+            closingReading: null,
+          })),
       status: existing?.status ?? 'draft',
       operatorName: existing?.operatorName ?? (machine.operatorName ?? ''),
       notes: existing?.notes ?? '',
@@ -106,8 +139,12 @@ export default function ProductionEntryClient() {
   const [date, setDate] = useState(getTodayISOLocal());
   const [shifts, setShifts] = useState<string[]>(() => getShifts());
   const [shift, setShift] = useState<Shift>(() => getShifts()[0] ?? '');
-  const [rows, setRows] = useState<GridRow[]>(() => buildInitialRows(getTodayISOLocal(), getShifts()[0] ?? '').rows);
-  const [lockedHours, setLockedHours] = useState<number[]>(() => buildInitialRows(getTodayISOLocal(), getShifts()[0] ?? '').lockedHours);
+  const [rows, setRows] = useState<GridRow[]>(
+    () => buildInitialRows(getTodayISOLocal(), getShifts()[0] ?? '').rows
+  );
+  const [lockedHours, setLockedHours] = useState<number[]>(
+    () => buildInitialRows(getTodayISOLocal(), getShifts()[0] ?? '').lockedHours
+  );
   const [importOpen, setImportOpen] = useState(false);
   const [copyOpen, setCopyOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -117,9 +154,19 @@ export default function ProductionEntryClient() {
   const [deleting, setDeleting] = useState(false);
   const isSavingRef = React.useRef(false);
 
-  const hasEntryData = rows.some((r) => r.openingReading > 0 || r.entries.some((e) => e.closingReading !== null));
+  const hasEntryData = rows.some(
+    (r) => r.openingReading > 0 || r.entries.some((e) => e.closingReading !== null)
+  );
   const hasDraft = rows.some((r) => r.status === 'draft' || r.status === 'flagged');
   const flaggedCount = rows.filter((r) => r.status === 'flagged').length;
+  const totalActual = rows.reduce(
+    (sum, r) => sum + r.entries.reduce((s, e) => s + e.actual, 0),
+    0
+  );
+  const totalExpected = rows.reduce(
+    (sum, r) => sum + r.entries.reduce((s, e) => s + e.expected, 0),
+    0
+  );
 
   useEffect(() => {
     const unsubShifts = subscribeShifts(() => {
@@ -168,7 +215,12 @@ export default function ProductionEntryClient() {
       const next = [...prev];
       const openingReading = Math.max(0, value);
       const rebuilt = recalculateEntriesFromReadings(openingReading, next[machineIdx].entries);
-      next[machineIdx] = { ...next[machineIdx], openingReading, entries: rebuilt, status: 'draft' };
+      next[machineIdx] = {
+        ...next[machineIdx],
+        openingReading,
+        entries: rebuilt,
+        status: 'draft',
+      };
       return next;
     });
     setSaved(false);
@@ -182,34 +234,102 @@ export default function ProductionEntryClient() {
       const row = next[machineIdx];
       const entry = row.entries[hourIdx];
       const expected = entry?.expected ?? 0;
-      const prevReading = hourIdx === 0 ? row.openingReading : (row.entries[hourIdx - 1]?.closingReading ?? row.openingReading);
+      const prevReading =
+        hourIdx === 0
+          ? row.openingReading
+          : (row.entries[hourIdx - 1]?.closingReading ?? row.openingReading);
       const wouldBeActual = value > 0 ? Math.max(0, value - prevReading) : 0;
       if (value > 0 && value < prevReading) {
-        toast.error(`Reading ${value} is less than previous reading ${prevReading}. Enter the full meter reading.`, { duration: 5000 });
+        toast.error(
+          `Reading ${value} is less than previous reading ${prevReading}. Enter the full meter reading.`,
+          { duration: 5000 }
+        );
         return prev;
       }
       if (expected > 0 && wouldBeActual > expected * MAX_HARD_BLOCK) {
-        toast.error(`Reading ${value} rejected — output would be ${wouldBeActual} pcs (max ${Math.floor(expected * MAX_HARD_BLOCK)} = 150% of target ${expected})`, { duration: 5000 });
+        toast.error(
+          `Reading ${value} rejected — output would be ${wouldBeActual} pcs (max ${Math.floor(
+            expected * MAX_HARD_BLOCK
+          )} = 150% of target ${expected})`,
+          { duration: 5000 }
+        );
         return prev;
       }
-      const changed = next[machineIdx].entries.map((e, i) => i === hourIdx ? { ...e, closingReading: value <= 0 ? null : value } : e);
+      const changed = next[machineIdx].entries.map((e, i) =>
+        i === hourIdx ? { ...e, closingReading: value <= 0 ? null : value } : e
+      );
       const rebuilt = recalculateEntriesFromReadings(next[machineIdx].openingReading, changed);
       const isOverTarget = expected > 0 && wouldBeActual > expected * 1.0;
-      next[machineIdx] = { ...next[machineIdx], entries: rebuilt, status: isOverTarget ? 'flagged' : 'draft' };
+      next[machineIdx] = {
+        ...next[machineIdx],
+        entries: rebuilt,
+        status: isOverTarget ? 'flagged' : 'draft',
+      };
       return next;
     });
     setSaved(false);
+  };
+
+  const handleItemChange = (machineIdx: number, itemId: string) => {
+    setRows((prev) => {
+      const next = [...prev];
+      const machine = getMachines().find((m) => m.id === next[machineIdx].machineId);
+      const item = getItems().find((i) => i.id === itemId);
+      const rate = Number(
+        item?.rates.find((o) => o.machineId === machine?.id)?.rate ??
+          item?.defaultRate ??
+          machine?.expectedPerHour ??
+          0
+      );
+      next[machineIdx] = {
+        ...next[machineIdx],
+        itemId,
+        entries: next[machineIdx].entries.map((e) => ({ ...e, expected: rate })),
+        status: 'draft',
+      };
+      return next;
+    });
+    setSaved(false);
+  };
+
+  const handleOperatorChange = (machineIdx: number, operatorName: string) => {
+    setRows((prev) => {
+      const next = [...prev];
+      next[machineIdx] = { ...next[machineIdx], operatorName };
+      return next;
+    });
+    setSaved(false);
+  };
+
+  const handleNotesChange = (machineIdx: number, notes: string) => {
+    setRows((prev) => {
+      const next = [...prev];
+      next[machineIdx] = { ...next[machineIdx], notes };
+      return next;
+    });
+    setSaved(false);
+  };
+
   const handleSaveHour = async (hourIdx: number) => {
-    if (!access.isAdmin) { toast.error('Admin access required'); return; }
+    if (!access.isAdmin) {
+      toast.error('Admin access required');
+      return;
+    }
     if (lockedHours.includes(hourIdx)) return;
     setSavingHour(hourIdx);
     isSavingRef.current = true;
     const newLockedHours = [...lockedHours, hourIdx];
     const entries: ProductionEntry[] = rows.map((r) => ({
       id: `entry-${date}-${shift}-${r.machineId}`,
-      date, machineId: r.machineId, itemId: r.itemId, shift,
-      openingReading: r.openingReading, entries: r.entries, status: 'submitted' as const,
-      operatorName: r.operatorName, notes: r.notes,
+      date,
+      machineId: r.machineId,
+      itemId: r.itemId,
+      shift,
+      openingReading: r.openingReading,
+      entries: r.entries,
+      status: 'submitted' as const,
+      operatorName: r.operatorName,
+      notes: r.notes,
       totalActual: r.entries.reduce((s, e) => s + e.actual, 0),
       totalExpected: r.entries.reduce((s, e) => s + e.expected, 0),
       lockedHours: newLockedHours,
@@ -228,7 +348,10 @@ export default function ProductionEntryClient() {
   };
 
   const handleSave = async () => {
-    if (!access.isAdmin) { toast.error('Admin access required'); return; }
+    if (!access.isAdmin) {
+      toast.error('Admin access required');
+      return;
+    }
     setSaving(true);
     isSavingRef.current = true;
     await new Promise((r) => setTimeout(r, 300));
@@ -236,9 +359,15 @@ export default function ProductionEntryClient() {
     setRows(updatedRows);
     const entries: ProductionEntry[] = updatedRows.map((r) => ({
       id: `entry-${date}-${shift}-${r.machineId}`,
-      date, machineId: r.machineId, itemId: r.itemId, shift,
-      openingReading: r.openingReading, entries: r.entries, status: 'submitted',
-      operatorName: r.operatorName, notes: r.notes,
+      date,
+      machineId: r.machineId,
+      itemId: r.itemId,
+      shift,
+      openingReading: r.openingReading,
+      entries: r.entries,
+      status: 'submitted',
+      operatorName: r.operatorName,
+      notes: r.notes,
       totalActual: r.entries.reduce((s, e) => s + e.actual, 0),
       totalExpected: r.entries.reduce((s, e) => s + e.expected, 0),
       lockedHours: Array.from({ length: getShiftHours(shift).length }, (_, i) => i),
@@ -261,14 +390,24 @@ export default function ProductionEntryClient() {
     setDeleting(true);
     isSavingRef.current = true;
     try {
-      const res = await fetch(`/api/entries?date=${date}&shift=${encodeURIComponent(shift)}`, { method: 'DELETE' });
+      const res = await fetch(
+        `/api/entries?date=${date}&shift=${encodeURIComponent(shift)}`,
+        { method: 'DELETE' }
+      );
       if (!res.ok) throw new Error();
       toast.success(`Entries deleted for ${date}, Shift ${shift}`);
       setConfirmDelete(false);
       setLockedHours([]);
       setSaved(false);
       const built = buildInitialRows(date, shift);
-      setRows(built.rows.map((r) => ({ ...r, openingReading: 0, entries: r.entries.map((e) => ({ ...e, actual: 0, closingReading: null })), status: 'draft' as const })));
+      setRows(
+        built.rows.map((r) => ({
+          ...r,
+          openingReading: 0,
+          entries: r.entries.map((e) => ({ ...e, actual: 0, closingReading: null })),
+          status: 'draft' as const,
+        }))
+      );
     } catch {
       toast.error('Could not delete entries');
     } finally {
@@ -278,45 +417,88 @@ export default function ProductionEntryClient() {
   };
 
   const handleCopyPrevious = (prevRows: GridRow[]) => {
-    if (!access.isAdmin) { toast.error('Admin access required'); return; }
-    setRows(prevRows.map((r) => ({ ...r, openingReading: 0, entries: r.entries.map((e) => ({ ...e, actual: 0, closingReading: null })), status: 'draft' as const })));
+    if (!access.isAdmin) {
+      toast.error('Admin access required');
+      return;
+    }
+    setRows(
+      prevRows.map((r) => ({
+        ...r,
+        openingReading: 0,
+        entries: r.entries.map((e) => ({ ...e, actual: 0, closingReading: null })),
+        status: 'draft' as const,
+      }))
+    );
     setCopyOpen(false);
     toast.success('Previous day setup copied');
   };
 
   const handleImportData = (importedRows: GridRow[]) => {
-    if (!access.isAdmin) { toast.error('Admin access required'); return; }
+    if (!access.isAdmin) {
+      toast.error('Admin access required');
+      return;
+    }
     setRows(importedRows);
     setImportOpen(false);
     toast.success(`${importedRows.length} machine rows imported`);
   };
-
-  const totalActual = rows.reduce((sum, r) => sum + r.entries.reduce((s, e) => s + e.actual, 0), 0);
-  const totalExpected = rows.reduce((sum, r) => sum + r.entries.reduce((s, e) => s + e.expected, 0), 0);
 
   return (
     <div className="space-y-5">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold text-foreground">Production Entry</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">Log hourly production per machine — actual vs expected</p>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            Log hourly production per machine — actual vs expected
+          </p>
         </div>
         <div className="flex items-center gap-2">
           {access.isAdmin && (
             <>
-              <button onClick={() => setCopyOpen(true)} className="flex items-center gap-2 px-3 py-2 text-sm font-medium border border-border rounded-md bg-card hover:bg-muted transition-colors">
-                <Copy size={14} />Copy Previous Day
+              <button
+                onClick={() => setCopyOpen(true)}
+                className="flex items-center gap-2 px-3 py-2 text-sm font-medium border border-border rounded-md bg-card hover:bg-muted transition-colors"
+              >
+                <Copy size={14} />
+                Copy Previous Day
               </button>
-              <button onClick={() => setImportOpen(true)} className="flex items-center gap-2 px-3 py-2 text-sm font-medium border border-border rounded-md bg-card hover:bg-muted transition-colors">
-                <Upload size={14} />Import
+              <button
+                onClick={() => setImportOpen(true)}
+                className="flex items-center gap-2 px-3 py-2 text-sm font-medium border border-border rounded-md bg-card hover:bg-muted transition-colors"
+              >
+                <Upload size={14} />
+                Import
               </button>
               {hasEntryData && (
-                <button onClick={() => setConfirmDelete(true)} className="flex items-center gap-2 px-3 py-2 text-sm font-medium border border-danger/30 text-danger rounded-md bg-card hover:bg-danger/10 transition-colors">
-                  <Trash2 size={14} />Delete
+                <button
+                  onClick={() => setConfirmDelete(true)}
+                  className="flex items-center gap-2 px-3 py-2 text-sm font-medium border border-danger/30 text-danger rounded-md bg-card hover:bg-danger/10 transition-colors"
+                >
+                  <Trash2 size={14} />
+                  Delete
                 </button>
               )}
-              <button onClick={handleSave} disabled={saving} className="flex items-center gap-2 px-4 py-2 text-sm font-semibold bg-primary text-white rounded-md hover:bg-primary/90 transition-colors active:scale-95 disabled:opacity-60 min-w-[100px]">
-                {saving ? (<><span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />Saving...</>) : saved && !hasDraft ? (<><CheckCircle2 size={14} />Saved</>) : (<><Save size={14} />Save Entries</>)}
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className="flex items-center gap-2 px-4 py-2 text-sm font-semibold bg-primary text-white rounded-md hover:bg-primary/90 transition-colors active:scale-95 disabled:opacity-60 min-w-[100px]"
+              >
+                {saving ? (
+                  <>
+                    <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Saving...
+                  </>
+                ) : saved && !hasDraft ? (
+                  <>
+                    <CheckCircle2 size={14} />
+                    Saved
+                  </>
+                ) : (
+                  <>
+                    <Save size={14} />
+                    Save Entries
+                  </>
+                )}
               </button>
             </>
           )}
@@ -326,24 +508,48 @@ export default function ProductionEntryClient() {
       <div className="card-base p-4 flex flex-col sm:flex-row gap-4 items-start sm:items-center">
         <div className="flex items-center gap-3 flex-wrap flex-1">
           <div>
-            <label className="block text-xs font-semibold text-muted-foreground mb-1">Date</label>
-            <input type="date" value={date} onChange={(e) => handleDateChange(e.target.value)} className="px-3 py-2 text-sm border border-border rounded-md bg-card focus:outline-none focus:ring-2 focus:ring-ring font-mono-nums" />
+            <label className="block text-xs font-semibold text-muted-foreground mb-1">
+              Date
+            </label>
+            <input
+              type="date"
+              value={date}
+              onChange={(e) => handleDateChange(e.target.value)}
+              className="px-3 py-2 text-sm border border-border rounded-md bg-card focus:outline-none focus:ring-2 focus:ring-ring font-mono-nums"
+            />
           </div>
           <div>
-            <label className="block text-xs font-semibold text-muted-foreground mb-1">Shift</label>
+            <label className="block text-xs font-semibold text-muted-foreground mb-1">
+              Shift
+            </label>
             <div className="flex gap-1">
               {shifts.map((s) => (
-                <button key={`shift-btn-${s}`} onClick={() => handleShiftChange(s)} className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${shift === s ? 'bg-primary text-white' : 'bg-muted text-muted-foreground hover:bg-secondary'}`}>
+                <button
+                  key={`shift-btn-${s}`}
+                  onClick={() => handleShiftChange(s)}
+                  className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${
+                    shift === s
+                      ? 'bg-primary text-white'
+                      : 'bg-muted text-muted-foreground hover:bg-secondary'
+                  }`}
+                >
                   Shift {s}
                 </button>
               ))}
             </div>
           </div>
           <div className="hidden sm:block">
-            <label className="block text-xs font-semibold text-muted-foreground mb-1">Hours</label>
+            <label className="block text-xs font-semibold text-muted-foreground mb-1">
+              Hours
+            </label>
             <div className="flex gap-1 flex-wrap">
               {getShiftHours(shift).map((h, i) => (
-                <span key={`hour-chip-${shift}-${i}`} className="text-xs font-mono-nums bg-muted px-2 py-1 rounded text-muted-foreground">{h}</span>
+                <span
+                  key={`hour-chip-${shift}-${i}`}
+                  className="text-xs font-mono-nums bg-muted px-2 py-1 rounded text-muted-foreground"
+                >
+                  {h}
+                </span>
               ))}
             </div>
           </div>
@@ -351,47 +557,109 @@ export default function ProductionEntryClient() {
         <div className="flex items-center gap-3 flex-wrap shrink-0">
           <div className="text-center">
             <p className="text-xs text-muted-foreground">Total Actual</p>
-            <p className="font-mono-nums font-bold text-foreground text-sm">{totalActual.toLocaleString()}</p>
+            <p className="font-mono-nums font-bold text-foreground text-sm">
+              {totalActual.toLocaleString()}
+            </p>
           </div>
           <div className="w-px h-8 bg-border" />
           <div className="text-center">
             <p className="text-xs text-muted-foreground">Efficiency</p>
-            <p className={`font-mono-nums font-bold text-sm ${totalExpected > 0 && (totalActual / totalExpected) >= 0.8 ? 'text-success' : totalExpected > 0 && (totalActual / totalExpected) >= 0.5 ? 'text-warning' : 'text-danger'}`}>
-              {totalExpected > 0 ? `${Math.round((totalActual / totalExpected) * 100)}%` : '—'}
+            <p
+              className={`font-mono-nums font-bold text-sm ${
+                totalExpected > 0 && totalActual / totalExpected >= 0.8
+                  ? 'text-success'
+                  : totalExpected > 0 && totalActual / totalExpected >= 0.5
+                  ? 'text-warning'
+                  : 'text-danger'
+              }`}
+            >
+              {totalExpected > 0
+                ? `${Math.round((totalActual / totalExpected) * 100)}%`
+                : '—'}
             </p>
           </div>
-          {hasDraft && (<><div className="w-px h-8 bg-border" /><span className="flex items-center gap-1.5 text-xs font-semibold text-warning"><AlertCircle size={13} />unsaved changes</span></>)}
-          {flaggedCount > 0 && (<span className="flex items-center gap-1.5 text-xs font-semibold text-danger"><AlertCircle size={13} />{flaggedCount} flagged</span>)}
+          {hasDraft && (
+            <>
+              <div className="w-px h-8 bg-border" />
+              <span className="flex items-center gap-1.5 text-xs font-semibold text-warning">
+                <AlertCircle size={13} />
+                unsaved changes
+              </span>
+            </>
+          )}
+          {flaggedCount > 0 && (
+            <span className="flex items-center gap-1.5 text-xs font-semibold text-danger">
+              <AlertCircle size={13} />
+              {flaggedCount} flagged
+            </span>
+          )}
         </div>
       </div>
 
       <EntryGrid
-        rows={rows} shift={shift} shiftHours={getShiftHours(shift)}
-        lockedHours={lockedHours} savingHour={savingHour} isAdmin={access.isAdmin}
-        onOpeningReadingChange={handleOpeningReadingChange} onCellChange={handleCellChange}
-        onItemChange={handleItemChange} onOperatorChange={handleOperatorChange}
-        onNotesChange={handleNotesChange} onSaveHour={handleSaveHour}
+        rows={rows}
+        shift={shift}
+        shiftHours={getShiftHours(shift)}
+        lockedHours={lockedHours}
+        savingHour={savingHour}
+        isAdmin={access.isAdmin}
+        onOpeningReadingChange={handleOpeningReadingChange}
+        onCellChange={handleCellChange}
+        onItemChange={handleItemChange}
+        onOperatorChange={handleOperatorChange}
+        onNotesChange={handleNotesChange}
+        onSaveHour={handleSaveHour}
       />
 
       {confirmDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={() => setConfirmDelete(false)}>
-          <div className="w-full max-w-sm bg-card border border-border rounded-xl p-6 shadow-xl space-y-4" onClick={(e) => e.stopPropagation()}>
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
+          onClick={() => setConfirmDelete(false)}
+        >
+          <div
+            className="w-full max-w-sm bg-card border border-border rounded-xl p-6 shadow-xl space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div>
               <h3 className="text-sm font-semibold text-foreground">Delete All Entries?</h3>
-              <p className="text-xs text-muted-foreground mt-1">Permanently deletes all entries for <strong>{date}</strong>, Shift <strong>{shift}</strong>. Cannot be undone.</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Permanently deletes all entries for <strong>{date}</strong>, Shift{' '}
+                <strong>{shift}</strong>. Cannot be undone.
+              </p>
             </div>
             <div className="flex gap-2">
-              <button onClick={handleDeleteEntries} disabled={deleting} className="flex-1 px-4 py-2 text-sm font-semibold bg-danger text-white rounded-md hover:bg-danger/90 disabled:opacity-60 transition-colors">
+              <button
+                onClick={handleDeleteEntries}
+                disabled={deleting}
+                className="flex-1 px-4 py-2 text-sm font-semibold bg-danger text-white rounded-md hover:bg-danger/90 disabled:opacity-60 transition-colors"
+              >
                 {deleting ? 'Deleting…' : 'Delete'}
               </button>
-              <button onClick={() => setConfirmDelete(false)} className="flex-1 px-4 py-2 text-sm font-medium border border-border rounded-md hover:bg-muted transition-colors">Cancel</button>
+              <button
+                onClick={() => setConfirmDelete(false)}
+                className="flex-1 px-4 py-2 text-sm font-medium border border-border rounded-md hover:bg-muted transition-colors"
+              >
+                Cancel
+              </button>
             </div>
           </div>
         </div>
       )}
 
-      <ImportModal open={importOpen} onClose={() => setImportOpen(false)} onImport={handleImportData} date={date} shift={shift} />
-      <CopyPreviousModal open={copyOpen} onClose={() => setCopyOpen(false)} onCopy={handleCopyPrevious} currentDate={date} shift={shift} />
+      <ImportModal
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        onImport={handleImportData}
+        date={date}
+        shift={shift}
+      />
+      <CopyPreviousModal
+        open={copyOpen}
+        onClose={() => setCopyOpen(false)}
+        onCopy={handleCopyPrevious}
+        currentDate={date}
+        shift={shift}
+      />
     </div>
   );
 }
