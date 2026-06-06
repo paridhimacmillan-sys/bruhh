@@ -10,8 +10,8 @@ async function getAdminOrg(): Promise<{ organizationId: number } | null> {
   const email = session?.user?.email?.toLowerCase();
   if (!email) return null;
   const rows = await sql<{ organization_id: number }[]>`
-    SELECT organization_id FROM app_users WHERE lower(email) = ${email} LIMIT 1
-  `;
+  SELECT organization_id FROM app_users WHERE lower(email) = ${email} LIMIT 1
+`;
   const orgId = rows?.[0]?.organization_id;
   if (!orgId) return null;
   return { organizationId: orgId };
