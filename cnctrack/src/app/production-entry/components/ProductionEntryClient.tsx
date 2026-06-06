@@ -56,25 +56,12 @@ function getCarryForwardExpected(
   const previous = entries
     .filter((e) => e.machineId === machineId && e.shift === shift && e.date < date)
     .sort((a, b) => b.date.localeCompare(a.date))[0];
-
   if (!previous) {
     return Array.from({ length: hourCount }, () => Math.max(1, Math.round(fallbackPerHour)));
   }
-
-  const previousExpected = Math.max(
-    0,
-    previous.totalExpected || previous.entries.reduce((s, e) => s + (e.expected ?? 0), 0)
-  );
-  const previousActual = Math.max(
-    0,
-    previous.totalActual || previous.entries.reduce((s, e) => s + (e.actual ?? 0), 0)
-  );
-
-  const nextTotalExpected =
-    previousActual > previousExpected
-      ? Math.round((previousExpected + previousActual) / 2)
-      : previousExpected;
-
+  const previousExpected = Math.max(0, previous.totalExpected || previous.entries.reduce((s, e) => s + (e.expected ?? 0), 0));
+  const previousActual = Math.max(0, previous.totalActual || previous.entries.reduce((s, e) => s + (e.actual ?? 0), 0));
+  const nextTotalExpected = previousActual > previousExpected ? Math.round((previousExpected + previousActual) / 2) : previousExpected;
   return splitExpectedAcrossHours(nextTotalExpected, hourCount);
 }
 
@@ -84,13 +71,9 @@ function buildInitialRows(date: string, shift: Shift): { rows: GridRow[]; locked
   const items = getItems();
   const entries = getEntries();
   const activeMachines = machines.filter((m) => m.status !== 'offline');
-
   let lockedHours: number[] = [];
-
   const rows = activeMachines.map((machine) => {
-    const existing = entries.find(
-      (e) => e.date === date && e.machineId === machine.id && e.shift === shift
-    );
+    const existing = entries.find((e) => e.date === date && e.machineId === machine.id && e.shift === shift);
     if (existing?.lockedHours?.length) {
       lockedHours = Array.from(new Set([...lockedHours, ...existing.lockedHours]));
     }
@@ -104,33 +87,17 @@ function buildInitialRows(date: string, shift: Shift): { rows: GridRow[]; locked
       itemId,
       openingReading: Number(existing?.openingReading ?? 0),
       entries: existing
-        ? recalculateEntriesFromReadings(
-            Number(existing?.openingReading ?? 0),
-            Array.from({ length: hourCount }, (_, index) => {
-              const entry = existing.entries[index];
-              return {
-                hour: index + 1,
-                actual: Number(entry?.actual ?? 0),
-                expected: existing.totalActual === 0 ? rate : Number(entry?.expected ?? rate),
-                closingReading: entry?.closingReading ?? null,
-              };
-            })
-          )
-        : (machineSpecificRate == null
-            ? getCarryForwardExpected(entries, date, machine.id, shift, rate, hourCount)
-            : Array.from({ length: hourCount }, () => rate)
-          ).map((expected, i) => ({
-            hour: i + 1,
-            actual: 0,
-            expected,
-            closingReading: null,
-          })),
+        ? recalculateEntriesFromReadings(Number(existing?.openingReading ?? 0), Array.from({ length: hourCount }, (_, index) => {
+            const entry = existing.entries[index];
+            return { hour: index + 1, actual: Number(entry?.actual ?? 0), expected: existing.totalActual === 0 ? rate : Number(entry?.expected ?? rate), closingReading: entry?.closingReading ?? null };
+          }))
+        : (machineSpecificRate == null ? getCarryForwardExpected(entries, date, machine.id, shift, rate, hourCount) : Array.from({ length: hourCount }, () => rate))
+            .map((expected, i) => ({ hour: i + 1, actual: 0, expected, closingReading: null })),
       status: existing?.status ?? 'draft',
       operatorName: existing?.operatorName ?? (machine.operatorName ?? ''),
       notes: existing?.notes ?? '',
     };
   });
-
   return { rows, lockedHours };
 }
 
@@ -148,12 +115,9 @@ export default function ProductionEntryClient() {
   const [savingHour, setSavingHour] = useState<number | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
-
   const isSavingRef = React.useRef(false);
 
-  const hasEntryData = rows.some(
-    (r) => r.openingReading > 0 || r.entries.some((e) => e.closingReading !== null)
-  );
+  const hasEntryData = rows.some((r) => r.openingReading > 0 || r.entries.some((e) => e.closingReading !== null));
   const hasDraft = rows.some((r) => r.status === 'draft' || r.status === 'flagged');
   const flaggedCount = rows.filter((r) => r.status === 'flagged').length;
 
@@ -177,3 +141,84 @@ export default function ProductionEntryClient() {
       if (!isSavingRef.current) {
         const built = buildInitialRows(date, shift);
         setRows(built.rows);
+        setLockedHours(built.lockedHours);
+      }
+    });
+    return unsub;
+  }, [date, shift]);
+
+  const handleShiftChange = (s: Shift) => {
+    setShift(s);
+    const built = buildInitialRows(date, s);
+    setRows(built.rows);
+    setLockedHours(built.lockedHours);
+    setSaved(false);
+  };
+
+  const handleDateChange = (d: string) => {
+    setDate(d);
+    const built = buildInitialRows(d, shift);
+    setRows(built.rows);
+    setLockedHours(built.lockedHours);
+    setSaved(false);
+  };
+
+  const handleOpeningReadingChange = (machineIdx: number, value: number) => {
+    setRows((prev) => {
+      const next = [...prev];
+      const openingReading = Math.max(0, value);
+      const rebuilt = recalculateEntriesFromReadings(openingReading, next[machineIdx].entries);
+      next[machineIdx] = { ...next[machineIdx], openingReading, entries: rebuilt, status: 'draft' };
+      return next;
+    });
+    setSaved(false);
+  };
+
+  const MAX_HARD_BLOCK = 1.5;
+
+  const handleCellChange = (machineIdx: number, hourIdx: number, value: number) => {
+    setRows((prev) => {
+      const next = [...prev];
+      const row = next[machineIdx];
+      const entry = row.entries[hourIdx];
+      const expected = entry?.expected ?? 0;
+      const prevReading = hourIdx === 0 ? row.openingReading : (row.entries[hourIdx - 1]?.closingReading ?? row.openingReading);
+      const wouldBeActual = value > 0 ? Math.max(0, value - prevReading) : 0;
+      if (value > 0 && value < prevReading) {
+        toast.error(`Reading ${value} is less than previous reading ${prevReading}. Enter the full meter reading.`, { duration: 5000 });
+        return prev;
+      }
+      if (expected > 0 && wouldBeActual > expected * MAX_HARD_BLOCK) {
+        toast.error(`Reading ${value} rejected — output would be ${wouldBeActual} pcs (max ${Math.floor(expected * MAX_HARD_BLOCK)} = 150% of target ${expected})`, { duration: 5000 });
+        return prev;
+      }
+      const changed = next[machineIdx].entries.map((e, i) => i === hourIdx ? { ...e, closingReading: value <= 0 ? null : value } : e);
+      const rebuilt = recalculateEntriesFromReadings(next[machineIdx].openingReading, changed);
+      const isOverTarget = expected > 0 && wouldBeActual > expected * 1.0;
+      next[machineIdx] = { ...next[machineIdx], entries: rebuilt, status: isOverTarget ? 'flagged' : 'draft' };
+      return next;
+    });
+    setSaved(false);
+  };
+
+  const handleItemChange = (machineIdx: number, itemId: string) => {
+    setRows((prev) => {
+      const next = [...prev];
+      const machine = getMachines().find((m) => m.id === next[machineIdx].machineId);
+      const item = getItems().find((i) => i.id === itemId);
+      const rate = Number(item?.rates.find((o) => o.machineId === machine?.id)?.rate ?? item?.defaultRate ?? machine?.expectedPerHour ?? 0);
+      next[machineIdx] = { ...next[machineIdx], itemId, entries: next[machineIdx].entries.map((e) => ({ ...e, expected: rate })), status: 'draft' };
+      return next;
+    });
+    setSaved(false);
+  };
+
+  const handleOperatorChange = (machineIdx: number, operatorName: string) => {
+    setRows((prev) => { const next = [...prev]; next[machineIdx] = { ...next[machineIdx], operatorName }; return next; });
+    setSaved(false);
+  };
+
+  const handleNotesChange = (machineIdx: number, notes: string) => {
+    setRows((prev) => { const next = [...prev]; next[machineIdx] = { ...next[machineIdx], notes }; return next; });
+    setSaved(false);
+  };
