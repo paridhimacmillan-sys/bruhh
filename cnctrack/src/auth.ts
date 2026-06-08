@@ -31,19 +31,21 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const identifier = String(credentials?.identifier ?? '').trim().toLowerCase();
         const password = String(credentials?.password ?? '');
         if (!identifier || !password) return null;
-
         const user = await findAppUser(identifier);
         if (!user?.password) return null;
-
         const ok = await comparePassword(password, user.password);
         if (!ok) return null;
-
+        // Fetch fresh organizationId from DB
+        const rows = await sql<{ organization_id: number | null }[]>`
+          SELECT organization_id FROM app_users WHERE lower(email) = ${user.email} LIMIT 1
+        `;
+        const organizationId = rows?.[0]?.organization_id ?? user.organizationId ?? null;
         return {
           id: user.email,
           email: user.email,
           name: user.username ?? user.email,
           role: user.role,
-          organizationId: user.organizationId,
+          organizationId,
         };
       },
     }),
@@ -62,10 +64,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const existing = await findAppUser(email);
         if (existing) return existing.role === 'admin';
         // Bootstrap: allow the very first Google sign-in and make them admin
-        const rows = await sql<{ count: string }[]>`SELECT COUNT(*)::text AS count FROM app_users`;
+        const rows = await sql<{ count: string }[]>`
+          SELECT COUNT(*)::text AS count FROM app_users
+        `;
         const total = parseInt(rows[0]?.count ?? '0', 10);
         return total === 0;
       }
+      // Credentials provider — always allow (authorize() already validated)
       return true;
     },
 
@@ -74,7 +79,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const email = String(user.email ?? '').toLowerCase();
         token.email = email;
         if (account?.provider === 'google') {
-          const orgId = await syncAppUser({ email, name: user.name ?? null, role: 'admin', provider: 'google' });
+          const orgId = await syncAppUser({
+            email,
+            name: user.name ?? null,
+            role: 'admin',
+            provider: 'google',
+          });
           token.role = 'admin';
           token.organizationId = orgId;
         } else {
