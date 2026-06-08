@@ -35,17 +35,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         if (!user?.password) return null;
         const ok = await comparePassword(password, user.password);
         if (!ok) return null;
-        // Fetch fresh organizationId from DB
-        const rows = await sql<{ organization_id: number | null }[]>`
-          SELECT organization_id FROM app_users WHERE lower(email) = ${user.email} LIMIT 1
-        `;
-        const organizationId = rows?.[0]?.organization_id ?? user.organizationId ?? null;
         return {
           id: user.email,
           email: user.email,
           name: user.username ?? user.email,
-          role: user.role,
-          organizationId,
         };
       },
     }),
@@ -58,25 +51,54 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
   callbacks: {
     async signIn({ user, account }) {
-  if (account?.provider === 'google') {
-    const email = user.email?.toLowerCase();
-    if (!email) return false;
-    // Only check real Google accounts, not synthetic operator emails
-    const existing = await sql<{ role: string; provider: string }[]>`
-      SELECT role, provider FROM app_users 
-      WHERE lower(email) = ${email} AND provider = 'google'
-      LIMIT 1
-    `;
-    if (existing.length > 0) return existing[0].role === 'admin';
-    // Bootstrap: allow first Google sign-in
-    const rows = await sql<{ count: string }[]>`
-      SELECT COUNT(*)::text AS count FROM app_users WHERE provider = 'google'
-    `;
-    const total = parseInt(rows[0]?.count ?? '0', 10);
-    return total === 0;
-  }
-  return true;
-},
+      if (account?.provider === 'google') {
+        const email = user.email?.toLowerCase();
+        if (!email) return false;
+        // Only check real Google accounts, not synthetic operator emails
+        const existing = await sql<{ role: string; provider: string }[]>`
+          SELECT role, provider FROM app_users
+          WHERE lower(email) = ${email} AND provider = 'google'
+          LIMIT 1
+        `;
+        if (existing.length > 0) return existing[0].role === 'admin';
+        // Bootstrap: allow first Google sign-in
+        const rows = await sql<{ count: string }[]>`
+          SELECT COUNT(*)::text AS count FROM app_users WHERE provider = 'google'
+        `;
+        const total = parseInt(rows[0]?.count ?? '0', 10);
+        return total === 0;
+      }
+      // Credentials — always allow (authorize() already validated)
+      return true;
+    },
+
+    async jwt({ token, user, account }) {
+      if (user) {
+        const email = String(user.email ?? '').toLowerCase();
+        token.email = email;
+        if (account?.provider === 'google') {
+          const orgId = await syncAppUser({
+            email,
+            name: user.name ?? null,
+            role: 'admin',
+            provider: 'google',
+          });
+          token.role = 'admin';
+          token.organizationId = orgId;
+        } else {
+          // Credentials (operator) — always fetch fresh from DB
+          const rows = await sql<{ role: string; organization_id: number | null }[]>`
+            SELECT role, organization_id FROM app_users
+            WHERE lower(email) = ${email}
+            LIMIT 1
+          `;
+          const dbUser = rows?.[0];
+          token.role = dbUser?.role ?? 'employee';
+          token.organizationId = dbUser?.organization_id ?? null;
+        }
+      }
+      return token;
+    },
 
     async session({ session, token }) {
       session.user.email = String(token.email ?? '').toLowerCase();
