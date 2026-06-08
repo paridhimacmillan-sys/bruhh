@@ -57,26 +57,28 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
   callbacks: {
     async signIn({ user, account }) {
-      if (account?.provider !== 'google') return true;
-      try {
-        const email = user.email?.toLowerCase();
-        if (!email) return false;
-        const existing = await sql<{ role: string }[]>`
-          SELECT role FROM app_users
-          WHERE lower(email) = ${email}
-          LIMIT 1
-        `;
-        if (existing.length > 0) return existing[0].role === 'admin';
-        // Bootstrap: allow first Google sign-in
-        const rows = await sql<{ count: string }[]>`
-          SELECT COUNT(*)::text AS count FROM app_users
-        `;
-        return parseInt(rows[0]?.count ?? '0', 10) === 0;
-      } catch (err) {
-        console.error('[auth][signIn] error:', err);
-        return false;
-      }
-    },
+  if (account?.provider !== 'google') return true;
+  try {
+    const email = user.email?.toLowerCase();
+    console.log('[auth][signIn] Google email:', email);
+    if (!email) return false;
+    const existing = await sql<{ role: string }[]>`
+      SELECT role FROM app_users
+      WHERE lower(email) = ${email}
+      LIMIT 1
+    `;
+    console.log('[auth][signIn] DB result:', JSON.stringify(existing));
+    if (existing.length > 0) return existing[0].role === 'admin';
+    const rows = await sql<{ count: string }[]>`
+      SELECT COUNT(*)::text AS count FROM app_users
+    `;
+    console.log('[auth][signIn] Total users:', rows[0]?.count);
+    return parseInt(rows[0]?.count ?? '0', 10) === 0;
+  } catch (err) {
+    console.error('[auth][signIn] error:', err);
+    return false;
+  }
+},
 
     async jwt({ token, user, account }) {
       if (user) {
