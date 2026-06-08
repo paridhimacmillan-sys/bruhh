@@ -58,42 +58,25 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
   callbacks: {
     async signIn({ user, account }) {
-      if (account?.provider === 'google') {
-        const email = user.email?.toLowerCase();
-        if (!email) return false;
-        const existing = await findAppUser(email);
-        if (existing) return existing.role === 'admin';
-        // Bootstrap: allow the very first Google sign-in and make them admin
-        const rows = await sql<{ count: string }[]>`
-          SELECT COUNT(*)::text AS count FROM app_users
-        `;
-        const total = parseInt(rows[0]?.count ?? '0', 10);
-        return total === 0;
-      }
-      // Credentials provider — always allow (authorize() already validated)
-      return true;
-    },
-
-    async jwt({ token, user, account }) {
-      if (user) {
-        const email = String(user.email ?? '').toLowerCase();
-        token.email = email;
-        if (account?.provider === 'google') {
-          const orgId = await syncAppUser({
-            email,
-            name: user.name ?? null,
-            role: 'admin',
-            provider: 'google',
-          });
-          token.role = 'admin';
-          token.organizationId = orgId;
-        } else {
-          token.role = (user as any).role ?? 'employee';
-          token.organizationId = (user as any).organizationId ?? null;
-        }
-      }
-      return token;
-    },
+  if (account?.provider === 'google') {
+    const email = user.email?.toLowerCase();
+    if (!email) return false;
+    // Only check real Google accounts, not synthetic operator emails
+    const existing = await sql<{ role: string; provider: string }[]>`
+      SELECT role, provider FROM app_users 
+      WHERE lower(email) = ${email} AND provider = 'google'
+      LIMIT 1
+    `;
+    if (existing.length > 0) return existing[0].role === 'admin';
+    // Bootstrap: allow first Google sign-in
+    const rows = await sql<{ count: string }[]>`
+      SELECT COUNT(*)::text AS count FROM app_users WHERE provider = 'google'
+    `;
+    const total = parseInt(rows[0]?.count ?? '0', 10);
+    return total === 0;
+  }
+  return true;
+},
 
     async session({ session, token }) {
       session.user.email = String(token.email ?? '').toLowerCase();
