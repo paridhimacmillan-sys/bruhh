@@ -20,13 +20,14 @@ export default function StoreBootstrap() {
     };
     window.addEventListener('focus', refreshFromDb);
 
-    // Mirror store error state into local React state so we can render a banner.
     const unsub = subscribe(() => {
       const err = getBootstrapError();
       setError(err);
-      // Stale session: redirect to login so NextAuth re-mints the JWT with a fresh organizationId.
       if (err === 'SESSION_INVALID') {
-        window.location.href = '/api/auth/signin?error=SessionExpired';
+        // Don't redirect if already on login page — prevents infinite loop
+        if (!window.location.pathname.startsWith('/login')) {
+          window.location.href = '/login?error=SessionExpired';
+        }
       }
     });
 
