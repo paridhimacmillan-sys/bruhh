@@ -80,4 +80,50 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
     async jwt({ token, user, account }) {
       if (user) {
-        const email =
+        const email = String(user.email ?? '').toLowerCase();
+        token.email = email;
+        if (account?.provider === 'google') {
+          try {
+            const orgId = await syncAppUser({
+              email,
+              name: user.name ?? null,
+              role: 'admin',
+              provider: 'google',
+            });
+            token.role = 'admin';
+            token.organizationId = orgId;
+          } catch (err) {
+            console.error('[auth][jwt] syncAppUser error:', err);
+            token.role = 'admin';
+            token.organizationId = null;
+          }
+        } else {
+          try {
+            const rows = await sql<{ role: string; organization_id: number | null }[]>`
+              SELECT role, organization_id FROM app_users
+              WHERE lower(email) = ${email}
+              LIMIT 1
+            `;
+            const dbUser = rows?.[0];
+            token.role = dbUser?.role ?? 'employee';
+            token.organizationId = dbUser?.organization_id ?? null;
+          } catch (err) {
+            console.error('[auth][jwt] db lookup error:', err);
+            token.role = 'employee';
+            token.organizationId = null;
+          }
+        }
+      }
+      return token;
+    },
+
+    async session({ session, token }) {
+      session.user.email = String(token.email ?? '').toLowerCase();
+      (session.user as any).role = token.role ?? 'employee';
+      (session.user as any).organizationId = token.organizationId ?? null;
+      return session;
+    },
+  },
+
+  pages: { signIn: '/login', error: '/login' },
+});
