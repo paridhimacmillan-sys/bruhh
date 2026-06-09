@@ -226,8 +226,6 @@ export default function ProductionEntryClient() {
     setSaved(false);
   };
 
-  const MAX_HARD_BLOCK = 1.5;
-
   const handleCellChange = (machineIdx: number, hourIdx: number, value: number) => {
     setRows((prev) => {
       const next = [...prev];
@@ -239,6 +237,8 @@ export default function ProductionEntryClient() {
           ? row.openingReading
           : (row.entries[hourIdx - 1]?.closingReading ?? row.openingReading);
       const wouldBeActual = value > 0 ? Math.max(0, value - prevReading) : 0;
+
+      // Block if closing is less than previous reading
       if (value > 0 && value < prevReading) {
         toast.error(
           `Reading ${value} is less than previous reading ${prevReading}. Enter the full meter reading.`,
@@ -246,24 +246,24 @@ export default function ProductionEntryClient() {
         );
         return prev;
       }
-      if (expected > 0 && wouldBeActual > expected * MAX_HARD_BLOCK) {
+
+      // Block if actual would exceed target — max closing = prevReading + expected
+      if (expected > 0 && wouldBeActual > expected) {
         toast.error(
-          `Reading ${value} rejected — output would be ${wouldBeActual} pcs (max ${Math.floor(
-            expected * MAX_HARD_BLOCK
-          )} = 150% of target ${expected})`,
+          `Reading ${value} rejected — output would be ${wouldBeActual} pcs but target is ${expected} pcs/hr. Max allowed closing: ${prevReading + expected}`,
           { duration: 5000 }
         );
         return prev;
       }
+
       const changed = next[machineIdx].entries.map((e, i) =>
         i === hourIdx ? { ...e, closingReading: value <= 0 ? null : value } : e
       );
       const rebuilt = recalculateEntriesFromReadings(next[machineIdx].openingReading, changed);
-      const isOverTarget = expected > 0 && wouldBeActual > expected * 1.0;
       next[machineIdx] = {
         ...next[machineIdx],
         entries: rebuilt,
-        status: isOverTarget ? 'flagged' : 'draft',
+        status: 'draft',
       };
       return next;
     });
