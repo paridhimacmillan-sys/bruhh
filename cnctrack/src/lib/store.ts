@@ -15,9 +15,9 @@ function notify() {
   listeners.forEach((l) => l());
 }
 
-// Tracks whether the user has uncommitted local edits in the production-entry grid.
-// When true, the focus-refresh listener will skip refreshing from the DB so we don't
-// clobber what the user just typed. Set to true when typing, cleared after save.
+// Global flag that pages set when the user has typed unsaved data.
+// Listeners (like the focus-refresh in StoreBootstrap) check this before
+// overwriting in-memory state with fresh DB data.
 let hasUnsavedDraft = false;
 export function setHasUnsavedDraft(value: boolean) { hasUnsavedDraft = value; }
 export function getHasUnsavedDraft(): boolean { return hasUnsavedDraft; }
