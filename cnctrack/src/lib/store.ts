@@ -15,6 +15,13 @@ function notify() {
   listeners.forEach((l) => l());
 }
 
+// Tracks whether the user has uncommitted local edits in the production-entry grid.
+// When true, the focus-refresh listener will skip refreshing from the DB so we don't
+// clobber what the user just typed. Set to true when typing, cleared after save.
+let hasUnsavedDraft = false;
+export function setHasUnsavedDraft(value: boolean) { hasUnsavedDraft = value; }
+export function getHasUnsavedDraft(): boolean { return hasUnsavedDraft; }
+
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
     ...init,
