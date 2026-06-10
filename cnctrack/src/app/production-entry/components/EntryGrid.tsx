@@ -150,18 +150,10 @@ export default function EntryGrid({
                     </td>
 
                     <td className="px-1 py-2 text-center bg-muted/10">
-                      <input
-                        type="number"
-                        value={row.openingReading === 0 ? '' : row.openingReading}
-                        onChange={(e) => {
-                          const v = parseInt(e.target.value, 10);
-                          onOpeningReadingChange(machineIdx, isNaN(v) ? 0 : Math.max(0, v));
-                        }}
+                      <OpeningReadingInput
+                        value={row.openingReading}
+                        onCommit={(v) => onOpeningReadingChange(machineIdx, v)}
                         readOnly={!isAdmin}
-                        className="grid-cell-input w-20 read-only:opacity-60 read-only:cursor-default"
-                        min={0}
-                        max={999999999}
-                        placeholder="Open"
                       />
                     </td>
 
@@ -177,20 +169,11 @@ export default function EntryGrid({
                                 {entry.closingReading ?? '—'}
                               </span>
                             ) : (
-                              <input
-                                type="number"
-                                value={entry.closingReading ?? ''}
-                                onChange={(e) => {
-                                  const v = parseInt(e.target.value, 10);
-                                  onCellChange(machineIdx, hourIdx, isNaN(v) ? 0 : Math.max(0, v));
-                                }}
-                                className={`grid-cell-input w-14 ${entry.actual > entry.expected && entry.actual > 0 ? 'border-warning ring-1 ring-warning/50' : ''}`}
-                                min={0}
-                                max={999999999}
-                                placeholder="Close"
-                                title={entry.expected > 0
-                                  ? `Max allowed closing: prev + ${Math.floor(entry.expected * 1.5)} pcs (150% of target ${entry.expected})`
-                                  : 'Enter closing reading'}
+                              <ClosingReadingInput
+                                value={entry.closingReading}
+                                onCommit={(v) => onCellChange(machineIdx, hourIdx, v)}
+                                hasError={entry.actual > entry.expected && entry.actual > 0}
+                                expected={entry.expected}
                               />
                             )}
                             <span className="text-xs text-muted-foreground/60 font-mono-nums leading-none">{entry.actual}/{entry.expected}</span>
@@ -315,5 +298,64 @@ export default function EntryGrid({
         </table>
       </div>
     </div>
+  );
+}
+
+// Helper components — maintain local draft state, commit only on blur or Enter
+// This prevents per-keystroke validation that was rejecting "1850" character-by-character
+
+function OpeningReadingInput({ value, onCommit, readOnly }: {
+  value: number;
+  onCommit: (v: number) => void;
+  readOnly: boolean;
+}) {
+  const [draft, setDraft] = useState<string>(value === 0 ? '' : String(value));
+  useEffect(() => { setDraft(value === 0 ? '' : String(value)); }, [value]);
+  const commit = () => {
+    const v = parseInt(draft, 10);
+    onCommit(isNaN(v) ? 0 : Math.max(0, v));
+  };
+  return (
+    <input
+      type="number"
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+      readOnly={readOnly}
+      className="grid-cell-input w-20 read-only:opacity-60 read-only:cursor-default"
+      min={0}
+      max={999999999}
+      placeholder="Open"
+    />
+  );
+}
+
+function ClosingReadingInput({ value, onCommit, hasError, expected }: {
+  value: number | null | undefined;
+  onCommit: (v: number) => void;
+  hasError: boolean;
+  expected: number;
+}) {
+  const [draft, setDraft] = useState<string>(value == null ? '' : String(value));
+  useEffect(() => { setDraft(value == null ? '' : String(value)); }, [value]);
+  const commit = () => {
+    if (draft === '') { onCommit(0); return; }
+    const v = parseInt(draft, 10);
+    onCommit(isNaN(v) ? 0 : Math.max(0, v));
+  };
+  return (
+    <input
+      type="number"
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+      className={`grid-cell-input w-14 ${hasError ? 'border-warning ring-1 ring-warning/50' : ''}`}
+      min={0}
+      max={999999999}
+      placeholder="Close"
+      title={expected > 0 ? `Max closing = previous + ${expected}` : 'Enter closing reading'}
+    />
   );
 }
