@@ -185,8 +185,7 @@ export default function ProductionEntryClient() {
 
   useEffect(() => {
     const unsub = subscribe(() => {
-      // Don't rebuild rows from the store if a save is in progress OR if the user
-      // has unsaved local edits — otherwise their typed data gets clobbered.
+      // Don't rebuild rows if user has unsaved typed data — would clobber their input
       if (!isSavingRef.current && !hasDraft) {
         const built = buildInitialRows(date, shift);
         setRows(built.rows);
@@ -203,7 +202,42 @@ export default function ProductionEntryClient() {
     return () => setHasUnsavedDraft(false);
   }, [hasDraft]);
 
-  const handleShiftChange = (s: Shift) => {
+  // Save current draft data silently before switching shifts/dates.
+  // Prevents losing typed data when navigating without clicking Save.
+  const autoSaveDraft = async (currentDate: string, currentShift: Shift, currentRows: GridRow[]) => {
+    if (!currentShift) return;
+    const hasData = currentRows.some(
+      (r) => r.openingReading > 0 || r.entries.some((e) => e.closingReading !== null)
+    );
+    if (!hasData) return;
+    const entries: ProductionEntry[] = currentRows.map((r) => ({
+      id: `entry-${currentDate}-${currentShift}-${r.machineId}`,
+      date: currentDate,
+      machineId: r.machineId,
+      itemId: r.itemId,
+      shift: currentShift,
+      openingReading: r.openingReading,
+      entries: r.entries,
+      status: r.status,
+      operatorName: r.operatorName,
+      notes: r.notes,
+      totalActual: r.entries.reduce((s, e) => s + e.actual, 0),
+      totalExpected: r.entries.reduce((s, e) => s + e.expected, 0),
+      lockedHours: lockedHours,
+    }));
+    isSavingRef.current = true;
+    try {
+      await upsertEntries(entries);
+    } catch (err) {
+      console.warn('[ProductionEntry] Auto-save failed:', err);
+    } finally {
+      isSavingRef.current = false;
+    }
+  };
+
+  const handleShiftChange = async (s: Shift) => {
+    if (s === shift) return;
+    await autoSaveDraft(date, shift, rows);
     setShift(s);
     const built = buildInitialRows(date, s);
     setRows(built.rows);
@@ -211,7 +245,9 @@ export default function ProductionEntryClient() {
     setSaved(false);
   };
 
-  const handleDateChange = (d: string) => {
+  const handleDateChange = async (d: string) => {
+    if (d === date) return;
+    await autoSaveDraft(date, shift, rows);
     setDate(d);
     const built = buildInitialRows(d, shift);
     setRows(built.rows);
@@ -327,10 +363,6 @@ export default function ProductionEntryClient() {
   };
 
   const handleSaveHour = async (hourIdx: number) => {
-    if (!access.isAdmin) {
-      toast.error('Admin access required');
-      return;
-    }
     if (lockedHours.includes(hourIdx)) return;
     setSavingHour(hourIdx);
     isSavingRef.current = true;
@@ -364,10 +396,6 @@ export default function ProductionEntryClient() {
   };
 
   const handleSave = async () => {
-    if (!access.isAdmin) {
-      toast.error('Admin access required');
-      return;
-    }
     setSaving(true);
     isSavingRef.current = true;
     await new Promise((r) => setTimeout(r, 300));
@@ -494,30 +522,31 @@ export default function ProductionEntryClient() {
                   Delete
                 </button>
               )}
-              <button
-                onClick={handleSave}
-                disabled={saving}
-                className="flex items-center gap-2 px-4 py-2 text-sm font-semibold bg-primary text-white rounded-md hover:bg-primary/90 transition-colors active:scale-95 disabled:opacity-60 min-w-[100px]"
-              >
-                {saving ? (
-                  <>
-                    <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    Saving...
-                  </>
-                ) : saved && !hasDraft ? (
-                  <>
-                    <CheckCircle2 size={14} />
-                    Saved
-                  </>
-                ) : (
-                  <>
-                    <Save size={14} />
-                    Save Entries
-                  </>
-                )}
-              </button>
             </>
           )}
+          {/* Save button is available to both admins and operators — operators NEED to save their entries */}
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-semibold bg-primary text-white rounded-md hover:bg-primary/90 transition-colors active:scale-95 disabled:opacity-60 min-w-[100px]"
+          >
+            {saving ? (
+              <>
+                <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                Saving...
+              </>
+            ) : saved && !hasDraft ? (
+              <>
+                <CheckCircle2 size={14} />
+                Saved
+              </>
+            ) : (
+              <>
+                <Save size={14} />
+                Save Entries
+              </>
+            )}
+          </button>
         </div>
       </div>
 
