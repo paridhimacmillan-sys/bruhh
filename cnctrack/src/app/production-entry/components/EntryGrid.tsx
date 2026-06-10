@@ -314,6 +314,7 @@ function OpeningReadingInput({ value, onCommit, readOnly }: {
   const commit = () => {
     const v = parseInt(draft, 10);
     onCommit(isNaN(v) ? 0 : Math.max(0, v));
+    setTimeout(() => setDraft(value === 0 ? '' : String(value)), 0);
   };
   return (
     <input
@@ -343,6 +344,10 @@ function ClosingReadingInput({ value, onCommit, hasError, expected }: {
     if (draft === '') { onCommit(0); return; }
     const v = parseInt(draft, 10);
     onCommit(isNaN(v) ? 0 : Math.max(0, v));
+    // Reset draft to whatever the parent ended up with — if validation rejected
+    // the input, the value prop won't have changed, so we snap the visible draft
+    // back to the last accepted value (or empty) on the next render.
+    setTimeout(() => setDraft(value == null ? '' : String(value)), 0);
   };
   return (
     <input
