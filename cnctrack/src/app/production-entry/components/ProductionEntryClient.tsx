@@ -6,7 +6,7 @@ import EntryGrid from './EntryGrid';
 import ImportModal from './ImportModal';
 import CopyPreviousModal from './CopyPreviousModal';
 import { HourlyEntry, ProductionEntry } from '@/lib/mockData';
-import { getMachines, getItems, getEntries, upsertEntries, subscribe } from '@/lib/store';
+import { getMachines, getItems, getEntries, upsertEntries, subscribe, setHasUnsavedDraft } from '@/lib/store';
 import { getShiftHours, getShifts, subscribeShifts } from '@/lib/shifts';
 import { getTodayISOLocal } from '@/lib/date';
 import { useAccess } from '@/lib/useAccess';
@@ -185,53 +185,25 @@ export default function ProductionEntryClient() {
 
   useEffect(() => {
     const unsub = subscribe(() => {
-      if (!isSavingRef.current) {
+      // Don't rebuild rows from the store if a save is in progress OR if the user
+      // has unsaved local edits — otherwise their typed data gets clobbered.
+      if (!isSavingRef.current && !hasDraft) {
         const built = buildInitialRows(date, shift);
         setRows(built.rows);
         setLockedHours(built.lockedHours);
       }
     });
     return unsub;
-  }, [date, shift]);
+  }, [date, shift, hasDraft]);
 
-  // Save current draft data silently (no toast, no UI feedback) before switching shifts/dates.
-  // This prevents users from losing typed data when they navigate without clicking Save.
-  const autoSaveDraft = async (currentDate: string, currentShift: Shift, currentRows: GridRow[]) => {
-    if (!access.isAdmin) return;
-    if (!currentShift) return;
-    // Only save if there's actual data entered
-    const hasData = currentRows.some(
-      (r) => r.openingReading > 0 || r.entries.some((e) => e.closingReading !== null)
-    );
-    if (!hasData) return;
-    const entries: ProductionEntry[] = currentRows.map((r) => ({
-      id: `entry-${currentDate}-${currentShift}-${r.machineId}`,
-      date: currentDate,
-      machineId: r.machineId,
-      itemId: r.itemId,
-      shift: currentShift,
-      openingReading: r.openingReading,
-      entries: r.entries,
-      status: r.status,
-      operatorName: r.operatorName,
-      notes: r.notes,
-      totalActual: r.entries.reduce((s, e) => s + e.actual, 0),
-      totalExpected: r.entries.reduce((s, e) => s + e.expected, 0),
-      lockedHours: lockedHours,
-    }));
-    isSavingRef.current = true;
-    try {
-      await upsertEntries(entries);
-    } catch (err) {
-      console.warn('[ProductionEntry] Auto-save failed:', err);
-    } finally {
-      isSavingRef.current = false;
-    }
-  };
+  // Mirror local draft state to the global store flag so the focus-refresh listener
+  // in StoreBootstrap doesn't wipe the user's typed data when they switch back to the tab.
+  useEffect(() => {
+    setHasUnsavedDraft(hasDraft);
+    return () => setHasUnsavedDraft(false);
+  }, [hasDraft]);
 
-  const handleShiftChange = async (s: Shift) => {
-    if (s === shift) return;
-    await autoSaveDraft(date, shift, rows);
+  const handleShiftChange = (s: Shift) => {
     setShift(s);
     const built = buildInitialRows(date, s);
     setRows(built.rows);
@@ -239,9 +211,7 @@ export default function ProductionEntryClient() {
     setSaved(false);
   };
 
-  const handleDateChange = async (d: string) => {
-    if (d === date) return;
-    await autoSaveDraft(date, shift, rows);
+  const handleDateChange = (d: string) => {
     setDate(d);
     const built = buildInitialRows(d, shift);
     setRows(built.rows);
