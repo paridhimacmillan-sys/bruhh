@@ -153,6 +153,7 @@ export default function ProductionEntryClient() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const isSavingRef = React.useRef(false);
+  const hasDraftRef = React.useRef(false);
 
   const hasEntryData = rows.some(
     (r) => r.openingReading > 0 || r.entries.some((e) => e.closingReading !== null)
@@ -167,6 +168,9 @@ export default function ProductionEntryClient() {
     (sum, r) => sum + r.entries.reduce((s, e) => s + e.expected, 0),
     0
   );
+
+  // Keep ref in sync with hasDraft for stale-closure-free reads
+  useEffect(() => { hasDraftRef.current = hasDraft; }, [hasDraft]);
 
   useEffect(() => {
     const unsubShifts = subscribeShifts(() => {
@@ -185,15 +189,16 @@ export default function ProductionEntryClient() {
 
   useEffect(() => {
     const unsub = subscribe(() => {
-      // Don't rebuild rows if user has unsaved typed data — would clobber their input
-      if (!isSavingRef.current && !hasDraft) {
-        const built = buildInitialRows(date, shift);
-        setRows(built.rows);
-        setLockedHours(built.lockedHours);
-      }
+      // Check both refs and the global flag to make sure we never clobber user input.
+      // Reading from the global flag avoids stale closures.
+      if (isSavingRef.current) return;
+      if (hasDraftRef.current) return;
+      const built = buildInitialRows(date, shift);
+      setRows(built.rows);
+      setLockedHours(built.lockedHours);
     });
     return unsub;
-  }, [date, shift, hasDraft]);
+  }, [date, shift]);
 
   // Mirror local draft state to the global store flag so the focus-refresh listener
   // in StoreBootstrap doesn't wipe the user's typed data when they switch back to the tab.
@@ -202,8 +207,8 @@ export default function ProductionEntryClient() {
     return () => setHasUnsavedDraft(false);
   }, [hasDraft]);
 
-  // Save current draft data silently before switching shifts/dates.
-  // Prevents losing typed data when navigating without clicking Save.
+  // Save current draft data silently. Used both for explicit shift/date switches AND
+  // for debounced auto-save after every cell change.
   const autoSaveDraft = async (currentDate: string, currentShift: Shift, currentRows: GridRow[]) => {
     if (!currentShift) return;
     const hasData = currentRows.some(
@@ -234,6 +239,21 @@ export default function ProductionEntryClient() {
       isSavingRef.current = false;
     }
   };
+
+  // Debounced auto-save: whenever the user makes a change, queue a save for 1.5s later.
+  // This ensures typed data persists to the DB even if the user never clicks Save Entries.
+  const autoSaveTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!hasDraft) return;
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    autoSaveTimerRef.current = setTimeout(() => {
+      autoSaveDraft(date, shift, rows).catch(() => {});
+    }, 1500);
+    return () => {
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, hasDraft, date, shift]);
 
   const handleShiftChange = async (s: Shift) => {
     if (s === shift) return;
