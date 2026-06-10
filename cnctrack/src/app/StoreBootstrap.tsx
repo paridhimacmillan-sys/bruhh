@@ -14,7 +14,7 @@ export default function StoreBootstrap() {
     bootstrapOperators().catch((e) => console.warn('[MachineTrack] Operator bootstrap failed:', e));
 
     const refreshFromDb = () => {
-      // Skip if user has unsaved typed data — refreshing would wipe their input.
+      // Skip refresh if user has unsaved local edits — refreshing would wipe their input
       if (getHasUnsavedDraft()) return;
       refreshStore().catch((e) => console.warn('[MachineTrack] Focus refresh failed:', e));
       bootstrapShifts();
