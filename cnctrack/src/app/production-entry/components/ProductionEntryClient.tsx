@@ -232,6 +232,13 @@ export default function ProductionEntryClient() {
       const row = next[machineIdx];
       const entry = row.entries[hourIdx];
       const expected = entry?.expected ?? 0;
+
+      // Require opening reading before any hour can be entered
+      if (row.openingReading === 0) {
+        toast.error('Enter the opening reading before logging hourly production', { duration: 5000 });
+        return prev;
+      }
+
       const prevReading =
         hourIdx === 0
           ? row.openingReading
