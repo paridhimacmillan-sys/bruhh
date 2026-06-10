@@ -153,7 +153,7 @@ export default function EntryGrid({
                       <OpeningReadingInput
                         value={row.openingReading}
                         onCommit={(v) => onOpeningReadingChange(machineIdx, v)}
-                        readOnly={!isAdmin}
+                        readOnly={false}
                       />
                     </td>
 
@@ -164,7 +164,7 @@ export default function EntryGrid({
                       return (
                         <td key={`cell-${row.machineId}-h${hourIdx}`} className={`px-1 py-2 text-center ${cellBg} ${isLocked ? 'bg-muted/30' : ''} transition-colors`}>
                           <div className="flex flex-col items-center gap-0.5">
-                            {(isLocked || !isAdmin) ? (
+                            {isLocked ? (
                               <span className="w-14 text-center text-xs font-mono-nums font-semibold text-foreground/70 py-1">
                                 {entry.closingReading ?? '—'}
                               </span>
@@ -261,8 +261,7 @@ export default function EntryGrid({
               </td>
               <td />
             </tr>
-            {/* Per-hour Save buttons row — admin only */}
-            {isAdmin && (
+            {/* Per-hour Save buttons row — visible to both admins and operators */}
             <tr className="border-t border-border bg-card">
               <td className="px-4 py-2 text-xs text-muted-foreground font-semibold sticky left-0 bg-card" colSpan={4}>Save Hour</td>
               {shiftHours.map((h, i) => {
@@ -293,7 +292,6 @@ export default function EntryGrid({
               })}
               <td colSpan={3} />
             </tr>
-            )}
           </tfoot>
         </table>
       </div>
