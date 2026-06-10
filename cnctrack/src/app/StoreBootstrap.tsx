@@ -14,11 +14,9 @@ export default function StoreBootstrap() {
     bootstrapOperators().catch((e) => console.warn('[MachineTrack] Operator bootstrap failed:', e));
 
     const refreshFromDb = () => {
-      // Skip refresh if user has unsaved local edits — refreshing would wipe their input
-      if (getHasUnsavedDraft()) return;
-      refreshStore().catch((e) => console.warn('[MachineTrack] Focus refresh failed:', e));
-      bootstrapShifts();
-      bootstrapOperators().catch((e) => console.warn('[MachineTrack] Operator focus refresh failed:', e));
+      // Focus refresh disabled — was wiping users' typed data when they switched tabs.
+      // Data is loaded once on initial bootstrap and refreshed via explicit save/delete actions.
+      return;
     };
     window.addEventListener('focus', refreshFromDb);
 
