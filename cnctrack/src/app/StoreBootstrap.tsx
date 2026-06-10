@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { bootstrapStore, refreshStore, subscribe, getBootstrapError } from '@/lib/store';
+import { bootstrapStore, refreshStore, subscribe, getBootstrapError, getHasUnsavedDraft } from '@/lib/store';
 import { bootstrapShifts } from '@/lib/shifts';
 import { bootstrapOperators } from '@/lib/operators';
 
@@ -14,6 +14,8 @@ export default function StoreBootstrap() {
     bootstrapOperators().catch((e) => console.warn('[MachineTrack] Operator bootstrap failed:', e));
 
     const refreshFromDb = () => {
+      // Skip if user has unsaved typed data — refreshing would wipe their input.
+      if (getHasUnsavedDraft()) return;
       refreshStore().catch((e) => console.warn('[MachineTrack] Focus refresh failed:', e));
       bootstrapShifts();
       bootstrapOperators().catch((e) => console.warn('[MachineTrack] Operator focus refresh failed:', e));
