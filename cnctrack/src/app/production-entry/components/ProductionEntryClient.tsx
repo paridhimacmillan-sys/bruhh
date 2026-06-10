@@ -194,7 +194,44 @@ export default function ProductionEntryClient() {
     return unsub;
   }, [date, shift]);
 
-  const handleShiftChange = (s: Shift) => {
+  // Save current draft data silently (no toast, no UI feedback) before switching shifts/dates.
+  // This prevents users from losing typed data when they navigate without clicking Save.
+  const autoSaveDraft = async (currentDate: string, currentShift: Shift, currentRows: GridRow[]) => {
+    if (!access.isAdmin) return;
+    if (!currentShift) return;
+    // Only save if there's actual data entered
+    const hasData = currentRows.some(
+      (r) => r.openingReading > 0 || r.entries.some((e) => e.closingReading !== null)
+    );
+    if (!hasData) return;
+    const entries: ProductionEntry[] = currentRows.map((r) => ({
+      id: `entry-${currentDate}-${currentShift}-${r.machineId}`,
+      date: currentDate,
+      machineId: r.machineId,
+      itemId: r.itemId,
+      shift: currentShift,
+      openingReading: r.openingReading,
+      entries: r.entries,
+      status: r.status,
+      operatorName: r.operatorName,
+      notes: r.notes,
+      totalActual: r.entries.reduce((s, e) => s + e.actual, 0),
+      totalExpected: r.entries.reduce((s, e) => s + e.expected, 0),
+      lockedHours: lockedHours,
+    }));
+    isSavingRef.current = true;
+    try {
+      await upsertEntries(entries);
+    } catch (err) {
+      console.warn('[ProductionEntry] Auto-save failed:', err);
+    } finally {
+      isSavingRef.current = false;
+    }
+  };
+
+  const handleShiftChange = async (s: Shift) => {
+    if (s === shift) return;
+    await autoSaveDraft(date, shift, rows);
     setShift(s);
     const built = buildInitialRows(date, s);
     setRows(built.rows);
@@ -202,7 +239,9 @@ export default function ProductionEntryClient() {
     setSaved(false);
   };
 
-  const handleDateChange = (d: string) => {
+  const handleDateChange = async (d: string) => {
+    if (d === date) return;
+    await autoSaveDraft(date, shift, rows);
     setDate(d);
     const built = buildInitialRows(d, shift);
     setRows(built.rows);
