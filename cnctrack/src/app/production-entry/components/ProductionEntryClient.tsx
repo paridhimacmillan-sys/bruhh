@@ -223,7 +223,7 @@ export default function ProductionEntryClient() {
       shift: currentShift,
       openingReading: r.openingReading,
       entries: r.entries,
-      status: r.status,
+      status: 'submitted' as const,
       operatorName: r.operatorName,
       notes: r.notes,
       totalActual: r.entries.reduce((s, e) => s + e.actual, 0),
@@ -233,6 +233,15 @@ export default function ProductionEntryClient() {
     isSavingRef.current = true;
     try {
       await upsertEntries(entries);
+      // Mark rows as submitted only if we're still on the same date+shift
+      // (user may have navigated away during the save)
+      if (currentDate === date && currentShift === shift) {
+        setRows((prev) => prev.map((r, i) =>
+          currentRows[i] && r.machineId === currentRows[i].machineId
+            ? { ...r, status: 'submitted' as const }
+            : r
+        ));
+      }
     } catch (err) {
       console.warn('[ProductionEntry] Auto-save failed:', err);
     } finally {
