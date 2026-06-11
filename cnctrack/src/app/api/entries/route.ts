@@ -17,9 +17,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  if (!(await requireAdmin())) {
-    return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
-  }
+  // Operators MUST be able to save production entries — that's the whole point of the operator role.
+  // Only require a valid session/org, not admin privileges.
   const organizationId = await requireOrganizationId();
   if (!organizationId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const entries = (await req.json()) as ProductionEntry[];
