@@ -85,13 +85,15 @@ export default function ProductionEntryPage() {
   const prevEntriesUrl = `/api/entries?dateFrom=${encodeURIComponent(
     prevDate
   )}&dateTo=${encodeURIComponent(prevDate)}&shift=${encodeURIComponent(shiftName)}`;
-  const { data: prevEntries = [] } = useQuery<ProductionEntry[]>({
+  const { data: prevEntries = [], isFetching: prevEntriesFetching } = useQuery<
+    ProductionEntry[]
+  >({
     queryKey: [prevEntriesUrl],
     enabled: !!shiftName,
   });
 
-  // Track which (date, shift) combos we've already asked about, so we don't re-prompt
-  // on every re-render or after dismissing.
+  // Track which (date, shift) combos we've already evaluated for carry-forward.
+  // Once a key is here, the effect skips entirely — no more re-runs, no more logs.
   const promptedRef = useRef<Set<string>>(new Set());
 
   // Whenever the inputs (date/shift/machines/items/entries) change, rebuild the grid.
@@ -106,17 +108,10 @@ export default function ProductionEntryPage() {
     setRows(buildRows(machines, items, hours, entries));
   }, [machines, items, hours, entries]);
 
-  // Carry-forward prompt: when the current day has no entries yet AND yesterday does,
-  // ask once whether to copy yesterday's closing readings as today's openings.
-  useEffect(() => {
-    if (!shiftName || !date) return;
-    const key = `${date}|${shiftName}`;
-    if (promptedRef.current.has(key)) return;
-    // Wait until both queries have loaded data (entries + prevEntries refs are stable)
-    if (machines.length === 0 || items.length === 0) return;
-
-    // Normalize the date field — Postgres date columns can come back as
-    // 'YYYY-MM-DD' or as an ISO timestamp depending on driver settings.
+  // Manual carry-forward action: pull yesterday's last-hour closing readings and
+  // pre-fill today's openings. User-triggered via a button so there's no race
+  // condition with React Query loading state.
+  const handleCarryForward = () => {
     const matchesDate = (entryDate: unknown, targetYMD: string): boolean => {
       if (entryDate == null) return false;
       const s =
@@ -128,30 +123,13 @@ export default function ProductionEntryPage() {
       return s.startsWith(targetYMD);
     };
 
-    const todaysEntries = entries.filter((e) => matchesDate(e.date, date));
-    const yesterdaysEntries = prevEntries.filter((e) =>
-      matchesDate(e.date, prevDate)
-    );
-
-    console.log("[carry-forward]", {
-      date,
-      prevDate,
-      shiftName,
-      todayEntries: todaysEntries.length,
-      yesterdayEntries: yesterdaysEntries.length,
-      rawEntries: entries.length,
-      rawPrevEntries: prevEntries.length,
-      sampleEntryDate: entries[0]?.date,
-      samplePrevEntryDate: prevEntries[0]?.date,
-    });
-
-    // Don't prompt if today already has saved data
-    if (todaysEntries.length > 0) {
-      console.log("[carry-forward] skipped: today has saved entries");
+    const yesterdaysEntries = prevEntries.filter((e) => matchesDate(e.date, prevDate));
+    if (yesterdaysEntries.length === 0) {
+      toast.error(`No entries found for ${prevDate} / Shift ${shiftName}`);
       return;
     }
 
-    // Build carry map from yesterday: (machineId-itemId) → last non-null closing
+    // Build carry map: (machineId-itemId) → last non-null closing, falling back to opening
     const carryMap = new Map<string, number>();
     for (const e of yesterdaysEntries) {
       const list = (e.entries as Array<{ closingReading: number | null }>) ?? [];
@@ -159,43 +137,24 @@ export default function ProductionEntryPage() {
       for (const h of list) {
         if (h.closingReading != null) lastClosing = h.closingReading;
       }
-      // Fall back to opening reading if no closings recorded
       const fallback = e.openingReading ?? 0;
       const value = lastClosing ?? (fallback > 0 ? fallback : null);
       if (value != null && e.itemId != null) {
         carryMap.set(`${e.machineId}-${e.itemId}`, value);
       }
     }
-    console.log("[carry-forward] carryMap:", Array.from(carryMap.entries()));
 
     if (carryMap.size === 0) {
-      console.log("[carry-forward] skipped: no carryable readings from yesterday");
+      toast.error(`No usable readings found in ${prevDate}'s entries`);
       return;
     }
 
-    // Mark prompted BEFORE confirming so re-renders don't re-fire it
-    promptedRef.current.add(key);
-
-    const summary = Array.from(carryMap.entries())
-      .slice(0, 3)
-      .map(([k, v]) => `${k.split("-")[0]}: ${v}`)
-      .join(", ");
-
-    const ok = window.confirm(
-      `Carry forward ${prevDate}'s closing readings as opening for ${date}?\n\n` +
-        `Will pre-fill ${carryMap.size} row(s). Example: ${summary}\n\n` +
-        `You can override any value before saving.`
-    );
-    if (!ok) {
-      console.log("[carry-forward] user declined");
-      return;
-    }
-
-    console.log("[carry-forward] applying carry");
+    let appliedCount = 0;
     setRows((prev) =>
       prev.map((r) => {
         const carried = carryMap.get(`${r.machineId}-${r.itemId}`);
         if (carried == null) return r;
+        appliedCount++;
         return {
           ...r,
           openingReading: carried,
@@ -204,7 +163,9 @@ export default function ProductionEntryPage() {
         };
       })
     );
-  }, [date, shiftName, entries, prevEntries, prevDate, machines.length, items.length]);
+
+    toast.success(`Carried forward ${appliedCount} opening reading(s) from ${prevDate}`);
+  };
 
   // ──────────────────────────────────────────────────────────────────────────
   // Mutations
@@ -512,6 +473,14 @@ export default function ProductionEntryPage() {
               onChange={(e) => handleDateChange(e.target.value)}
               className="px-3 py-2 border rounded text-sm font-mono"
             />
+            <button
+              type="button"
+              onClick={handleCarryForward}
+              className="block mt-2 text-xs text-primary hover:underline"
+              title={`Pre-fill openings from ${prevDate}`}
+            >
+              ← Carry forward from {prevDate}
+            </button>
           </div>
           <div className="md:col-span-2">
             <label className="block text-xs font-medium mb-1">Shift</label>
