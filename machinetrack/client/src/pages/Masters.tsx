@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, Pencil, Check, X } from "lucide-react";
 import type { Machine, Item, Shift, Operator } from "@shared/schema";
 import { api } from "@/lib/api";
 import { queryClient } from "@/lib/queryClient";
@@ -53,6 +53,10 @@ function MachinesTab() {
   const [machineType, setMachineType] = useState("CNC TURNING");
   const [targetRate, setTargetRate] = useState("60");
 
+  // Inline edit state: which row is being edited + its draft rate
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editingRate, setEditingRate] = useState<string>("");
+
   const createMut = useMutation({
     mutationFn: () =>
       api<Machine>("/api/machines", {
@@ -71,6 +75,21 @@ function MachinesTab() {
       queryClient.invalidateQueries({ queryKey: ["/api/machines"] });
     },
     onError: (err: any) => toast.error(err.message ?? "Failed to add machine"),
+  });
+
+  const updateMut = useMutation({
+    mutationFn: ({ id, targetRate }: { id: number; targetRate: number }) =>
+      api<Machine>(`/api/machines/${id}`, {
+        method: "PUT",
+        body: JSON.stringify({ targetRate }),
+      }),
+    onSuccess: () => {
+      toast.success("Target rate updated");
+      setEditingId(null);
+      setEditingRate("");
+      queryClient.invalidateQueries({ queryKey: ["/api/machines"] });
+    },
+    onError: (err: any) => toast.error(err.message ?? "Update failed"),
   });
 
   const deleteMut = useMutation({
@@ -166,24 +185,98 @@ function MachinesTab() {
                 </td>
               </tr>
             )}
-            {machines.map((m) => (
-              <tr key={m.id} className="border-t">
-                <td className="px-4 py-2 font-mono">{m.machineNumber}</td>
-                <td className="px-4 py-2">{m.machineType}</td>
-                <td className="px-4 py-2 font-mono">{m.targetRate} pcs/hr</td>
-                <td className="px-4 py-2 capitalize">{m.status}</td>
-                <td className="px-4 py-2 text-right">
-                  <button
-                    onClick={() => {
-                      if (confirm(`Delete ${m.machineNumber}?`)) deleteMut.mutate(m.id);
-                    }}
-                    className="text-destructive hover:bg-destructive/10 p-1 rounded"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </td>
-              </tr>
-            ))}
+            {machines.map((m) => {
+              const isEditing = editingId === m.id;
+              const commitEdit = () => {
+                const n = parseInt(editingRate, 10);
+                if (isNaN(n) || n <= 0) {
+                  toast.error("Target rate must be a positive number");
+                  return;
+                }
+                if (n === m.targetRate) {
+                  setEditingId(null);
+                  setEditingRate("");
+                  return;
+                }
+                updateMut.mutate({ id: m.id, targetRate: n });
+              };
+              return (
+                <tr key={m.id} className="border-t">
+                  <td className="px-4 py-2 font-mono">{m.machineNumber}</td>
+                  <td className="px-4 py-2">{m.machineType}</td>
+                  <td className="px-4 py-2 font-mono">
+                    {isEditing ? (
+                      <input
+                        type="number"
+                        min={1}
+                        value={editingRate}
+                        autoFocus
+                        onChange={(e) => setEditingRate(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") commitEdit();
+                          if (e.key === "Escape") {
+                            setEditingId(null);
+                            setEditingRate("");
+                          }
+                        }}
+                        className="w-24 px-2 py-1 border rounded text-sm font-mono"
+                      />
+                    ) : (
+                      <span>{m.targetRate} pcs/hr</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-2 capitalize">{m.status}</td>
+                  <td className="px-4 py-2 text-right">
+                    <div className="inline-flex items-center gap-1">
+                      {isEditing ? (
+                        <>
+                          <button
+                            onClick={commitEdit}
+                            disabled={updateMut.isPending}
+                            className="text-green-600 hover:bg-green-50 p-1 rounded disabled:opacity-50"
+                            title="Save"
+                          >
+                            <Check size={14} />
+                          </button>
+                          <button
+                            onClick={() => {
+                              setEditingId(null);
+                              setEditingRate("");
+                            }}
+                            className="text-muted-foreground hover:bg-muted p-1 rounded"
+                            title="Cancel"
+                          >
+                            <X size={14} />
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            onClick={() => {
+                              setEditingId(m.id);
+                              setEditingRate(String(m.targetRate));
+                            }}
+                            className="text-muted-foreground hover:bg-muted p-1 rounded"
+                            title="Edit target rate"
+                          >
+                            <Pencil size={14} />
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (confirm(`Delete ${m.machineNumber}?`)) deleteMut.mutate(m.id);
+                            }}
+                            className="text-destructive hover:bg-destructive/10 p-1 rounded"
+                            title="Delete machine"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
