@@ -72,6 +72,28 @@ export default function ProductionEntryPage() {
     enabled: !!shiftName,
   });
 
+  // Previous-day entries for the SAME shift, used for carry-forward prompt
+  function prevDateYMD(d: string): string {
+    const [y, m, day] = d.split("-").map(Number);
+    const dt = new Date(Date.UTC(y, m - 1, day));
+    dt.setUTCDate(dt.getUTCDate() - 1);
+    return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, "0")}-${String(
+      dt.getUTCDate()
+    ).padStart(2, "0")}`;
+  }
+  const prevDate = useMemo(() => prevDateYMD(date), [date]);
+  const prevEntriesUrl = `/api/entries?dateFrom=${encodeURIComponent(
+    prevDate
+  )}&dateTo=${encodeURIComponent(prevDate)}&shift=${encodeURIComponent(shiftName)}`;
+  const { data: prevEntries = [] } = useQuery<ProductionEntry[]>({
+    queryKey: [prevEntriesUrl],
+    enabled: !!shiftName,
+  });
+
+  // Track which (date, shift) combos we've already asked about, so we don't re-prompt
+  // on every re-render or after dismissing.
+  const promptedRef = useRef<Set<string>>(new Set());
+
   // Whenever the inputs (date/shift/machines/items/entries) change, rebuild the grid.
   // Skip rebuild while a save is in-flight to avoid clobbering optimistic local edits.
   const savingRef = useRef(false);
@@ -83,6 +105,64 @@ export default function ProductionEntryPage() {
     }
     setRows(buildRows(machines, items, hours, entries));
   }, [machines, items, hours, entries]);
+
+  // Carry-forward prompt: when the current day has no entries yet AND yesterday does,
+  // ask once whether to copy yesterday's closing readings as today's openings.
+  useEffect(() => {
+    if (!shiftName || !date) return;
+    const key = `${date}|${shiftName}`;
+    if (promptedRef.current.has(key)) return;
+    if (rows.length === 0) return;
+
+    // Only prompt for "fresh" days — no entries saved AND every row is at zero opening
+    const dayHasData =
+      entries.length > 0 || rows.some((r) => r.openingReading > 0);
+    if (dayHasData) return;
+
+    // Find candidate openings from yesterday's data
+    const carryMap = new Map<string, number>(); // key = `${machineId}-${itemId}` → closing reading
+    for (const e of prevEntries) {
+      const list = (e.entries as Array<{ closingReading: number | null }>) ?? [];
+      // Last non-null closing reading is the end-of-day count
+      let lastClosing: number | null = null;
+      for (const h of list) {
+        if (h.closingReading != null) lastClosing = h.closingReading;
+      }
+      if (lastClosing != null && e.itemId != null) {
+        carryMap.set(`${e.machineId}-${e.itemId}`, lastClosing);
+      }
+    }
+    if (carryMap.size === 0) return;
+
+    // How many rows in TODAY match a yesterday's row?
+    const matchedRowCount = rows.filter((r) =>
+      carryMap.has(`${r.machineId}-${r.itemId}`)
+    ).length;
+    if (matchedRowCount === 0) return;
+
+    // Mark prompted BEFORE confirming so re-renders don't re-fire it
+    promptedRef.current.add(key);
+
+    const ok = confirm(
+      `Carry forward ${prevDate}'s closing readings as opening for ${date}? ` +
+        `(${matchedRowCount} row${matchedRowCount === 1 ? "" : "s"} will be pre-filled. ` +
+        `You can override any value before saving.)`
+    );
+    if (!ok) return;
+
+    setRows((prev) =>
+      prev.map((r) => {
+        const carried = carryMap.get(`${r.machineId}-${r.itemId}`);
+        if (carried == null) return r;
+        return {
+          ...r,
+          openingReading: carried,
+          entries: recomputeActuals(carried, r.entries),
+          dirty: true,
+        };
+      })
+    );
+  }, [date, shiftName, rows, entries, prevEntries, prevDate]);
 
   // ──────────────────────────────────────────────────────────────────────────
   // Mutations
