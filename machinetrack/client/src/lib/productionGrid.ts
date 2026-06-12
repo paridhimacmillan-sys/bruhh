@@ -59,9 +59,15 @@ export function buildRows(
     .filter((m) => m.status === "active")
     .map((machine) => {
       const existing = entries.find((e) => e.machineId === machine.id);
+      // Pick the item:
+      //   1. Whatever is saved on an existing entry (user override)
+      //   2. The machine's default item (set in Masters)
+      //   3. Any active item as a last resort
       const item =
         existing?.itemId != null
           ? items.find((i) => i.id === existing.itemId)
+          : machine.defaultItemId != null
+          ? items.find((i) => i.id === machine.defaultItemId)
           : items.find((i) => i.status === "active");
       const expected = rateFor(item, machine);
 
