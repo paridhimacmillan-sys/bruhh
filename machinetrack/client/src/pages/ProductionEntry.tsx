@@ -15,7 +15,6 @@ import { queryClient } from "@/lib/queryClient";
 import {
   buildRows,
   computeShiftHours,
-  rateFor,
   recomputeActuals,
   type GridRow,
 } from "@/lib/productionGrid";
@@ -226,23 +225,6 @@ export default function ProductionEntryPage() {
       next[idx] = {
         ...row,
         entries: recomputeActuals(row.openingReading, newEntries),
-        dirty: true,
-      };
-      return next;
-    });
-  };
-
-  const handleItemChange = (idx: number, itemId: number) => {
-    setRows((prev) => {
-      const next = [...prev];
-      const row = next[idx];
-      const item = items.find((i) => i.id === itemId);
-      const expected = rateFor(item, row.machine);
-      next[idx] = {
-        ...row,
-        itemId,
-        item,
-        entries: row.entries.map((e) => ({ ...e, expected })),
         dirty: true,
       };
       return next;
@@ -463,12 +445,10 @@ export default function ProductionEntryPage() {
         hours={hours}
         shift={shiftName}
         isAdmin={isAdmin}
-        items={items}
         operators={operators}
         savingHour={savingHour}
         onOpeningChange={handleOpeningChange}
         onClosingChange={handleClosingChange}
-        onItemChange={handleItemChange}
         onOperatorChange={handleOperatorChange}
         onSaveHour={handleSaveHour}
       />
