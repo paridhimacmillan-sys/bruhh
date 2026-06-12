@@ -418,6 +418,19 @@ export function registerRoutes(app: Express) {
     }
   });
 
+  // Delete one row by id — admin only
+  app.delete("/api/entries/:id", isAdmin, async (req, res, next) => {
+    try {
+      const orgId = getOrgId(req);
+      const id = parseInt(String(req.params.id), 10);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      await storage.deleteEntryById(id, orgId);
+      res.status(204).end();
+    } catch (e) {
+      next(e);
+    }
+  });
+
   // ===================================================
   // ALERT THRESHOLDS
   // ===================================================
