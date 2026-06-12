@@ -79,6 +79,19 @@ function MachinesTab() {
     onError: (err: any) => toast.error(err.message ?? "Failed to delete"),
   });
 
+  const updateStatusMut = useMutation({
+    mutationFn: ({ id, status }: { id: number; status: string }) =>
+      api(`/api/machines/${id}`, {
+        method: "PUT",
+        body: JSON.stringify({ status }),
+      }),
+    onSuccess: () => {
+      toast.success("Status updated");
+      queryClient.invalidateQueries({ queryKey: ["/api/machines"] });
+    },
+    onError: (err: any) => toast.error(err.message ?? "Failed to update status"),
+  });
+
   return (
     <section className="space-y-6">
       <div className="bg-card border rounded-lg p-4">
@@ -159,7 +172,26 @@ function MachinesTab() {
               <tr key={m.id} className="border-t">
                 <td className="px-4 py-2 font-mono">{m.machineNumber}</td>
                 <td className="px-4 py-2">{m.machineType}</td>
-                <td className="px-4 py-2 capitalize">{m.status}</td>
+                <td className="px-4 py-2">
+                  <select
+                    value={m.status}
+                    onChange={(e) =>
+                      updateStatusMut.mutate({ id: m.id, status: e.target.value })
+                    }
+                    disabled={updateStatusMut.isPending}
+                    className={`px-2 py-1 border rounded text-xs capitalize font-semibold ${
+                      m.status === "active"
+                        ? "text-green-600 border-green-200 bg-green-50"
+                        : m.status === "maintenance"
+                        ? "text-yellow-700 border-yellow-200 bg-yellow-50"
+                        : "text-muted-foreground border-input"
+                    }`}
+                  >
+                    <option value="active">Active</option>
+                    <option value="maintenance">Maintenance</option>
+                    <option value="offline">Offline</option>
+                  </select>
+                </td>
                 <td className="px-4 py-2 text-right">
                   <button
                     onClick={() => {
