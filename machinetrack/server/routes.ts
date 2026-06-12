@@ -336,7 +336,7 @@ export function registerRoutes(app: Express) {
         .object({
           date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "date must be YYYY-MM-DD"),
           machineId: z.number().int().positive(),
-          itemId: z.number().int().positive().nullable(),
+          itemId: z.number().int().positive(),
           shift: z.string().min(1),
           openingReading: z.number().int().min(0),
           entries: z.array(
