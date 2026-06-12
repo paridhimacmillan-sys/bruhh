@@ -49,9 +49,11 @@ function MachinesTab() {
   const { data: machines = [], isLoading } = useQuery<Machine[]>({
     queryKey: ["/api/machines"],
   });
+  const { data: items = [] } = useQuery<Item[]>({ queryKey: ["/api/items"] });
   const [machineNumber, setMachineNumber] = useState("");
   const [machineType, setMachineType] = useState("CNC TURNING");
   const [targetRate, setTargetRate] = useState("60");
+  const [defaultItemId, setDefaultItemId] = useState<string>("");
 
   // Inline edit state: which row is being edited + its draft rate
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -66,12 +68,14 @@ function MachinesTab() {
           machineType: machineType.trim(),
           targetRate: parseInt(targetRate, 10),
           status: "active",
+          defaultItemId: defaultItemId ? parseInt(defaultItemId, 10) : null,
         }),
       }),
     onSuccess: () => {
       toast.success("Machine added");
       setMachineNumber("");
       setTargetRate("60");
+      setDefaultItemId("");
       queryClient.invalidateQueries({ queryKey: ["/api/machines"] });
     },
     onError: (err: any) => toast.error(err.message ?? "Failed to add machine"),
@@ -90,6 +94,19 @@ function MachinesTab() {
       queryClient.invalidateQueries({ queryKey: ["/api/machines"] });
     },
     onError: (err: any) => toast.error(err.message ?? "Update failed"),
+  });
+
+  // Assign which item this machine produces by default — fires on dropdown change
+  const assignItemMut = useMutation({
+    mutationFn: ({ id, itemId }: { id: number; itemId: number | null }) =>
+      api<Machine>(`/api/machines/${id}`, {
+        method: "PUT",
+        body: JSON.stringify({ defaultItemId: itemId }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/machines"] });
+    },
+    onError: (err: any) => toast.error(err.message ?? "Failed to assign item"),
   });
 
   const deleteMut = useMutation({
@@ -114,7 +131,7 @@ function MachinesTab() {
             }
             createMut.mutate();
           }}
-          className="grid grid-cols-1 md:grid-cols-4 gap-3"
+          className="grid grid-cols-1 md:grid-cols-5 gap-3"
         >
           <div>
             <label className="block text-xs font-medium mb-1">Machine number</label>
@@ -146,6 +163,23 @@ function MachinesTab() {
               className="w-full px-3 py-2 border rounded text-sm"
             />
           </div>
+          <div>
+            <label className="block text-xs font-medium mb-1">Item (optional)</label>
+            <select
+              value={defaultItemId}
+              onChange={(e) => setDefaultItemId(e.target.value)}
+              className="w-full px-3 py-2 border rounded text-sm"
+            >
+              <option value="">-- none --</option>
+              {items
+                .filter((i) => i.status === "active")
+                .map((i) => (
+                  <option key={i.id} value={i.id}>
+                    {i.itemName}
+                  </option>
+                ))}
+            </select>
+          </div>
           <div className="flex items-end">
             <button
               type="submit"
@@ -165,6 +199,7 @@ function MachinesTab() {
             <tr>
               <th className="text-left px-4 py-2 text-xs font-semibold uppercase">Machine</th>
               <th className="text-left px-4 py-2 text-xs font-semibold uppercase">Type</th>
+              <th className="text-left px-4 py-2 text-xs font-semibold uppercase">Item</th>
               <th className="text-left px-4 py-2 text-xs font-semibold uppercase">Target</th>
               <th className="text-left px-4 py-2 text-xs font-semibold uppercase">Status</th>
               <th />
@@ -173,14 +208,14 @@ function MachinesTab() {
           <tbody>
             {isLoading && (
               <tr>
-                <td colSpan={5} className="px-4 py-6 text-center text-muted-foreground">
+                <td colSpan={6} className="px-4 py-6 text-center text-muted-foreground">
                   Loading…
                 </td>
               </tr>
             )}
             {!isLoading && machines.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-6 text-center text-muted-foreground">
+                <td colSpan={6} className="px-4 py-6 text-center text-muted-foreground">
                   No machines yet. Add one above.
                 </td>
               </tr>
@@ -204,6 +239,28 @@ function MachinesTab() {
                 <tr key={m.id} className="border-t">
                   <td className="px-4 py-2 font-mono">{m.machineNumber}</td>
                   <td className="px-4 py-2">{m.machineType}</td>
+                  <td className="px-4 py-2">
+                    <select
+                      value={m.defaultItemId ?? ""}
+                      onChange={(e) =>
+                        assignItemMut.mutate({
+                          id: m.id,
+                          itemId: e.target.value ? parseInt(e.target.value, 10) : null,
+                        })
+                      }
+                      disabled={assignItemMut.isPending}
+                      className="w-full px-2 py-1 border rounded text-xs"
+                    >
+                      <option value="">-- none --</option>
+                      {items
+                        .filter((i) => i.status === "active")
+                        .map((i) => (
+                          <option key={i.id} value={i.id}>
+                            {i.itemName}
+                          </option>
+                        ))}
+                    </select>
+                  </td>
                   <td className="px-4 py-2 font-mono">
                     {isEditing ? (
                       <input
