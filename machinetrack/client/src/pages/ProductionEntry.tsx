@@ -237,7 +237,7 @@ export default function ProductionEntryPage() {
       const next = [...prev];
       const row = next[idx];
       const item = items.find((i) => i.id === itemId);
-      const expected = rateFor(item, row.machineId);
+      const expected = rateFor(item, row.machine);
       next[idx] = {
         ...row,
         itemId,
@@ -376,10 +376,12 @@ export default function ProductionEntryPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {isAdmin && hasData && (
+          {isAdmin && (
             <button
               onClick={handleDelete}
-              className="flex items-center gap-2 px-3 py-2 text-sm font-medium border border-destructive/30 text-destructive rounded hover:bg-destructive/10"
+              disabled={!hasData}
+              title={hasData ? "Delete all entries for this date and shift" : "No entries to delete"}
+              className="flex items-center gap-2 px-3 py-2 text-sm font-medium border border-destructive/30 text-destructive rounded hover:bg-destructive/10 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <Trash2 size={14} />
               Delete
