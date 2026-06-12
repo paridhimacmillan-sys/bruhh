@@ -139,7 +139,9 @@ export const insertItemSchema = createInsertSchema(items)
   .omit({ id: true, organizationId: true })
   .extend({
     itemName: z.string().trim().min(1, "Item name is required"),
-    defaultRate: z.coerce.number().int().positive("Default rate must be positive"),
+    // Items inherit the machine's targetRate at grid time, so defaultRate is just
+    // a fallback for legacy data. Default to 60 if the client doesn't send one.
+    defaultRate: z.coerce.number().int().positive().default(60),
     status: z.enum(["active", "inactive"]).default("active"),
     unit: z.string().default("pcs/hr"),
     rates: z.array(z.object({ machineId: z.number(), rate: z.number() })).default([]),
