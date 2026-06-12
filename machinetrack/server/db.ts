@@ -60,8 +60,12 @@ async function runMigrations() {
       "machine_type" text NOT NULL,
       "target_rate" integer NOT NULL DEFAULT 60,
       "status" text NOT NULL DEFAULT 'active',
+      "default_item_id" integer,
       "created_at" timestamp NOT NULL DEFAULT now()
     );
+
+    -- Backfill: add column on existing DBs
+    ALTER TABLE "machines" ADD COLUMN IF NOT EXISTS "default_item_id" integer;
 
     CREATE TABLE IF NOT EXISTS "items" (
       "id" serial PRIMARY KEY,
