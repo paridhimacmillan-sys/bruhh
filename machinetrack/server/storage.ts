@@ -311,6 +311,17 @@ export const storage = {
       );
   },
 
+  async deleteEntryById(id: number, orgId: number): Promise<void> {
+    await db
+      .delete(productionEntries)
+      .where(
+        and(
+          eq(productionEntries.id, id),
+          eq(productionEntries.organizationId, orgId)
+        )
+      );
+  },
+
   // ===== ALERT THRESHOLDS =====
   async getAlertThresholds(orgId: number): Promise<AlertThreshold[]> {
     return db
