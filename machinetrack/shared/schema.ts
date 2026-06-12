@@ -30,7 +30,8 @@ export const users = pgTable("users", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
-// Machines: shop-floor machines
+// Machines: shop-floor machines. Just identity — no rate, no item.
+// Rates live on items as (machineId, rate) pairs.
 export const machines = pgTable("machines", {
   id: serial("id").primaryKey(),
   organizationId: integer("organization_id")
@@ -38,25 +39,23 @@ export const machines = pgTable("machines", {
     .references(() => organizations.id),
   machineNumber: text("machine_number").notNull(),
   machineType: text("machine_type").notNull(),
-  targetRate: integer("target_rate").notNull().default(60),
   status: text("status").notNull().default("active"), // active / maintenance / offline
-  // Default item this machine produces. Used to pre-fill the item column in the production grid.
-  defaultItemId: integer("default_item_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
-// Items: products produced on machines
+// Items: products produced on machines.
+// `rates` is the source of truth — a list of (machineId, rate) pairs that
+// determines which machines the item can run on and at what speed.
 export const items = pgTable("items", {
   id: serial("id").primaryKey(),
   organizationId: integer("organization_id")
     .notNull()
     .references(() => organizations.id),
   itemName: text("item_name").notNull(),
-  defaultRate: integer("default_rate").notNull().default(60),
-  // per-machine rate overrides: [{ machineId: number, rate: number }]
-  rates: jsonb("rates").default([]),
+  // Per-machine assignments. Empty array = item not assigned anywhere.
+  // [{ machineId: number, rate: number }]
+  rates: jsonb("rates").notNull().default([]),
   status: text("status").notNull().default("active"),
-  unit: text("unit").default("pcs/hr"),
 });
 
 // Shifts: shop-floor shifts (e.g. "A", "B", "Night")
@@ -93,7 +92,8 @@ export const alertThresholds = pgTable("alert_thresholds", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
-// Production entries: one row per (date, machine, shift)
+// Production entries: one row per (date, machine, item, shift) — same machine
+// can have multiple entries per shift if it runs multiple items.
 export const productionEntries = pgTable("production_entries", {
   id: serial("id").primaryKey(),
   organizationId: integer("organization_id")
@@ -103,7 +103,9 @@ export const productionEntries = pgTable("production_entries", {
   machineId: integer("machine_id")
     .notNull()
     .references(() => machines.id),
-  itemId: integer("item_id").references(() => items.id),
+  itemId: integer("item_id")
+    .notNull()
+    .references(() => items.id),
   shift: text("shift").notNull(),
   openingReading: integer("opening_reading").default(0),
   // entries: [{ hour: 'HH:MM', closingReading: number|null, actual: number, expected: number }]
@@ -113,7 +115,7 @@ export const productionEntries = pgTable("production_entries", {
   lockedHours: integer("locked_hours").array().default([]),
   totalActual: integer("total_actual").default(0),
   totalExpected: integer("total_expected").default(0),
-  status: text("status").default("draft"), // draft / submitted / flagged
+  status: text("status").default("draft"),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
@@ -133,21 +135,22 @@ export const insertMachineSchema = createInsertSchema(machines)
   .extend({
     machineNumber: z.string().trim().min(1, "Machine number is required"),
     machineType: z.string().trim().min(1, "Machine type is required"),
-    targetRate: z.coerce.number().int().positive("Target rate must be positive"),
     status: z.enum(["active", "maintenance", "offline"]).default("active"),
-    defaultItemId: z.coerce.number().int().positive().nullable().optional(),
   });
 
 export const insertItemSchema = createInsertSchema(items)
   .omit({ id: true, organizationId: true })
   .extend({
     itemName: z.string().trim().min(1, "Item name is required"),
-    // Items inherit the machine's targetRate at grid time, so defaultRate is just
-    // a fallback for legacy data. Default to 60 if the client doesn't send one.
-    defaultRate: z.coerce.number().int().positive().default(60),
     status: z.enum(["active", "inactive"]).default("active"),
-    unit: z.string().default("pcs/hr"),
-    rates: z.array(z.object({ machineId: z.number(), rate: z.number() })).default([]),
+    rates: z
+      .array(
+        z.object({
+          machineId: z.coerce.number().int().positive(),
+          rate: z.coerce.number().int().positive(),
+        })
+      )
+      .default([]),
   });
 
 export const insertShiftSchema = createInsertSchema(shifts)
@@ -206,4 +209,10 @@ export interface HourlyEntry {
   closingReading: number | null;
   actual: number;
   expected: number;
+}
+
+// Per-machine rate assignment for an item
+export interface ItemRate {
+  machineId: number;
+  rate: number;
 }
