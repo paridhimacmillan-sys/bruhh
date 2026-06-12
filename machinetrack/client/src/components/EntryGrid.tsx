@@ -1,21 +1,18 @@
 import { useState, useEffect, useRef } from "react";
 import { AlertTriangle, CheckCircle2 } from "lucide-react";
-import type { Item, Operator } from "@shared/schema";
+import type { Operator } from "@shared/schema";
 import type { GridRow } from "@/lib/productionGrid";
-import { rateFor } from "@/lib/productionGrid";
 
 interface Props {
   rows: GridRow[];
   hours: string[];
   shift: string;
   isAdmin: boolean;
-  items: Item[];
   operators: Operator[];
   savingHour: number | null;
-  onOpeningChange: (machineIdx: number, value: number) => void;
-  onClosingChange: (machineIdx: number, hourIdx: number, value: number) => void;
-  onItemChange: (machineIdx: number, itemId: number) => void;
-  onOperatorChange: (machineIdx: number, name: string) => void;
+  onOpeningChange: (rowIdx: number, value: number) => void;
+  onClosingChange: (rowIdx: number, hourIdx: number, value: number) => void;
+  onOperatorChange: (rowIdx: number, name: string) => void;
   onSaveHour: (hourIdx: number) => Promise<void>;
 }
 
@@ -24,12 +21,10 @@ export default function EntryGrid({
   hours,
   shift,
   isAdmin,
-  items,
   operators,
   savingHour,
   onOpeningChange,
   onClosingChange,
-  onItemChange,
   onOperatorChange,
   onSaveHour,
 }: Props) {
@@ -68,14 +63,14 @@ export default function EntryGrid({
             </tr>
           </thead>
           <tbody>
-            {rows.map((row, machineIdx) => {
+            {rows.map((row, rowIdx) => {
               const totalActual = row.entries.reduce((s, e) => s + e.actual, 0);
               const totalExpected = row.entries.reduce((s, e) => s + e.expected, 0);
               const variance = totalActual - totalExpected;
               const eff = totalExpected > 0 ? (totalActual / totalExpected) * 100 : 0;
 
               return (
-                <tr key={row.machineId} className="border-b hover:bg-muted/10">
+                <tr key={`${row.machineId}-${row.itemId}`} className="border-b hover:bg-muted/10">
                   <td className="px-3 py-2">
                     <div className="flex items-center gap-2">
                       {row.dirty && <AlertTriangle size={12} className="text-amber-500" />}
@@ -87,33 +82,16 @@ export default function EntryGrid({
                   </td>
 
                   <td className="px-3 py-2">
-                    <select
-                      value={row.itemId ?? ""}
-                      onChange={(e) => {
-                        const v = parseInt(e.target.value, 10);
-                        if (!isNaN(v)) onItemChange(machineIdx, v);
-                      }}
-                      disabled={!isAdmin}
-                      className="w-full px-2 py-1 border rounded text-xs disabled:opacity-70"
-                    >
-                      <option value="">-- select --</option>
-                      {items
-                        .filter((i) => i.status === "active")
-                        .map((i) => (
-                          <option key={i.id} value={i.id}>
-                            {i.itemName}
-                          </option>
-                        ))}
-                    </select>
+                    <p className="font-medium text-xs">{row.item.itemName}</p>
                     <p className="text-xs text-muted-foreground mt-0.5 font-mono">
-                      Target: {rateFor(row.item, row.machine)} pcs/hr
+                      Target: {row.expected} pcs/hr
                     </p>
                   </td>
 
                   <td className="px-3 py-2">
                     <select
                       value={row.operatorName}
-                      onChange={(e) => onOperatorChange(machineIdx, e.target.value)}
+                      onChange={(e) => onOperatorChange(rowIdx, e.target.value)}
                       className="w-full px-2 py-1 border rounded text-xs"
                     >
                       <option value="">Unassigned</option>
@@ -128,12 +106,14 @@ export default function EntryGrid({
                   <td className="px-2 py-2 text-center bg-muted/10">
                     <OpeningReadingInput
                       value={row.openingReading}
-                      onCommit={(v) => onOpeningChange(machineIdx, v)}
+                      onCommit={(v) => onOpeningChange(rowIdx, v)}
                     />
                   </td>
 
                   {row.entries.map((entry, hourIdx) => {
-                    const isLocked = row.lockedHours.includes(hourIdx);
+                    const isLocked = Array.isArray(row.lockedHours)
+                      ? row.lockedHours.includes(hourIdx)
+                      : false;
                     const pct =
                       entry.expected > 0 ? (entry.actual / entry.expected) * 100 : 0;
                     const cellBg =
@@ -146,7 +126,7 @@ export default function EntryGrid({
                         : "bg-red-50";
                     return (
                       <td
-                        key={`cell-${row.machineId}-${hourIdx}`}
+                        key={`cell-${row.machineId}-${row.itemId}-${hourIdx}`}
                         className={`px-1 py-2 text-center ${cellBg}`}
                       >
                         <div className="flex flex-col items-center gap-0.5">
@@ -157,7 +137,7 @@ export default function EntryGrid({
                           ) : (
                             <ClosingReadingInput
                               value={entry.closingReading}
-                              onCommit={(v) => onClosingChange(machineIdx, hourIdx, v)}
+                              onCommit={(v) => onClosingChange(rowIdx, hourIdx, v)}
                             />
                           )}
                           <span className="text-xs text-muted-foreground font-mono leading-none">
@@ -217,7 +197,11 @@ export default function EntryGrid({
               </td>
               {hours.map((h, i) => {
                 // An hour is locked overall if ALL rows have it locked
-                const allLocked = rows.every((r) => r.lockedHours.includes(i));
+                const allLocked =
+                  rows.length > 0 &&
+                  rows.every(
+                    (r) => Array.isArray(r.lockedHours) && r.lockedHours.includes(i)
+                  );
                 const isSaving = savingHour === i;
                 return (
                   <td key={`save-${i}`} className="px-1 py-2 text-center">
