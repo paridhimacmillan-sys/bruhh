@@ -40,6 +40,8 @@ export const machines = pgTable("machines", {
   machineType: text("machine_type").notNull(),
   targetRate: integer("target_rate").notNull().default(60),
   status: text("status").notNull().default("active"), // active / maintenance / offline
+  // Default item this machine produces. Used to pre-fill the item column in the production grid.
+  defaultItemId: integer("default_item_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -133,6 +135,7 @@ export const insertMachineSchema = createInsertSchema(machines)
     machineType: z.string().trim().min(1, "Machine type is required"),
     targetRate: z.coerce.number().int().positive("Target rate must be positive"),
     status: z.enum(["active", "maintenance", "offline"]).default("active"),
+    defaultItemId: z.coerce.number().int().positive().nullable().optional(),
   });
 
 export const insertItemSchema = createInsertSchema(items)
