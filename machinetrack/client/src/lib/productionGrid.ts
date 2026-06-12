@@ -19,12 +19,18 @@ export function computeShiftHours(shift: Shift): string[] {
 }
 
 // Resolve the expected rate for a given (machine, item) pair.
-// If the item has per-machine overrides, use that; else fall back to defaultRate.
-export function rateFor(item: Item | undefined, machineId: number): number {
-  if (!item) return 0;
-  const overrides = (item.rates as Array<{ machineId: number; rate: number }> | null) ?? [];
-  const found = overrides.find((r) => r.machineId === machineId);
-  return found?.rate ?? item.defaultRate;
+// 1. If the item has a per-machine override for this machine, use that
+// 2. Otherwise, fall back to the machine's target rate (each machine has its own speed)
+// 3. As a last resort, fall back to the item's defaultRate field (legacy data)
+export function rateFor(item: Item | undefined, machine: Machine | undefined): number {
+  if (!machine) return 0;
+  if (item) {
+    const overrides =
+      (item.rates as Array<{ machineId: number; rate: number }> | null) ?? [];
+    const found = overrides.find((r) => r.machineId === machine.id);
+    if (found) return found.rate;
+  }
+  return machine.targetRate;
 }
 
 export interface GridRow {
@@ -57,7 +63,7 @@ export function buildRows(
         existing?.itemId != null
           ? items.find((i) => i.id === existing.itemId)
           : items.find((i) => i.status === "active");
-      const expected = rateFor(item, machine.id);
+      const expected = rateFor(item, machine);
 
       // Build hourly entries — use existing data when present, blanks otherwise
       const existingEntries =
