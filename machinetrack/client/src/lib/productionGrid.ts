@@ -50,27 +50,36 @@ export function buildRows(
   hours: string[],
   entries: ProductionEntry[]
 ): GridRow[] {
-  const activeMachines = machines.filter((m) => m.status === "active");
-  const activeItems = items.filter((i) => i.status === "active");
+  // Defensive: every input could be undefined if a query is still loading
+  // or returned an error. Treat as empty rather than crashing.
+  const safeM = Array.isArray(machines) ? machines : [];
+  const safeI = Array.isArray(items) ? items : [];
+  const safeH = Array.isArray(hours) ? hours : [];
+  const safeE = Array.isArray(entries) ? entries : [];
+
+  const activeMachines = safeM.filter((m) => m?.status === "active");
+  const activeItems = safeI.filter((i) => i?.status === "active");
 
   const rows: GridRow[] = [];
 
   for (const machine of activeMachines) {
     const assignedItems = activeItems.flatMap((item) => {
-      const rates = (item.rates as ItemRate[] | null) ?? [];
-      const rate = rates.find((r) => r.machineId === machine.id)?.rate ?? 0;
+      const rates = Array.isArray(item.rates) ? (item.rates as ItemRate[]) : [];
+      const rate = rates.find((r) => r?.machineId === machine.id)?.rate ?? 0;
       return rate > 0 ? [{ item, rate }] : [];
     });
 
     if (assignedItems.length === 0) continue;
 
     for (const { item, rate } of assignedItems) {
-      const existing = entries.find(
+      const existing = safeE.find(
         (e) => e.machineId === machine.id && e.itemId === item.id
       );
 
-      const existingEntries = (existing?.entries as HourlyEntry[] | null) ?? [];
-      const hourlyEntries: HourlyEntry[] = hours.map((hour, idx) => {
+      const existingEntries = Array.isArray(existing?.entries)
+        ? (existing!.entries as HourlyEntry[])
+        : [];
+      const hourlyEntries: HourlyEntry[] = safeH.map((hour, idx) => {
         const e = existingEntries[idx];
         return {
           hour,
@@ -90,7 +99,9 @@ export function buildRows(
         entries: hourlyEntries,
         operatorName: existing?.operatorName ?? "",
         notes: existing?.notes ?? "",
-        lockedHours: (existing?.lockedHours as number[] | null) ?? [],
+        lockedHours: Array.isArray(existing?.lockedHours)
+          ? (existing!.lockedHours as number[])
+          : [],
         dirty: false,
       });
     }
