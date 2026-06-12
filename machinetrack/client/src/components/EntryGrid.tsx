@@ -106,7 +106,7 @@ export default function EntryGrid({
                         ))}
                     </select>
                     <p className="text-xs text-muted-foreground mt-0.5 font-mono">
-                      Target: {rateFor(row.item, row.machineId)} pcs/hr
+                      Target: {rateFor(row.item, row.machine)} pcs/hr
                     </p>
                   </td>
 
