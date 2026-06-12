@@ -344,7 +344,6 @@ function ShiftsTab() {
 function ItemsTab() {
   const { data: items = [], isLoading } = useQuery<Item[]>({ queryKey: ["/api/items"] });
   const [itemName, setItemName] = useState("");
-  const [defaultRate, setDefaultRate] = useState("60");
 
   const createMut = useMutation({
     mutationFn: () =>
@@ -352,7 +351,11 @@ function ItemsTab() {
         method: "POST",
         body: JSON.stringify({
           itemName: itemName.trim(),
-          defaultRate: parseInt(defaultRate, 10),
+          // defaultRate is required by the API schema but the grid will use the
+          // machine's targetRate when there's no per-machine override on the item.
+          // We send a placeholder; it's effectively unused unless a user later
+          // configures rates for this item explicitly.
+          defaultRate: 60,
           status: "active",
           unit: "pcs/hr",
           rates: [],
@@ -361,7 +364,6 @@ function ItemsTab() {
     onSuccess: () => {
       toast.success("Item added");
       setItemName("");
-      setDefaultRate("60");
       queryClient.invalidateQueries({ queryKey: ["/api/items"] });
     },
     onError: (err: any) => toast.error(err.message),
@@ -376,6 +378,9 @@ function ItemsTab() {
     <section className="space-y-6">
       <div className="bg-card border rounded-lg p-4">
         <h2 className="font-semibold mb-3">Add item</h2>
+        <p className="text-xs text-muted-foreground mb-3">
+          Items inherit the target rate from each machine they're assigned to.
+        </p>
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -384,23 +389,13 @@ function ItemsTab() {
           }}
           className="grid grid-cols-1 md:grid-cols-3 gap-3"
         >
-          <div>
+          <div className="md:col-span-2">
             <label className="block text-xs font-medium mb-1">Item name</label>
             <input
               type="text"
               value={itemName}
               onChange={(e) => setItemName(e.target.value)}
               placeholder="BODY S02038"
-              className="w-full px-3 py-2 border rounded text-sm"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium mb-1">Default rate (pcs/hr)</label>
-            <input
-              type="number"
-              min={1}
-              value={defaultRate}
-              onChange={(e) => setDefaultRate(e.target.value)}
               className="w-full px-3 py-2 border rounded text-sm"
             />
           </div>
@@ -422,7 +417,6 @@ function ItemsTab() {
           <thead className="bg-muted/40">
             <tr>
               <th className="text-left px-4 py-2 text-xs font-semibold uppercase">Item</th>
-              <th className="text-left px-4 py-2 text-xs font-semibold uppercase">Rate</th>
               <th className="text-left px-4 py-2 text-xs font-semibold uppercase">Status</th>
               <th />
             </tr>
@@ -430,14 +424,14 @@ function ItemsTab() {
           <tbody>
             {isLoading && (
               <tr>
-                <td colSpan={4} className="px-4 py-6 text-center text-muted-foreground">
+                <td colSpan={3} className="px-4 py-6 text-center text-muted-foreground">
                   Loading…
                 </td>
               </tr>
             )}
             {!isLoading && items.length === 0 && (
               <tr>
-                <td colSpan={4} className="px-4 py-6 text-center text-muted-foreground">
+                <td colSpan={3} className="px-4 py-6 text-center text-muted-foreground">
                   No items yet.
                 </td>
               </tr>
@@ -445,9 +439,6 @@ function ItemsTab() {
             {items.map((i) => (
               <tr key={i.id} className="border-t">
                 <td className="px-4 py-2">{i.itemName}</td>
-                <td className="px-4 py-2 font-mono">
-                  {i.defaultRate} {i.unit}
-                </td>
                 <td className="px-4 py-2 capitalize">{i.status}</td>
                 <td className="px-4 py-2 text-right">
                   <button
