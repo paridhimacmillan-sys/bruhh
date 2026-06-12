@@ -112,44 +112,86 @@ export default function ProductionEntryPage() {
     if (!shiftName || !date) return;
     const key = `${date}|${shiftName}`;
     if (promptedRef.current.has(key)) return;
-    if (rows.length === 0) return;
+    // Wait until both queries have loaded data (entries + prevEntries refs are stable)
+    if (machines.length === 0 || items.length === 0) return;
 
-    // Only prompt for "fresh" days — no entries saved AND every row is at zero opening
-    const dayHasData =
-      entries.length > 0 || rows.some((r) => r.openingReading > 0);
-    if (dayHasData) return;
+    // Normalize the date field — Postgres date columns can come back as
+    // 'YYYY-MM-DD' or as an ISO timestamp depending on driver settings.
+    const matchesDate = (entryDate: unknown, targetYMD: string): boolean => {
+      if (entryDate == null) return false;
+      const s =
+        typeof entryDate === "string"
+          ? entryDate
+          : entryDate instanceof Date
+          ? entryDate.toISOString()
+          : String(entryDate);
+      return s.startsWith(targetYMD);
+    };
 
-    // Find candidate openings from yesterday's data
-    const carryMap = new Map<string, number>(); // key = `${machineId}-${itemId}` → closing reading
-    for (const e of prevEntries) {
+    const todaysEntries = entries.filter((e) => matchesDate(e.date, date));
+    const yesterdaysEntries = prevEntries.filter((e) =>
+      matchesDate(e.date, prevDate)
+    );
+
+    console.log("[carry-forward]", {
+      date,
+      prevDate,
+      shiftName,
+      todayEntries: todaysEntries.length,
+      yesterdayEntries: yesterdaysEntries.length,
+      rawEntries: entries.length,
+      rawPrevEntries: prevEntries.length,
+      sampleEntryDate: entries[0]?.date,
+      samplePrevEntryDate: prevEntries[0]?.date,
+    });
+
+    // Don't prompt if today already has saved data
+    if (todaysEntries.length > 0) {
+      console.log("[carry-forward] skipped: today has saved entries");
+      return;
+    }
+
+    // Build carry map from yesterday: (machineId-itemId) → last non-null closing
+    const carryMap = new Map<string, number>();
+    for (const e of yesterdaysEntries) {
       const list = (e.entries as Array<{ closingReading: number | null }>) ?? [];
-      // Last non-null closing reading is the end-of-day count
       let lastClosing: number | null = null;
       for (const h of list) {
         if (h.closingReading != null) lastClosing = h.closingReading;
       }
-      if (lastClosing != null && e.itemId != null) {
-        carryMap.set(`${e.machineId}-${e.itemId}`, lastClosing);
+      // Fall back to opening reading if no closings recorded
+      const fallback = e.openingReading ?? 0;
+      const value = lastClosing ?? (fallback > 0 ? fallback : null);
+      if (value != null && e.itemId != null) {
+        carryMap.set(`${e.machineId}-${e.itemId}`, value);
       }
     }
-    if (carryMap.size === 0) return;
+    console.log("[carry-forward] carryMap:", Array.from(carryMap.entries()));
 
-    // How many rows in TODAY match a yesterday's row?
-    const matchedRowCount = rows.filter((r) =>
-      carryMap.has(`${r.machineId}-${r.itemId}`)
-    ).length;
-    if (matchedRowCount === 0) return;
+    if (carryMap.size === 0) {
+      console.log("[carry-forward] skipped: no carryable readings from yesterday");
+      return;
+    }
 
     // Mark prompted BEFORE confirming so re-renders don't re-fire it
     promptedRef.current.add(key);
 
-    const ok = confirm(
-      `Carry forward ${prevDate}'s closing readings as opening for ${date}? ` +
-        `(${matchedRowCount} row${matchedRowCount === 1 ? "" : "s"} will be pre-filled. ` +
-        `You can override any value before saving.)`
-    );
-    if (!ok) return;
+    const summary = Array.from(carryMap.entries())
+      .slice(0, 3)
+      .map(([k, v]) => `${k.split("-")[0]}: ${v}`)
+      .join(", ");
 
+    const ok = window.confirm(
+      `Carry forward ${prevDate}'s closing readings as opening for ${date}?\n\n` +
+        `Will pre-fill ${carryMap.size} row(s). Example: ${summary}\n\n` +
+        `You can override any value before saving.`
+    );
+    if (!ok) {
+      console.log("[carry-forward] user declined");
+      return;
+    }
+
+    console.log("[carry-forward] applying carry");
     setRows((prev) =>
       prev.map((r) => {
         const carried = carryMap.get(`${r.machineId}-${r.itemId}`);
@@ -162,7 +204,7 @@ export default function ProductionEntryPage() {
         };
       })
     );
-  }, [date, shiftName, rows, entries, prevEntries, prevDate]);
+  }, [date, shiftName, entries, prevEntries, prevDate, machines.length, items.length]);
 
   // ──────────────────────────────────────────────────────────────────────────
   // Mutations
