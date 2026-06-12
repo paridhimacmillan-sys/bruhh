@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Plus, Trash2, Pencil, Check, X } from "lucide-react";
-import type { Machine, Item, Shift, Operator } from "@shared/schema";
+import type { Machine, Item, Shift, Operator, ItemRate } from "@shared/schema";
 import { api } from "@/lib/api";
 import { queryClient } from "@/lib/queryClient";
 
@@ -15,7 +15,7 @@ export default function MastersPage() {
     <div className="p-6 max-w-6xl mx-auto">
       <h1 className="text-2xl font-bold mb-1">Masters Management</h1>
       <p className="text-sm text-muted-foreground mb-6">
-        Set up the machines, items, shifts, and operator names that power the production grid.
+        Configure the machines and items that power the production grid.
       </p>
 
       <div className="flex gap-1 border-b mb-6">
@@ -43,21 +43,14 @@ export default function MastersPage() {
 }
 
 // ============================================================================
-// MACHINES — the creation form pattern you asked for
+// MACHINES — just identity. Rates configured in Items tab.
 // ============================================================================
 function MachinesTab() {
   const { data: machines = [], isLoading } = useQuery<Machine[]>({
     queryKey: ["/api/machines"],
   });
-  const { data: items = [] } = useQuery<Item[]>({ queryKey: ["/api/items"] });
   const [machineNumber, setMachineNumber] = useState("");
   const [machineType, setMachineType] = useState("CNC TURNING");
-  const [targetRate, setTargetRate] = useState("60");
-  const [defaultItemId, setDefaultItemId] = useState<string>("");
-
-  // Inline edit state: which row is being edited + its draft rate
-  const [editingId, setEditingId] = useState<number | null>(null);
-  const [editingRate, setEditingRate] = useState<string>("");
 
   const createMut = useMutation({
     mutationFn: () =>
@@ -66,47 +59,15 @@ function MachinesTab() {
         body: JSON.stringify({
           machineNumber: machineNumber.trim(),
           machineType: machineType.trim(),
-          targetRate: parseInt(targetRate, 10),
           status: "active",
-          defaultItemId: defaultItemId ? parseInt(defaultItemId, 10) : null,
         }),
       }),
     onSuccess: () => {
       toast.success("Machine added");
       setMachineNumber("");
-      setTargetRate("60");
-      setDefaultItemId("");
       queryClient.invalidateQueries({ queryKey: ["/api/machines"] });
     },
     onError: (err: any) => toast.error(err.message ?? "Failed to add machine"),
-  });
-
-  const updateMut = useMutation({
-    mutationFn: ({ id, targetRate }: { id: number; targetRate: number }) =>
-      api<Machine>(`/api/machines/${id}`, {
-        method: "PUT",
-        body: JSON.stringify({ targetRate }),
-      }),
-    onSuccess: () => {
-      toast.success("Target rate updated");
-      setEditingId(null);
-      setEditingRate("");
-      queryClient.invalidateQueries({ queryKey: ["/api/machines"] });
-    },
-    onError: (err: any) => toast.error(err.message ?? "Update failed"),
-  });
-
-  // Assign which item this machine produces by default — fires on dropdown change
-  const assignItemMut = useMutation({
-    mutationFn: ({ id, itemId }: { id: number; itemId: number | null }) =>
-      api<Machine>(`/api/machines/${id}`, {
-        method: "PUT",
-        body: JSON.stringify({ defaultItemId: itemId }),
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/machines"] });
-    },
-    onError: (err: any) => toast.error(err.message ?? "Failed to assign item"),
   });
 
   const deleteMut = useMutation({
@@ -121,17 +82,20 @@ function MachinesTab() {
   return (
     <section className="space-y-6">
       <div className="bg-card border rounded-lg p-4">
-        <h2 className="font-semibold mb-3">Add machine</h2>
+        <h2 className="font-semibold mb-1">Add machine</h2>
+        <p className="text-xs text-muted-foreground mb-3">
+          Rates are configured per machine in the Items tab.
+        </p>
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            if (!machineNumber.trim() || !machineType.trim() || !targetRate) {
+            if (!machineNumber.trim() || !machineType.trim()) {
               toast.error("Fill all fields");
               return;
             }
             createMut.mutate();
           }}
-          className="grid grid-cols-1 md:grid-cols-5 gap-3"
+          className="grid grid-cols-1 md:grid-cols-3 gap-3"
         >
           <div>
             <label className="block text-xs font-medium mb-1">Machine number</label>
@@ -153,33 +117,6 @@ function MachinesTab() {
               className="w-full px-3 py-2 border rounded text-sm"
             />
           </div>
-          <div>
-            <label className="block text-xs font-medium mb-1">Target rate (pcs/hr)</label>
-            <input
-              type="number"
-              min={1}
-              value={targetRate}
-              onChange={(e) => setTargetRate(e.target.value)}
-              className="w-full px-3 py-2 border rounded text-sm"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium mb-1">Item (optional)</label>
-            <select
-              value={defaultItemId}
-              onChange={(e) => setDefaultItemId(e.target.value)}
-              className="w-full px-3 py-2 border rounded text-sm"
-            >
-              <option value="">-- none --</option>
-              {items
-                .filter((i) => i.status === "active")
-                .map((i) => (
-                  <option key={i.id} value={i.id}>
-                    {i.itemName}
-                  </option>
-                ))}
-            </select>
-          </div>
           <div className="flex items-end">
             <button
               type="submit"
@@ -187,7 +124,7 @@ function MachinesTab() {
               className="w-full px-4 py-2 bg-primary text-primary-foreground rounded text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-60"
             >
               <Plus size={14} />
-              {createMut.isPending ? "Adding…" : "Add"}
+              {createMut.isPending ? "Adding..." : "Add"}
             </button>
           </div>
         </form>
@@ -199,8 +136,6 @@ function MachinesTab() {
             <tr>
               <th className="text-left px-4 py-2 text-xs font-semibold uppercase">Machine</th>
               <th className="text-left px-4 py-2 text-xs font-semibold uppercase">Type</th>
-              <th className="text-left px-4 py-2 text-xs font-semibold uppercase">Item</th>
-              <th className="text-left px-4 py-2 text-xs font-semibold uppercase">Target</th>
               <th className="text-left px-4 py-2 text-xs font-semibold uppercase">Status</th>
               <th />
             </tr>
@@ -208,132 +143,36 @@ function MachinesTab() {
           <tbody>
             {isLoading && (
               <tr>
-                <td colSpan={6} className="px-4 py-6 text-center text-muted-foreground">
-                  Loading…
+                <td colSpan={4} className="px-4 py-6 text-center text-muted-foreground">
+                  Loading...
                 </td>
               </tr>
             )}
             {!isLoading && machines.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-6 text-center text-muted-foreground">
+                <td colSpan={4} className="px-4 py-6 text-center text-muted-foreground">
                   No machines yet. Add one above.
                 </td>
               </tr>
             )}
-            {machines.map((m) => {
-              const isEditing = editingId === m.id;
-              const commitEdit = () => {
-                const n = parseInt(editingRate, 10);
-                if (isNaN(n) || n <= 0) {
-                  toast.error("Target rate must be a positive number");
-                  return;
-                }
-                if (n === m.targetRate) {
-                  setEditingId(null);
-                  setEditingRate("");
-                  return;
-                }
-                updateMut.mutate({ id: m.id, targetRate: n });
-              };
-              return (
-                <tr key={m.id} className="border-t">
-                  <td className="px-4 py-2 font-mono">{m.machineNumber}</td>
-                  <td className="px-4 py-2">{m.machineType}</td>
-                  <td className="px-4 py-2">
-                    <select
-                      value={m.defaultItemId ?? ""}
-                      onChange={(e) =>
-                        assignItemMut.mutate({
-                          id: m.id,
-                          itemId: e.target.value ? parseInt(e.target.value, 10) : null,
-                        })
-                      }
-                      disabled={assignItemMut.isPending}
-                      className="w-full px-2 py-1 border rounded text-xs"
-                    >
-                      <option value="">-- none --</option>
-                      {items
-                        .filter((i) => i.status === "active")
-                        .map((i) => (
-                          <option key={i.id} value={i.id}>
-                            {i.itemName}
-                          </option>
-                        ))}
-                    </select>
-                  </td>
-                  <td className="px-4 py-2 font-mono">
-                    {isEditing ? (
-                      <input
-                        type="number"
-                        min={1}
-                        value={editingRate}
-                        autoFocus
-                        onChange={(e) => setEditingRate(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") commitEdit();
-                          if (e.key === "Escape") {
-                            setEditingId(null);
-                            setEditingRate("");
-                          }
-                        }}
-                        className="w-24 px-2 py-1 border rounded text-sm font-mono"
-                      />
-                    ) : (
-                      <span>{m.targetRate} pcs/hr</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-2 capitalize">{m.status}</td>
-                  <td className="px-4 py-2 text-right">
-                    <div className="inline-flex items-center gap-1">
-                      {isEditing ? (
-                        <>
-                          <button
-                            onClick={commitEdit}
-                            disabled={updateMut.isPending}
-                            className="text-green-600 hover:bg-green-50 p-1 rounded disabled:opacity-50"
-                            title="Save"
-                          >
-                            <Check size={14} />
-                          </button>
-                          <button
-                            onClick={() => {
-                              setEditingId(null);
-                              setEditingRate("");
-                            }}
-                            className="text-muted-foreground hover:bg-muted p-1 rounded"
-                            title="Cancel"
-                          >
-                            <X size={14} />
-                          </button>
-                        </>
-                      ) : (
-                        <>
-                          <button
-                            onClick={() => {
-                              setEditingId(m.id);
-                              setEditingRate(String(m.targetRate));
-                            }}
-                            className="text-muted-foreground hover:bg-muted p-1 rounded"
-                            title="Edit target rate"
-                          >
-                            <Pencil size={14} />
-                          </button>
-                          <button
-                            onClick={() => {
-                              if (confirm(`Delete ${m.machineNumber}?`)) deleteMut.mutate(m.id);
-                            }}
-                            className="text-destructive hover:bg-destructive/10 p-1 rounded"
-                            title="Delete machine"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
+            {machines.map((m) => (
+              <tr key={m.id} className="border-t">
+                <td className="px-4 py-2 font-mono">{m.machineNumber}</td>
+                <td className="px-4 py-2">{m.machineType}</td>
+                <td className="px-4 py-2 capitalize">{m.status}</td>
+                <td className="px-4 py-2 text-right">
+                  <button
+                    onClick={() => {
+                      if (confirm(`Delete ${m.machineNumber}?`)) deleteMut.mutate(m.id);
+                    }}
+                    className="text-destructive hover:bg-destructive/10 p-1 rounded"
+                    title="Delete machine"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
@@ -342,7 +181,328 @@ function MachinesTab() {
 }
 
 // ============================================================================
-// SHIFTS — the same creation pattern, applied to shifts
+// ITEMS — each item is a card with a list of (machine, rate) assignments.
+// ============================================================================
+function ItemsTab() {
+  const { data: items = [], isLoading } = useQuery<Item[]>({ queryKey: ["/api/items"] });
+  const { data: machines = [] } = useQuery<Machine[]>({ queryKey: ["/api/machines"] });
+  const [itemName, setItemName] = useState("");
+
+  const createMut = useMutation({
+    mutationFn: () =>
+      api<Item>("/api/items", {
+        method: "POST",
+        body: JSON.stringify({
+          itemName: itemName.trim(),
+          status: "active",
+          rates: [],
+        }),
+      }),
+    onSuccess: () => {
+      toast.success("Item added");
+      setItemName("");
+      queryClient.invalidateQueries({ queryKey: ["/api/items"] });
+    },
+    onError: (err: any) => toast.error(err.message),
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (id: number) => api(`/api/items/${id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      toast.success("Item removed");
+      queryClient.invalidateQueries({ queryKey: ["/api/items"] });
+    },
+  });
+
+  // Mutation to replace the entire rates array for an item.
+  const updateRatesMut = useMutation({
+    mutationFn: ({ id, rates }: { id: number; rates: ItemRate[] }) =>
+      api(`/api/items/${id}`, {
+        method: "PUT",
+        body: JSON.stringify({ rates }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/items"] });
+    },
+    onError: (err: any) => toast.error(err.message ?? "Failed to update"),
+  });
+
+  return (
+    <section className="space-y-4">
+      <div className="bg-card border rounded-lg p-4">
+        <h2 className="font-semibold mb-3">Add item</h2>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!itemName.trim()) return toast.error("Item name required");
+            createMut.mutate();
+          }}
+          className="grid grid-cols-1 md:grid-cols-3 gap-3"
+        >
+          <div className="md:col-span-2">
+            <label className="block text-xs font-medium mb-1">Item name</label>
+            <input
+              type="text"
+              value={itemName}
+              onChange={(e) => setItemName(e.target.value)}
+              placeholder="BODY S02038"
+              className="w-full px-3 py-2 border rounded text-sm"
+            />
+          </div>
+          <div className="flex items-end">
+            <button
+              type="submit"
+              disabled={createMut.isPending}
+              className="w-full px-4 py-2 bg-primary text-primary-foreground rounded text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-60"
+            >
+              <Plus size={14} />
+              Add
+            </button>
+          </div>
+        </form>
+      </div>
+
+      {isLoading && (
+        <div className="bg-card border rounded-lg p-6 text-center text-sm text-muted-foreground">
+          Loading...
+        </div>
+      )}
+
+      {!isLoading && items.length === 0 && (
+        <div className="bg-card border rounded-lg p-6 text-center text-sm text-muted-foreground">
+          No items yet. Add one above.
+        </div>
+      )}
+
+      {items.map((item) => (
+        <ItemCard
+          key={item.id}
+          item={item}
+          machines={machines}
+          onUpdateRates={(rates) => updateRatesMut.mutate({ id: item.id, rates })}
+          onDelete={() => {
+            if (confirm(`Delete ${item.itemName}?`)) deleteMut.mutate(item.id);
+          }}
+        />
+      ))}
+    </section>
+  );
+}
+
+// One item, with inline machine-rate assignment editing.
+function ItemCard({
+  item,
+  machines,
+  onUpdateRates,
+  onDelete,
+}: {
+  item: Item;
+  machines: Machine[];
+  onUpdateRates: (rates: ItemRate[]) => void;
+  onDelete: () => void;
+}) {
+  const rates = ((item.rates as ItemRate[] | null) ?? []).slice();
+
+  // Form state for adding a new (machine, rate) assignment
+  const [newMachineId, setNewMachineId] = useState("");
+  const [newRate, setNewRate] = useState("");
+
+  // Inline edit for an existing rate
+  const [editingMachineId, setEditingMachineId] = useState<number | null>(null);
+  const [editingRateValue, setEditingRateValue] = useState("");
+
+  // Machines NOT already assigned to this item — eligible for the add dropdown
+  const availableMachines = machines.filter(
+    (m) => m.status === "active" && !rates.some((r) => r.machineId === m.id)
+  );
+
+  const machineLabel = (id: number) =>
+    machines.find((m) => m.id === id)?.machineNumber ?? `Machine #${id}`;
+
+  const handleAdd = () => {
+    if (!newMachineId) {
+      toast.error("Pick a machine");
+      return;
+    }
+    const r = parseInt(newRate, 10);
+    if (isNaN(r) || r <= 0) {
+      toast.error("Rate must be a positive number");
+      return;
+    }
+    const updated = [...rates, { machineId: parseInt(newMachineId, 10), rate: r }];
+    onUpdateRates(updated);
+    setNewMachineId("");
+    setNewRate("");
+  };
+
+  const handleRemove = (machineId: number) => {
+    const updated = rates.filter((r) => r.machineId !== machineId);
+    onUpdateRates(updated);
+  };
+
+  const handleCommitEdit = (machineId: number) => {
+    const r = parseInt(editingRateValue, 10);
+    if (isNaN(r) || r <= 0) {
+      toast.error("Rate must be a positive number");
+      return;
+    }
+    const updated = rates.map((row) =>
+      row.machineId === machineId ? { ...row, rate: r } : row
+    );
+    onUpdateRates(updated);
+    setEditingMachineId(null);
+    setEditingRateValue("");
+  };
+
+  return (
+    <div className="bg-card border rounded-lg p-4">
+      <div className="flex items-start justify-between mb-3">
+        <div>
+          <p className="font-semibold">{item.itemName}</p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Runs on {rates.length} machine{rates.length === 1 ? "" : "s"}
+          </p>
+        </div>
+        <button
+          onClick={onDelete}
+          className="text-destructive hover:bg-destructive/10 p-1.5 rounded"
+          title="Delete item"
+        >
+          <Trash2 size={14} />
+        </button>
+      </div>
+
+      <div className="border-t pt-3">
+        <p className="text-xs font-semibold uppercase text-muted-foreground mb-2 tracking-wider">
+          Machine assignments
+        </p>
+
+        {rates.length === 0 && (
+          <p className="text-xs text-muted-foreground py-2">
+            Not assigned to any machine yet.
+          </p>
+        )}
+
+        {rates.map((r) => {
+          const isEditing = editingMachineId === r.machineId;
+          return (
+            <div
+              key={r.machineId}
+              className="flex items-center justify-between border-b last:border-b-0 py-2 text-sm"
+            >
+              <span className="font-mono">{machineLabel(r.machineId)}</span>
+              <div className="flex items-center gap-3">
+                {isEditing ? (
+                  <input
+                    type="number"
+                    min={1}
+                    value={editingRateValue}
+                    autoFocus
+                    onChange={(e) => setEditingRateValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleCommitEdit(r.machineId);
+                      if (e.key === "Escape") {
+                        setEditingMachineId(null);
+                        setEditingRateValue("");
+                      }
+                    }}
+                    className="w-24 px-2 py-1 border rounded text-sm font-mono text-right"
+                  />
+                ) : (
+                  <span className="font-mono">{r.rate} pcs/hr</span>
+                )}
+                <div className="inline-flex items-center gap-1">
+                  {isEditing ? (
+                    <>
+                      <button
+                        onClick={() => handleCommitEdit(r.machineId)}
+                        className="text-green-600 hover:bg-green-50 p-1 rounded"
+                        title="Save"
+                      >
+                        <Check size={14} />
+                      </button>
+                      <button
+                        onClick={() => {
+                          setEditingMachineId(null);
+                          setEditingRateValue("");
+                        }}
+                        className="text-muted-foreground hover:bg-muted p-1 rounded"
+                        title="Cancel"
+                      >
+                        <X size={14} />
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => {
+                          setEditingMachineId(r.machineId);
+                          setEditingRateValue(String(r.rate));
+                        }}
+                        className="text-muted-foreground hover:bg-muted p-1 rounded"
+                        title="Edit rate"
+                      >
+                        <Pencil size={13} />
+                      </button>
+                      <button
+                        onClick={() => handleRemove(r.machineId)}
+                        className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive p-1 rounded"
+                        title="Remove from machine"
+                      >
+                        <X size={14} />
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+
+        {availableMachines.length > 0 && (
+          <div className="flex items-end gap-2 mt-3 pt-3 border-t border-dashed">
+            <div className="flex-1">
+              <label className="block text-xs font-medium mb-1">Machine</label>
+              <select
+                value={newMachineId}
+                onChange={(e) => setNewMachineId(e.target.value)}
+                className="w-full px-2 py-1.5 border rounded text-sm"
+              >
+                <option value="">-- pick a machine --</option>
+                {availableMachines.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.machineNumber}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="w-32">
+              <label className="block text-xs font-medium mb-1">Rate (pcs/hr)</label>
+              <input
+                type="number"
+                min={1}
+                value={newRate}
+                onChange={(e) => setNewRate(e.target.value)}
+                placeholder="60"
+                className="w-full px-2 py-1.5 border rounded text-sm font-mono"
+              />
+            </div>
+            <button
+              onClick={handleAdd}
+              className="px-3 py-1.5 bg-primary text-primary-foreground rounded text-sm font-semibold flex items-center gap-1"
+            >
+              <Plus size={13} />
+              Add
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// SHIFTS
 // ============================================================================
 function ShiftsTab() {
   const { data: shifts = [], isLoading } = useQuery<Shift[]>({
@@ -356,11 +516,7 @@ function ShiftsTab() {
     mutationFn: () =>
       api<Shift>("/api/shifts", {
         method: "POST",
-        body: JSON.stringify({
-          name: name.trim(),
-          startTime,
-          endTime,
-        }),
+        body: JSON.stringify({ name: name.trim(), startTime, endTime }),
       }),
     onSuccess: () => {
       toast.success("Shift added");
@@ -376,7 +532,6 @@ function ShiftsTab() {
       toast.success("Shift removed");
       queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
     },
-    onError: (err: any) => toast.error(err.message ?? "Failed to delete"),
   });
 
   return (
@@ -386,14 +541,8 @@ function ShiftsTab() {
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            if (!name.trim()) {
-              toast.error("Shift name is required");
-              return;
-            }
-            if (startTime >= endTime) {
-              toast.error("End time must be after start time");
-              return;
-            }
+            if (!name.trim()) return toast.error("Shift name is required");
+            if (startTime >= endTime) return toast.error("End time must be after start time");
             createMut.mutate();
           }}
           className="grid grid-cols-1 md:grid-cols-4 gap-3"
@@ -433,7 +582,7 @@ function ShiftsTab() {
               className="w-full px-4 py-2 bg-primary text-primary-foreground rounded text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-60"
             >
               <Plus size={14} />
-              {createMut.isPending ? "Adding…" : "Add"}
+              Add
             </button>
           </div>
         </form>
@@ -453,14 +602,14 @@ function ShiftsTab() {
             {isLoading && (
               <tr>
                 <td colSpan={4} className="px-4 py-6 text-center text-muted-foreground">
-                  Loading…
+                  Loading...
                 </td>
               </tr>
             )}
             {!isLoading && shifts.length === 0 && (
               <tr>
                 <td colSpan={4} className="px-4 py-6 text-center text-muted-foreground">
-                  No shifts yet. Add one above.
+                  No shifts yet.
                 </td>
               </tr>
             )}
@@ -489,128 +638,7 @@ function ShiftsTab() {
 }
 
 // ============================================================================
-// ITEMS — simpler tab (same pattern, fewer fields)
-// ============================================================================
-function ItemsTab() {
-  const { data: items = [], isLoading } = useQuery<Item[]>({ queryKey: ["/api/items"] });
-  const [itemName, setItemName] = useState("");
-
-  const createMut = useMutation({
-    mutationFn: () =>
-      api<Item>("/api/items", {
-        method: "POST",
-        body: JSON.stringify({
-          itemName: itemName.trim(),
-          // defaultRate is required by the API schema but the grid will use the
-          // machine's targetRate when there's no per-machine override on the item.
-          // We send a placeholder; it's effectively unused unless a user later
-          // configures rates for this item explicitly.
-          defaultRate: 60,
-          status: "active",
-          unit: "pcs/hr",
-          rates: [],
-        }),
-      }),
-    onSuccess: () => {
-      toast.success("Item added");
-      setItemName("");
-      queryClient.invalidateQueries({ queryKey: ["/api/items"] });
-    },
-    onError: (err: any) => toast.error(err.message),
-  });
-
-  const deleteMut = useMutation({
-    mutationFn: (id: number) => api(`/api/items/${id}`, { method: "DELETE" }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/items"] }),
-  });
-
-  return (
-    <section className="space-y-6">
-      <div className="bg-card border rounded-lg p-4">
-        <h2 className="font-semibold mb-3">Add item</h2>
-        <p className="text-xs text-muted-foreground mb-3">
-          Items inherit the target rate from each machine they're assigned to.
-        </p>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (!itemName.trim()) return toast.error("Item name required");
-            createMut.mutate();
-          }}
-          className="grid grid-cols-1 md:grid-cols-3 gap-3"
-        >
-          <div className="md:col-span-2">
-            <label className="block text-xs font-medium mb-1">Item name</label>
-            <input
-              type="text"
-              value={itemName}
-              onChange={(e) => setItemName(e.target.value)}
-              placeholder="BODY S02038"
-              className="w-full px-3 py-2 border rounded text-sm"
-            />
-          </div>
-          <div className="flex items-end">
-            <button
-              type="submit"
-              disabled={createMut.isPending}
-              className="w-full px-4 py-2 bg-primary text-primary-foreground rounded text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-60"
-            >
-              <Plus size={14} />
-              Add
-            </button>
-          </div>
-        </form>
-      </div>
-
-      <div className="bg-card border rounded-lg overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-muted/40">
-            <tr>
-              <th className="text-left px-4 py-2 text-xs font-semibold uppercase">Item</th>
-              <th className="text-left px-4 py-2 text-xs font-semibold uppercase">Status</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {isLoading && (
-              <tr>
-                <td colSpan={3} className="px-4 py-6 text-center text-muted-foreground">
-                  Loading…
-                </td>
-              </tr>
-            )}
-            {!isLoading && items.length === 0 && (
-              <tr>
-                <td colSpan={3} className="px-4 py-6 text-center text-muted-foreground">
-                  No items yet.
-                </td>
-              </tr>
-            )}
-            {items.map((i) => (
-              <tr key={i.id} className="border-t">
-                <td className="px-4 py-2">{i.itemName}</td>
-                <td className="px-4 py-2 capitalize">{i.status}</td>
-                <td className="px-4 py-2 text-right">
-                  <button
-                    onClick={() => {
-                      if (confirm(`Delete ${i.itemName}?`)) deleteMut.mutate(i.id);
-                    }}
-                    className="text-destructive hover:bg-destructive/10 p-1 rounded"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  );
-}
-
-// ============================================================================
-// OPERATORS — names assignable in the production grid
+// OPERATORS
 // ============================================================================
 function OperatorsTab() {
   const { data: operators = [], isLoading } = useQuery<Operator[]>({
@@ -672,7 +700,7 @@ function OperatorsTab() {
 
       <div className="bg-card border rounded-lg overflow-hidden">
         {isLoading && (
-          <div className="px-4 py-6 text-center text-muted-foreground text-sm">Loading…</div>
+          <div className="px-4 py-6 text-center text-muted-foreground text-sm">Loading...</div>
         )}
         {!isLoading && operators.length === 0 && (
           <div className="px-4 py-6 text-center text-muted-foreground text-sm">
@@ -680,10 +708,7 @@ function OperatorsTab() {
           </div>
         )}
         {operators.map((o) => (
-          <div
-            key={o.id}
-            className="flex items-center justify-between px-4 py-2 border-t first:border-t-0"
-          >
+          <div key={o.id} className="flex items-center justify-between px-4 py-2 border-t first:border-t-0">
             <span>{o.name}</span>
             <button
               onClick={() => {
