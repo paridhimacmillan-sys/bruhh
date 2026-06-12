@@ -58,24 +58,21 @@ async function runMigrations() {
       "organization_id" integer NOT NULL REFERENCES "organizations"("id"),
       "machine_number" text NOT NULL,
       "machine_type" text NOT NULL,
-      "target_rate" integer NOT NULL DEFAULT 60,
       "status" text NOT NULL DEFAULT 'active',
-      "default_item_id" integer,
       "created_at" timestamp NOT NULL DEFAULT now()
     );
-
-    -- Backfill: add column on existing DBs
-    ALTER TABLE "machines" ADD COLUMN IF NOT EXISTS "default_item_id" integer;
 
     CREATE TABLE IF NOT EXISTS "items" (
       "id" serial PRIMARY KEY,
       "organization_id" integer NOT NULL REFERENCES "organizations"("id"),
       "item_name" text NOT NULL,
-      "default_rate" integer NOT NULL DEFAULT 60,
-      "rates" jsonb DEFAULT '[]',
-      "status" text NOT NULL DEFAULT 'active',
-      "unit" text DEFAULT 'pcs/hr'
+      "rates" jsonb NOT NULL DEFAULT '[]',
+      "status" text NOT NULL DEFAULT 'active'
     );
+
+    -- Forward-compatible: existing DBs may still have the dropped columns. Don't fail
+    -- on them; just make sure the new "rates" column exists.
+    ALTER TABLE "items" ADD COLUMN IF NOT EXISTS "rates" jsonb NOT NULL DEFAULT '[]';
 
     CREATE TABLE IF NOT EXISTS "shifts" (
       "id" serial PRIMARY KEY,
@@ -107,7 +104,7 @@ async function runMigrations() {
       "organization_id" integer NOT NULL REFERENCES "organizations"("id"),
       "date" date NOT NULL,
       "machine_id" integer NOT NULL REFERENCES "machines"("id"),
-      "item_id" integer REFERENCES "items"("id"),
+      "item_id" integer NOT NULL REFERENCES "items"("id"),
       "shift" text NOT NULL,
       "opening_reading" integer DEFAULT 0,
       "entries" jsonb NOT NULL,
@@ -121,7 +118,7 @@ async function runMigrations() {
     );
 
     CREATE UNIQUE INDEX IF NOT EXISTS "IDX_production_unique"
-      ON "production_entries" ("organization_id", "date", "machine_id", "shift");
+      ON "production_entries" ("organization_id", "date", "machine_id", "item_id", "shift");
 
     CREATE INDEX IF NOT EXISTS "IDX_machines_org" ON "machines" ("organization_id");
     CREATE INDEX IF NOT EXISTS "IDX_items_org" ON "items" ("organization_id");
