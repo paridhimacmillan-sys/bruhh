@@ -1,7 +1,10 @@
 import type { Machine, Item, Shift, ProductionEntry, HourlyEntry, ItemRate } from "@shared/schema";
 
-// Compute the hour labels for a shift. Hours wrap past midnight if endTime < startTime.
-// Returns 'HH:MM' strings, one per hour the shift covers.
+// Compute the hour labels for a shift. Each label is the time when the closing
+// reading is taken — i.e. the END of that worked hour. For an 08:00 → 20:00 shift,
+// the operator does an opening read at 08:00, then closing reads at 09:00, 10:00,
+// ..., 20:00. So we return ['09:00', '10:00', ..., '20:00'] — 12 read times.
+// Hours wrap past midnight if endTime < startTime.
 export function computeShiftHours(shift: Shift): string[] {
   const [sH, sM] = shift.startTime.split(":").map(Number);
   const [eH, eM] = shift.endTime.split(":").map(Number);
@@ -9,7 +12,9 @@ export function computeShiftHours(shift: Shift): string[] {
   let end = eH * 60 + eM;
   if (end <= start) end += 24 * 60; // wraps midnight
   const hours: string[] = [];
-  for (let t = start; t < end; t += 60) {
+  // Step in 1-hour increments, starting at start+60 so the first label is the
+  // close of the first worked hour. Include `end` itself (<=, not <).
+  for (let t = start + 60; t <= end; t += 60) {
     const minutes = t % (24 * 60);
     const h = Math.floor(minutes / 60).toString().padStart(2, "0");
     const m = (minutes % 60).toString().padStart(2, "0");
