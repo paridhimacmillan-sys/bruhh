@@ -253,7 +253,7 @@ export const storage = {
     organizationId: number;
     date: string;
     machineId: number;
-    itemId: number | null;
+    itemId: number;
     shift: string;
     openingReading: number;
     entries: HourlyEntry[];
@@ -264,7 +264,8 @@ export const storage = {
     totalExpected: number;
     status: string;
   }): Promise<ProductionEntry> {
-    // Manual upsert because Drizzle's onConflictDoUpdate is awkward across versions
+    // Match on (org, date, machine, item, shift). Same machine running two items
+    // in the same shift = two separate entries.
     const existing = await db
       .select()
       .from(productionEntries)
@@ -273,6 +274,7 @@ export const storage = {
           eq(productionEntries.organizationId, input.organizationId),
           eq(productionEntries.date, input.date),
           eq(productionEntries.machineId, input.machineId),
+          eq(productionEntries.itemId, input.itemId),
           eq(productionEntries.shift, input.shift)
         )
       );
@@ -280,7 +282,6 @@ export const storage = {
       const [updated] = await db
         .update(productionEntries)
         .set({
-          itemId: input.itemId,
           openingReading: input.openingReading,
           entries: input.entries,
           operatorName: input.operatorName,
