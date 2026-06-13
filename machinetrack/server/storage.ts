@@ -1,4 +1,4 @@
-import { eq, and, gte, lte, desc } from "drizzle-orm";
+import { eq, and, gte, lte, desc, inArray } from "drizzle-orm";
 import { db } from "./db";
 import { hashPassword } from "./auth";
 import {
@@ -503,5 +503,74 @@ export const storage = {
       shiftId,
     }));
     return db.insert(machineShifts).values(rows).returning();
+  },
+
+  // ===== BULK DELETE =====
+  // Each returns { deleted, softDeleted } counts. Soft-delete only applies
+  // to resources with FK-dependent entries (machines, items).
+  async bulkDeleteMachines(
+    ids: number[],
+    orgId: number
+  ): Promise<{ deleted: number; softDeleted: number }> {
+    let deleted = 0;
+    let softDeleted = 0;
+    for (const id of ids) {
+      const res = await this.deleteMachine(id, orgId);
+      if (res.softDeleted) softDeleted++;
+      else deleted++;
+    }
+    return { deleted, softDeleted };
+  },
+
+  async bulkDeleteItems(
+    ids: number[],
+    orgId: number
+  ): Promise<{ deleted: number; softDeleted: number }> {
+    let deleted = 0;
+    let softDeleted = 0;
+    for (const id of ids) {
+      const res = await this.deleteItem(id, orgId);
+      if (res.softDeleted) softDeleted++;
+      else deleted++;
+    }
+    return { deleted, softDeleted };
+  },
+
+  async bulkDeleteShifts(ids: number[], orgId: number): Promise<{ deleted: number }> {
+    if (ids.length === 0) return { deleted: 0 };
+    const res = await db
+      .delete(shifts)
+      .where(and(inArray(shifts.id, ids), eq(shifts.organizationId, orgId)))
+      .returning({ id: shifts.id });
+    return { deleted: res.length };
+  },
+
+  async bulkDeleteOperators(
+    ids: number[],
+    orgId: number
+  ): Promise<{ deleted: number }> {
+    if (ids.length === 0) return { deleted: 0 };
+    const res = await db
+      .delete(operators)
+      .where(and(inArray(operators.id, ids), eq(operators.organizationId, orgId)))
+      .returning({ id: operators.id });
+    return { deleted: res.length };
+  },
+
+  async bulkDeleteBreakdownReasons(
+    ids: number[],
+    orgId: number
+  ): Promise<{ deleted: number }> {
+    if (ids.length === 0) return { deleted: 0 };
+    const res = await db
+      .delete(breakdownReasons)
+      .where(
+        and(
+          inArray(breakdownReasons.id, ids),
+          eq(breakdownReasons.organizationId, orgId)
+        )
+      )
+      .returning({ id: breakdownReasons.id });
+    return { deleted: res.length };
   },
 };
