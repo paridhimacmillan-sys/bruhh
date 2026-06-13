@@ -8,6 +8,7 @@ import type {
   Shift,
   Operator,
   ProductionEntry,
+  BreakdownReason,
 } from "@shared/schema";
 import { useMe } from "@/hooks/useMe";
 import { api } from "@/lib/api";
@@ -18,7 +19,7 @@ import {
   recomputeActuals,
   type GridRow,
 } from "@/lib/productionGrid";
-import EntryGrid from "@/components/EntryGrid";
+import EntryGrid, { REASON_THRESHOLD_PCT } from "@/components/EntryGrid";
 
 function todayYMD(): string {
   const d = new Date();
@@ -48,6 +49,9 @@ export default function ProductionEntryPage() {
   const { data: items = [] } = useQuery<Item[]>({ queryKey: ["/api/items"] });
   const { data: shifts = [] } = useQuery<Shift[]>({ queryKey: ["/api/shifts"] });
   const { data: operators = [] } = useQuery<Operator[]>({ queryKey: ["/api/operators"] });
+  const { data: reasons = [] } = useQuery<BreakdownReason[]>({
+    queryKey: ["/api/reasons"],
+  });
 
   // Pick a default shift the first time shifts load
   useEffect(() => {
@@ -191,7 +195,37 @@ export default function ProductionEntryPage() {
     await api("/api/entries", { method: "POST", body: JSON.stringify(body) });
   };
 
-  const saveAll = async (): Promise<{ ok: number; failed: number }> => {
+  const saveAll = async (
+    opts: { silent?: boolean } = {}
+  ): Promise<{ ok: number; failed: number; blocked?: boolean }> => {
+    // Validate: any row with a sub-threshold cell that has a closing reading
+    // MUST have a reason picked. Blocks save with a descriptive toast.
+    const missing: string[] = [];
+    for (const row of rowsRef.current) {
+      for (let i = 0; i < row.entries.length; i++) {
+        const e = row.entries[i];
+        if (e.closingReading == null || e.expected <= 0) continue;
+        const pct = (e.actual / e.expected) * 100;
+        if (pct < REASON_THRESHOLD_PCT && e.reasonId == null) {
+          missing.push(`${row.machine.machineNumber} @ ${e.hour}`);
+        }
+      }
+    }
+    if (missing.length > 0) {
+      if (!opts.silent) {
+        const sample = missing.slice(0, 3).join(", ");
+        toast.error(
+          `Pick a reason for ${missing.length} hour cell${
+            missing.length === 1 ? "" : "s"
+          } below ${REASON_THRESHOLD_PCT}% efficiency: ${sample}${
+            missing.length > 3 ? "..." : ""
+          }`,
+          { duration: 6000 }
+        );
+      }
+      return { ok: 0, failed: 0, blocked: true };
+    }
+
     savingRef.current = true;
     let ok = 0;
     let failed = 0;
@@ -225,13 +259,15 @@ export default function ProductionEntryPage() {
     if (!anyDirty) return;
     if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
     autoSaveTimerRef.current = setTimeout(async () => {
-      const { ok, failed } = await saveAll();
+      const { ok, failed, blocked } = await saveAll({ silent: true });
+      if (blocked) {
+        // Don't clear dirty — operator still needs to act — but don't keep
+        // re-firing either. Wait for them to fix the missing reason.
+        return;
+      }
       if (ok > 0 && failed === 0) {
         setLastSavedAt(Date.now());
-        // Clear dirty flag locally
         setRows((prev) => prev.map((r) => ({ ...r, dirty: false })));
-        // Don't immediately refetch — server roundtrip would clobber any
-        // typing-in-progress. The next manual save/refresh will reconcile.
       }
     }, 1500);
     return () => {
@@ -318,7 +354,43 @@ export default function ProductionEntryPage() {
     updateRow(idx, (r) => ({ ...r, operatorName: name }));
   };
 
+  // Reason chosen for a specific hour cell. NULL means "cleared".
+  // Stored inside the row's entries[hourIdx].reasonId — auto-save picks it up.
+  const handleReasonChange = (
+    rowIdx: number,
+    hourIdx: number,
+    reasonId: number | null
+  ) => {
+    setRows((prev) => {
+      const next = [...prev];
+      const row = next[rowIdx];
+      const newEntries = [...row.entries];
+      newEntries[hourIdx] = { ...newEntries[hourIdx], reasonId };
+      next[rowIdx] = { ...row, entries: newEntries, dirty: true };
+      return next;
+    });
+  };
+
   const handleSaveHour = async (hourIdx: number) => {
+    // Validate: every row that has data for THIS hour and is sub-threshold
+    // must have a reason picked before locking the hour.
+    const missing: string[] = [];
+    for (const row of rows) {
+      const e = row.entries[hourIdx];
+      if (!e || e.closingReading == null || e.expected <= 0) continue;
+      const pct = (e.actual / e.expected) * 100;
+      if (pct < REASON_THRESHOLD_PCT && e.reasonId == null) {
+        missing.push(row.machine.machineNumber);
+      }
+    }
+    if (missing.length > 0) {
+      toast.error(
+        `Pick a reason for ${hours[hourIdx]}: ${missing.join(", ")} — efficiency below ${REASON_THRESHOLD_PCT}%`,
+        { duration: 5000 }
+      );
+      return;
+    }
+
     setSavingHour(hourIdx);
     try {
       // Lock this hour on every row that has data for it, then save all rows
@@ -358,7 +430,8 @@ export default function ProductionEntryPage() {
   const handleManualSave = async () => {
     setSaving(true);
     try {
-      const { ok, failed } = await saveAll();
+      const { ok, failed, blocked } = await saveAll();
+      if (blocked) return; // validator already toasted
       if (failed === 0) {
         setLastSavedAt(Date.now());
         setRows((prev) => prev.map((r) => ({ ...r, dirty: false })));
@@ -391,7 +464,8 @@ export default function ProductionEntryPage() {
   const handleShiftChange = async (s: string) => {
     if (s === shiftName) return;
     if (rows.some((r) => r.dirty)) {
-      await saveAll();
+      const { blocked } = await saveAll();
+      if (blocked) return; // stay on this shift until reasons are filled
     }
     setShiftName(s);
   };
@@ -399,7 +473,8 @@ export default function ProductionEntryPage() {
   const handleDateChange = async (d: string) => {
     if (d === date) return;
     if (rows.some((r) => r.dirty)) {
-      await saveAll();
+      const { blocked } = await saveAll();
+      if (blocked) return;
     }
     setDate(d);
   };
@@ -537,10 +612,12 @@ export default function ProductionEntryPage() {
         shift={shiftName}
         isAdmin={isAdmin}
         operators={operators}
+        reasons={reasons}
         savingHour={savingHour}
         onOpeningChange={handleOpeningChange}
         onClosingChange={handleClosingChange}
         onOperatorChange={handleOperatorChange}
+        onReasonChange={handleReasonChange}
         onSaveHour={handleSaveHour}
       />
     </div>
