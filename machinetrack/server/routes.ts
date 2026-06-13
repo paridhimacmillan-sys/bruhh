@@ -15,6 +15,7 @@ import {
   insertShiftSchema,
   insertOperatorSchema,
   insertAlertThresholdSchema,
+  insertBreakdownReasonSchema,
 } from "@shared/schema";
 import type { HourlyEntry, User } from "@shared/schema";
 
@@ -163,8 +164,11 @@ export function registerRoutes(app: Express) {
   app.delete("/api/machines/:id", isAdmin, async (req, res, next) => {
     try {
       const orgId = getOrgId(req);
-      await storage.deleteMachine(parseInt(String(req.params.id), 10), orgId);
-      res.status(204).end();
+      const result = await storage.deleteMachine(
+        parseInt(String(req.params.id), 10),
+        orgId
+      );
+      res.status(200).json(result);
     } catch (e) {
       next(e);
     }
@@ -214,8 +218,11 @@ export function registerRoutes(app: Express) {
   app.delete("/api/items/:id", isAdmin, async (req, res, next) => {
     try {
       const orgId = getOrgId(req);
-      await storage.deleteItem(parseInt(String(req.params.id), 10), orgId);
-      res.status(204).end();
+      const result = await storage.deleteItem(
+        parseInt(String(req.params.id), 10),
+        orgId
+      );
+      res.status(200).json(result);
     } catch (e) {
       next(e);
     }
@@ -309,6 +316,81 @@ export function registerRoutes(app: Express) {
   });
 
   // ===================================================
+  // BREAKDOWN REASONS
+  // ===================================================
+  app.get("/api/reasons", isAuthenticated, async (req, res, next) => {
+    try {
+      const orgId = getOrgId(req);
+      const list = await storage.getBreakdownReasons(orgId);
+      res.json(list);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  app.post("/api/reasons", isAdmin, async (req, res, next) => {
+    try {
+      const orgId = getOrgId(req);
+      const input = insertBreakdownReasonSchema.parse(req.body);
+      const created = await storage.createBreakdownReason({
+        ...input,
+        organizationId: orgId,
+      });
+      res.status(201).json(created);
+    } catch (err) {
+      if (err instanceof z.ZodError)
+        return res.status(400).json({ message: err.errors[0].message });
+      next(err);
+    }
+  });
+
+  app.put("/api/reasons/:id", isAdmin, async (req, res, next) => {
+    try {
+      const orgId = getOrgId(req);
+      const id = parseInt(String(req.params.id), 10);
+      const input = insertBreakdownReasonSchema.partial().parse(req.body);
+      const updated = await storage.updateBreakdownReason(id, orgId, input);
+      if (!updated) return res.status(404).json({ message: "Not found" });
+      res.json(updated);
+    } catch (err) {
+      if (err instanceof z.ZodError)
+        return res.status(400).json({ message: err.errors[0].message });
+      next(err);
+    }
+  });
+
+  app.delete("/api/reasons/:id", isAdmin, async (req, res, next) => {
+    try {
+      const orgId = getOrgId(req);
+      await storage.deleteBreakdownReason(
+        parseInt(String(req.params.id), 10),
+        orgId
+      );
+      res.status(204).end();
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // Seed default reasons for the current org. Idempotent — only seeds if empty.
+  app.post("/api/reasons/seed", isAdmin, async (req, res, next) => {
+    try {
+      const orgId = getOrgId(req);
+      const existing = await storage.getBreakdownReasons(orgId);
+      if (existing.length > 0) {
+        return res
+          .status(409)
+          .json({ message: `${existing.length} reason(s) already exist; seed skipped` });
+      }
+      await storage.seedBreakdownReasons(orgId);
+      const list = await storage.getBreakdownReasons(orgId);
+      res.json({ seeded: list.length });
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // ===================================================
   // PRODUCTION ENTRIES — operators MUST be able to save
   // ===================================================
   app.get("/api/entries", isAuthenticated, async (req, res, next) => {
@@ -345,6 +427,7 @@ export function registerRoutes(app: Express) {
               closingReading: z.number().nullable(),
               actual: z.number(),
               expected: z.number(),
+              reasonId: z.number().int().positive().nullable().optional(),
             })
           ),
           operatorName: z.string().nullable(),
