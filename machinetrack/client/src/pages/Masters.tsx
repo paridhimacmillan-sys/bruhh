@@ -2,11 +2,11 @@ import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Plus, Trash2, Pencil, Check, X } from "lucide-react";
-import type { Machine, Item, Shift, Operator, ItemRate } from "@shared/schema";
+import type { Machine, Item, Shift, Operator, ItemRate, BreakdownReason } from "@shared/schema";
 import { api } from "@/lib/api";
 import { queryClient } from "@/lib/queryClient";
 
-type Tab = "machines" | "items" | "shifts" | "operators";
+type Tab = "machines" | "items" | "shifts" | "operators" | "reasons";
 
 export default function MastersPage() {
   const [tab, setTab] = useState<Tab>("machines");
@@ -19,7 +19,7 @@ export default function MastersPage() {
       </p>
 
       <div className="flex gap-1 border-b mb-6">
-        {(["machines", "items", "shifts", "operators"] as Tab[]).map((t) => (
+        {(["machines", "items", "shifts", "operators", "reasons"] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -38,6 +38,7 @@ export default function MastersPage() {
       {tab === "items" && <ItemsTab />}
       {tab === "shifts" && <ShiftsTab />}
       {tab === "operators" && <OperatorsTab />}
+      {tab === "reasons" && <ReasonsTab />}
     </div>
   );
 }
@@ -71,9 +72,14 @@ function MachinesTab() {
   });
 
   const deleteMut = useMutation({
-    mutationFn: (id: number) => api(`/api/machines/${id}`, { method: "DELETE" }),
-    onSuccess: () => {
-      toast.success("Machine removed");
+    mutationFn: (id: number) =>
+      api<{ softDeleted: boolean }>(`/api/machines/${id}`, { method: "DELETE" }),
+    onSuccess: (result) => {
+      if (result?.softDeleted) {
+        toast.success("Machine marked offline (historical data preserved)");
+      } else {
+        toast.success("Machine deleted");
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/machines"] });
     },
     onError: (err: any) => toast.error(err.message ?? "Failed to delete"),
@@ -239,9 +245,14 @@ function ItemsTab() {
   });
 
   const deleteMut = useMutation({
-    mutationFn: (id: number) => api(`/api/items/${id}`, { method: "DELETE" }),
-    onSuccess: () => {
-      toast.success("Item removed");
+    mutationFn: (id: number) =>
+      api<{ softDeleted: boolean }>(`/api/items/${id}`, { method: "DELETE" }),
+    onSuccess: (result) => {
+      if (result?.softDeleted) {
+        toast.success("Item marked inactive (historical entries preserved)");
+      } else {
+        toast.success("Item deleted");
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/items"] });
     },
   });
@@ -752,6 +763,192 @@ function OperatorsTab() {
             </button>
           </div>
         ))}
+      </div>
+    </section>
+  );
+}
+
+// ============================================================================
+// REASONS — breakdown reason codes operators pick when a row underperforms
+// ============================================================================
+function ReasonsTab() {
+  const { data: reasons = [], isLoading } = useQuery<BreakdownReason[]>({
+    queryKey: ["/api/reasons"],
+  });
+  const [name, setName] = useState("");
+  const [category, setCategory] = useState("general");
+
+  const createMut = useMutation({
+    mutationFn: () =>
+      api<BreakdownReason>("/api/reasons", {
+        method: "POST",
+        body: JSON.stringify({
+          name: name.trim(),
+          category: category.trim() || "general",
+          status: "active",
+        }),
+      }),
+    onSuccess: () => {
+      toast.success("Reason added");
+      setName("");
+      queryClient.invalidateQueries({ queryKey: ["/api/reasons"] });
+    },
+    onError: (err: any) => toast.error(err.message ?? "Failed to add"),
+  });
+
+  const updateStatusMut = useMutation({
+    mutationFn: ({ id, status }: { id: number; status: string }) =>
+      api(`/api/reasons/${id}`, {
+        method: "PUT",
+        body: JSON.stringify({ status }),
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/reasons"] }),
+    onError: (err: any) => toast.error(err.message ?? "Update failed"),
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (id: number) => api(`/api/reasons/${id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      toast.success("Reason removed");
+      queryClient.invalidateQueries({ queryKey: ["/api/reasons"] });
+    },
+  });
+
+  const seedMut = useMutation({
+    mutationFn: () => api<{ seeded: number }>("/api/reasons/seed", { method: "POST" }),
+    onSuccess: (data) => {
+      toast.success(`Seeded ${data.seeded} reasons`);
+      queryClient.invalidateQueries({ queryKey: ["/api/reasons"] });
+    },
+    onError: (err: any) => toast.error(err.message ?? "Seed failed"),
+  });
+
+  return (
+    <section className="space-y-6">
+      <div className="bg-card border rounded-lg p-4">
+        <div className="flex items-start justify-between mb-3">
+          <div>
+            <h2 className="font-semibold">Add breakdown reason</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Operators pick from this list when an hour falls below target efficiency.
+            </p>
+          </div>
+          {reasons.length === 0 && (
+            <button
+              type="button"
+              onClick={() => seedMut.mutate()}
+              disabled={seedMut.isPending}
+              className="px-3 py-1.5 text-xs font-semibold border rounded hover:bg-muted disabled:opacity-60"
+            >
+              {seedMut.isPending ? "Seeding..." : "Seed defaults"}
+            </button>
+          )}
+        </div>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!name.trim()) return toast.error("Reason name required");
+            createMut.mutate();
+          }}
+          className="grid grid-cols-1 md:grid-cols-3 gap-3"
+        >
+          <div>
+            <label className="block text-xs font-medium mb-1">Reason name</label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Insert Change"
+              className="w-full px-3 py-2 border rounded text-sm"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium mb-1">Category</label>
+            <select
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              className="w-full px-3 py-2 border rounded text-sm"
+            >
+              <option value="general">General</option>
+              <option value="machine">Machine</option>
+              <option value="operator">Operator</option>
+              <option value="material">Material</option>
+              <option value="setup">Setup</option>
+              <option value="utility">Utility (power/air)</option>
+            </select>
+          </div>
+          <div className="flex items-end">
+            <button
+              type="submit"
+              disabled={createMut.isPending}
+              className="w-full px-4 py-2 bg-primary text-primary-foreground rounded text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-60"
+            >
+              <Plus size={14} />
+              Add
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <div className="bg-card border rounded-lg overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-muted/40">
+            <tr>
+              <th className="text-left px-4 py-2 text-xs font-semibold uppercase">Reason</th>
+              <th className="text-left px-4 py-2 text-xs font-semibold uppercase">Category</th>
+              <th className="text-left px-4 py-2 text-xs font-semibold uppercase">Status</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {isLoading && (
+              <tr>
+                <td colSpan={4} className="px-4 py-6 text-center text-muted-foreground">
+                  Loading...
+                </td>
+              </tr>
+            )}
+            {!isLoading && reasons.length === 0 && (
+              <tr>
+                <td colSpan={4} className="px-4 py-6 text-center text-muted-foreground">
+                  No reasons yet. Add some above, or click "Seed defaults" for the standard list.
+                </td>
+              </tr>
+            )}
+            {reasons.map((r) => (
+              <tr key={r.id} className="border-t">
+                <td className="px-4 py-2">{r.name}</td>
+                <td className="px-4 py-2 capitalize text-muted-foreground">{r.category}</td>
+                <td className="px-4 py-2">
+                  <select
+                    value={r.status}
+                    onChange={(e) =>
+                      updateStatusMut.mutate({ id: r.id, status: e.target.value })
+                    }
+                    className={`px-2 py-1 border rounded text-xs capitalize font-semibold ${
+                      r.status === "active"
+                        ? "text-green-600 border-green-200 bg-green-50"
+                        : "text-muted-foreground border-input"
+                    }`}
+                  >
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                  </select>
+                </td>
+                <td className="px-4 py-2 text-right">
+                  <button
+                    onClick={() => {
+                      if (confirm(`Delete "${r.name}"?`)) deleteMut.mutate(r.id);
+                    }}
+                    className="text-destructive hover:bg-destructive/10 p-1 rounded"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </section>
   );
