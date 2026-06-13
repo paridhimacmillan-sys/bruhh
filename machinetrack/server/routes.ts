@@ -427,6 +427,80 @@ export function registerRoutes(app: Express) {
   });
 
   // ===================================================
+  // BULK DELETE — accepts {ids: number[]} body, returns counts.
+  // Machines/items use soft-delete when production entries exist;
+  // shifts, operators, reasons are always hard-deleted.
+  // ===================================================
+  const bulkIdsBody = z.object({
+    ids: z.array(z.coerce.number().int().positive()).min(1),
+  });
+
+  app.post("/api/machines/bulk-delete", isAdmin, async (req, res, next) => {
+    try {
+      const orgId = getOrgId(req);
+      const { ids } = bulkIdsBody.parse(req.body);
+      const result = await storage.bulkDeleteMachines(ids, orgId);
+      res.json(result);
+    } catch (err) {
+      if (err instanceof z.ZodError)
+        return res.status(400).json({ message: err.errors[0].message });
+      next(err);
+    }
+  });
+
+  app.post("/api/items/bulk-delete", isAdmin, async (req, res, next) => {
+    try {
+      const orgId = getOrgId(req);
+      const { ids } = bulkIdsBody.parse(req.body);
+      const result = await storage.bulkDeleteItems(ids, orgId);
+      res.json(result);
+    } catch (err) {
+      if (err instanceof z.ZodError)
+        return res.status(400).json({ message: err.errors[0].message });
+      next(err);
+    }
+  });
+
+  app.post("/api/shifts/bulk-delete", isAdmin, async (req, res, next) => {
+    try {
+      const orgId = getOrgId(req);
+      const { ids } = bulkIdsBody.parse(req.body);
+      const result = await storage.bulkDeleteShifts(ids, orgId);
+      res.json(result);
+    } catch (err) {
+      if (err instanceof z.ZodError)
+        return res.status(400).json({ message: err.errors[0].message });
+      next(err);
+    }
+  });
+
+  app.post("/api/operators/bulk-delete", isAdmin, async (req, res, next) => {
+    try {
+      const orgId = getOrgId(req);
+      const { ids } = bulkIdsBody.parse(req.body);
+      const result = await storage.bulkDeleteOperators(ids, orgId);
+      res.json(result);
+    } catch (err) {
+      if (err instanceof z.ZodError)
+        return res.status(400).json({ message: err.errors[0].message });
+      next(err);
+    }
+  });
+
+  app.post("/api/reasons/bulk-delete", isAdmin, async (req, res, next) => {
+    try {
+      const orgId = getOrgId(req);
+      const { ids } = bulkIdsBody.parse(req.body);
+      const result = await storage.bulkDeleteBreakdownReasons(ids, orgId);
+      res.json(result);
+    } catch (err) {
+      if (err instanceof z.ZodError)
+        return res.status(400).json({ message: err.errors[0].message });
+      next(err);
+    }
+  });
+
+  // ===================================================
   // PRODUCTION ENTRIES — operators MUST be able to save
   // ===================================================
   app.get("/api/entries", isAuthenticated, async (req, res, next) => {
