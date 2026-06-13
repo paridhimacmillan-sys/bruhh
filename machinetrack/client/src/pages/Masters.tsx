@@ -66,6 +66,8 @@ function MachinesTab() {
   const [machineType, setMachineType] = useState("CNC TURNING");
   // Which machine row currently has its shift picker open. null = none.
   const [editingShiftsFor, setEditingShiftsFor] = useState<number | null>(null);
+  // Set of selected machine ids for bulk delete
+  const [selected, setSelected] = useState<Set<number>>(new Set());
 
   const createMut = useMutation({
     mutationFn: () =>
@@ -125,6 +127,26 @@ function MachinesTab() {
       queryClient.invalidateQueries({ queryKey: ["/api/machine-shifts"] });
     },
     onError: (err: any) => toast.error(err.message ?? "Failed to update shifts"),
+  });
+
+  // Bulk delete selected machines. Hard-deletes those without production
+  // entries; soft-deletes (status=offline) those with entries.
+  const bulkDeleteMut = useMutation({
+    mutationFn: (ids: number[]) =>
+      api<{ deleted: number; softDeleted: number }>("/api/machines/bulk-delete", {
+        method: "POST",
+        body: JSON.stringify({ ids }),
+      }),
+    onSuccess: (result) => {
+      const parts: string[] = [];
+      if (result.deleted > 0) parts.push(`${result.deleted} deleted`);
+      if (result.softDeleted > 0)
+        parts.push(`${result.softDeleted} marked offline (had data)`);
+      toast.success(parts.join(", ") || "Done");
+      setSelected(new Set());
+      queryClient.invalidateQueries({ queryKey: ["/api/machines"] });
+    },
+    onError: (err: any) => toast.error(err.message ?? "Bulk delete failed"),
   });
 
   // Build map: machineId → assigned shiftId Set, used to render the Shifts cell.
@@ -187,10 +209,62 @@ function MachinesTab() {
         </form>
       </div>
 
+      {selected.size > 0 && (
+        <div className="flex items-center justify-between bg-destructive/10 border border-destructive/30 rounded-lg px-4 py-2">
+          <span className="text-sm font-medium">
+            {selected.size} machine{selected.size === 1 ? "" : "s"} selected
+          </span>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setSelected(new Set())}
+              className="px-3 py-1 text-xs font-semibold border rounded hover:bg-background"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={bulkDeleteMut.isPending}
+              onClick={() => {
+                const n = selected.size;
+                if (
+                  !confirm(
+                    `Delete ${n} machine${n === 1 ? "" : "s"}? Machines with production entries will be marked offline (data preserved). Others will be permanently removed. Continue?`
+                  )
+                )
+                  return;
+                bulkDeleteMut.mutate(Array.from(selected));
+              }}
+              className="px-3 py-1 text-xs font-semibold bg-destructive text-destructive-foreground rounded hover:bg-destructive/90 disabled:opacity-60"
+            >
+              {bulkDeleteMut.isPending
+                ? "Deleting..."
+                : `Delete ${selected.size}`}
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="bg-card border rounded-lg overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-muted/40">
             <tr>
+              <th className="px-4 py-2 w-10">
+                <input
+                  type="checkbox"
+                  checked={
+                    sortedMachines.length > 0 &&
+                    selected.size === sortedMachines.length
+                  }
+                  onChange={(e) => {
+                    if (e.target.checked) {
+                      setSelected(new Set(sortedMachines.map((m) => m.id)));
+                    } else {
+                      setSelected(new Set());
+                    }
+                  }}
+                />
+              </th>
               <th className="text-left px-4 py-2 text-xs font-semibold uppercase">Machine</th>
               <th className="text-left px-4 py-2 text-xs font-semibold uppercase">Type</th>
               <th className="text-left px-4 py-2 text-xs font-semibold uppercase">Status</th>
@@ -201,14 +275,14 @@ function MachinesTab() {
           <tbody>
             {isLoading && (
               <tr>
-                <td colSpan={5} className="px-4 py-6 text-center text-muted-foreground">
+                <td colSpan={6} className="px-4 py-6 text-center text-muted-foreground">
                   Loading...
                 </td>
               </tr>
             )}
             {!isLoading && machines.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-6 text-center text-muted-foreground">
+                <td colSpan={6} className="px-4 py-6 text-center text-muted-foreground">
                   No machines yet. Add one above.
                 </td>
               </tr>
@@ -219,6 +293,18 @@ function MachinesTab() {
               const isEditing = editingShiftsFor === m.id;
               return (
                 <tr key={m.id} className="border-t align-top">
+                  <td className="px-4 py-2">
+                    <input
+                      type="checkbox"
+                      checked={selected.has(m.id)}
+                      onChange={(e) => {
+                        const next = new Set(selected);
+                        if (e.target.checked) next.add(m.id);
+                        else next.delete(m.id);
+                        setSelected(next);
+                      }}
+                    />
+                  </td>
                   <td className="px-4 py-2 font-mono">{m.machineNumber}</td>
                   <td className="px-4 py-2">{m.machineType}</td>
                   <td className="px-4 py-2">
@@ -347,6 +433,7 @@ function ItemsTab() {
   const { data: items = [], isLoading } = useQuery<Item[]>({ queryKey: ["/api/items"] });
   const { data: machines = [] } = useQuery<Machine[]>({ queryKey: ["/api/machines"] });
   const [itemName, setItemName] = useState("");
+  const [selected, setSelected] = useState<Set<number>>(new Set());
   // Natural sort so "BODY 2" comes before "BODY 10"
   const sortedItems = useMemo(
     () =>
@@ -355,6 +442,24 @@ function ItemsTab() {
       ),
     [items]
   );
+
+  const bulkDeleteMut = useMutation({
+    mutationFn: (ids: number[]) =>
+      api<{ deleted: number; softDeleted: number }>("/api/items/bulk-delete", {
+        method: "POST",
+        body: JSON.stringify({ ids }),
+      }),
+    onSuccess: (result) => {
+      const parts: string[] = [];
+      if (result.deleted > 0) parts.push(`${result.deleted} deleted`);
+      if (result.softDeleted > 0)
+        parts.push(`${result.softDeleted} marked inactive (had data)`);
+      toast.success(parts.join(", ") || "Done");
+      setSelected(new Set());
+      queryClient.invalidateQueries({ queryKey: ["/api/items"] });
+    },
+    onError: (err: any) => toast.error(err.message ?? "Bulk delete failed"),
+  });
 
   const createMut = useMutation({
     mutationFn: () =>
@@ -447,11 +552,69 @@ function ItemsTab() {
         </div>
       )}
 
+      {selected.size > 0 && (
+        <div className="flex items-center justify-between bg-destructive/10 border border-destructive/30 rounded-lg px-4 py-2">
+          <span className="text-sm font-medium">
+            {selected.size} item{selected.size === 1 ? "" : "s"} selected
+          </span>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setSelected(new Set())}
+              className="px-3 py-1 text-xs font-semibold border rounded hover:bg-background"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={bulkDeleteMut.isPending}
+              onClick={() => {
+                const n = selected.size;
+                if (
+                  !confirm(
+                    `Delete ${n} item${n === 1 ? "" : "s"}? Items with production entries will be marked inactive (data preserved). Others will be permanently removed. Continue?`
+                  )
+                )
+                  return;
+                bulkDeleteMut.mutate(Array.from(selected));
+              }}
+              className="px-3 py-1 text-xs font-semibold bg-destructive text-destructive-foreground rounded hover:bg-destructive/90 disabled:opacity-60"
+            >
+              {bulkDeleteMut.isPending ? "Deleting..." : `Delete ${selected.size}`}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {sortedItems.length > 0 && (
+        <div className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={selected.size === sortedItems.length}
+            onChange={(e) => {
+              if (e.target.checked) {
+                setSelected(new Set(sortedItems.map((i) => i.id)));
+              } else {
+                setSelected(new Set());
+              }
+            }}
+          />
+          <span className="text-xs text-muted-foreground">Select all</span>
+        </div>
+      )}
+
       {sortedItems.map((item) => (
         <ItemCard
           key={item.id}
           item={item}
           machines={machines}
+          selected={selected.has(item.id)}
+          onToggleSelected={(checked) => {
+            const next = new Set(selected);
+            if (checked) next.add(item.id);
+            else next.delete(item.id);
+            setSelected(next);
+          }}
           onUpdateRates={(rates) => updateRatesMut.mutate({ id: item.id, rates })}
           onDelete={() => {
             if (confirm(`Delete ${item.itemName}?`)) deleteMut.mutate(item.id);
@@ -466,11 +629,15 @@ function ItemsTab() {
 function ItemCard({
   item,
   machines,
+  selected,
+  onToggleSelected,
   onUpdateRates,
   onDelete,
 }: {
   item: Item;
   machines: Machine[];
+  selected: boolean;
+  onToggleSelected: (checked: boolean) => void;
   onUpdateRates: (rates: ItemRate[]) => void;
   onDelete: () => void;
 }) {
@@ -528,13 +695,21 @@ function ItemCard({
   };
 
   return (
-    <div className="bg-card border rounded-lg p-4">
+    <div className={`bg-card border rounded-lg p-4 ${selected ? "ring-2 ring-primary" : ""}`}>
       <div className="flex items-start justify-between mb-3">
-        <div>
-          <p className="font-semibold">{item.itemName}</p>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Runs on {rates.length} machine{rates.length === 1 ? "" : "s"}
-          </p>
+        <div className="flex items-start gap-3">
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={(e) => onToggleSelected(e.target.checked)}
+            className="mt-1"
+          />
+          <div>
+            <p className="font-semibold">{item.itemName}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Runs on {rates.length} machine{rates.length === 1 ? "" : "s"}
+            </p>
+          </div>
         </div>
         <button
           onClick={onDelete}
@@ -684,6 +859,7 @@ function ShiftsTab() {
   const [name, setName] = useState("");
   const [startTime, setStartTime] = useState("08:00");
   const [endTime, setEndTime] = useState("20:00");
+  const [selected, setSelected] = useState<Set<number>>(new Set());
 
   const createMut = useMutation({
     mutationFn: () =>
@@ -705,6 +881,20 @@ function ShiftsTab() {
       toast.success("Shift removed");
       queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
     },
+  });
+
+  const bulkDeleteMut = useMutation({
+    mutationFn: (ids: number[]) =>
+      api<{ deleted: number }>("/api/shifts/bulk-delete", {
+        method: "POST",
+        body: JSON.stringify({ ids }),
+      }),
+    onSuccess: (result) => {
+      toast.success(`${result.deleted} shift(s) deleted`);
+      setSelected(new Set());
+      queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
+    },
+    onError: (err: any) => toast.error(err.message ?? "Bulk delete failed"),
   });
 
   return (
@@ -761,10 +951,49 @@ function ShiftsTab() {
         </form>
       </div>
 
+      {selected.size > 0 && (
+        <div className="flex items-center justify-between bg-destructive/10 border border-destructive/30 rounded-lg px-4 py-2">
+          <span className="text-sm font-medium">
+            {selected.size} shift{selected.size === 1 ? "" : "s"} selected
+          </span>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setSelected(new Set())}
+              className="px-3 py-1 text-xs font-semibold border rounded hover:bg-background"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={bulkDeleteMut.isPending}
+              onClick={() => {
+                const n = selected.size;
+                if (!confirm(`Delete ${n} shift${n === 1 ? "" : "s"}?`)) return;
+                bulkDeleteMut.mutate(Array.from(selected));
+              }}
+              className="px-3 py-1 text-xs font-semibold bg-destructive text-destructive-foreground rounded hover:bg-destructive/90 disabled:opacity-60"
+            >
+              {bulkDeleteMut.isPending ? "Deleting..." : `Delete ${selected.size}`}
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="bg-card border rounded-lg overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-muted/40">
             <tr>
+              <th className="px-4 py-2 w-10">
+                <input
+                  type="checkbox"
+                  checked={shifts.length > 0 && selected.size === shifts.length}
+                  onChange={(e) => {
+                    if (e.target.checked) setSelected(new Set(shifts.map((s) => s.id)));
+                    else setSelected(new Set());
+                  }}
+                />
+              </th>
               <th className="text-left px-4 py-2 text-xs font-semibold uppercase">Shift</th>
               <th className="text-left px-4 py-2 text-xs font-semibold uppercase">Start</th>
               <th className="text-left px-4 py-2 text-xs font-semibold uppercase">End</th>
@@ -774,20 +1003,32 @@ function ShiftsTab() {
           <tbody>
             {isLoading && (
               <tr>
-                <td colSpan={4} className="px-4 py-6 text-center text-muted-foreground">
+                <td colSpan={5} className="px-4 py-6 text-center text-muted-foreground">
                   Loading...
                 </td>
               </tr>
             )}
             {!isLoading && shifts.length === 0 && (
               <tr>
-                <td colSpan={4} className="px-4 py-6 text-center text-muted-foreground">
+                <td colSpan={5} className="px-4 py-6 text-center text-muted-foreground">
                   No shifts yet.
                 </td>
               </tr>
             )}
             {shifts.map((s) => (
               <tr key={s.id} className="border-t">
+                <td className="px-4 py-2">
+                  <input
+                    type="checkbox"
+                    checked={selected.has(s.id)}
+                    onChange={(e) => {
+                      const next = new Set(selected);
+                      if (e.target.checked) next.add(s.id);
+                      else next.delete(s.id);
+                      setSelected(next);
+                    }}
+                  />
+                </td>
                 <td className="px-4 py-2 font-semibold">{s.name}</td>
                 <td className="px-4 py-2 font-mono">{s.startTime}</td>
                 <td className="px-4 py-2 font-mono">{s.endTime}</td>
@@ -818,6 +1059,7 @@ function OperatorsTab() {
     queryKey: ["/api/operators"],
   });
   const [name, setName] = useState("");
+  const [selected, setSelected] = useState<Set<number>>(new Set());
 
   const createMut = useMutation({
     mutationFn: () =>
@@ -836,6 +1078,20 @@ function OperatorsTab() {
   const deleteMut = useMutation({
     mutationFn: (id: number) => api(`/api/operators/${id}`, { method: "DELETE" }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/operators"] }),
+  });
+
+  const bulkDeleteMut = useMutation({
+    mutationFn: (ids: number[]) =>
+      api<{ deleted: number }>("/api/operators/bulk-delete", {
+        method: "POST",
+        body: JSON.stringify({ ids }),
+      }),
+    onSuccess: (result) => {
+      toast.success(`${result.deleted} operator(s) deleted`);
+      setSelected(new Set());
+      queryClient.invalidateQueries({ queryKey: ["/api/operators"] });
+    },
+    onError: (err: any) => toast.error(err.message ?? "Bulk delete failed"),
   });
 
   return (
@@ -871,6 +1127,35 @@ function OperatorsTab() {
         </form>
       </div>
 
+      {selected.size > 0 && (
+        <div className="flex items-center justify-between bg-destructive/10 border border-destructive/30 rounded-lg px-4 py-2">
+          <span className="text-sm font-medium">
+            {selected.size} operator{selected.size === 1 ? "" : "s"} selected
+          </span>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setSelected(new Set())}
+              className="px-3 py-1 text-xs font-semibold border rounded hover:bg-background"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={bulkDeleteMut.isPending}
+              onClick={() => {
+                const n = selected.size;
+                if (!confirm(`Delete ${n} operator${n === 1 ? "" : "s"}?`)) return;
+                bulkDeleteMut.mutate(Array.from(selected));
+              }}
+              className="px-3 py-1 text-xs font-semibold bg-destructive text-destructive-foreground rounded hover:bg-destructive/90 disabled:opacity-60"
+            >
+              {bulkDeleteMut.isPending ? "Deleting..." : `Delete ${selected.size}`}
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="bg-card border rounded-lg overflow-hidden">
         {isLoading && (
           <div className="px-4 py-6 text-center text-muted-foreground text-sm">Loading...</div>
@@ -880,9 +1165,36 @@ function OperatorsTab() {
             No operators yet.
           </div>
         )}
+        {operators.length > 0 && (
+          <div className="flex items-center gap-2 px-4 py-2 bg-muted/40 border-b">
+            <input
+              type="checkbox"
+              checked={selected.size === operators.length}
+              onChange={(e) => {
+                if (e.target.checked) setSelected(new Set(operators.map((o) => o.id)));
+                else setSelected(new Set());
+              }}
+            />
+            <span className="text-xs text-muted-foreground uppercase font-semibold tracking-wider">
+              Select all
+            </span>
+          </div>
+        )}
         {operators.map((o) => (
           <div key={o.id} className="flex items-center justify-between px-4 py-2 border-t first:border-t-0">
-            <span>{o.name}</span>
+            <div className="flex items-center gap-3">
+              <input
+                type="checkbox"
+                checked={selected.has(o.id)}
+                onChange={(e) => {
+                  const next = new Set(selected);
+                  if (e.target.checked) next.add(o.id);
+                  else next.delete(o.id);
+                  setSelected(next);
+                }}
+              />
+              <span>{o.name}</span>
+            </div>
             <button
               onClick={() => {
                 if (confirm(`Delete ${o.name}?`)) deleteMut.mutate(o.id);
@@ -907,6 +1219,7 @@ function ReasonsTab() {
   });
   const [name, setName] = useState("");
   const [category, setCategory] = useState("general");
+  const [selected, setSelected] = useState<Set<number>>(new Set());
 
   const createMut = useMutation({
     mutationFn: () =>
@@ -942,6 +1255,20 @@ function ReasonsTab() {
       toast.success("Reason removed");
       queryClient.invalidateQueries({ queryKey: ["/api/reasons"] });
     },
+  });
+
+  const bulkDeleteMut = useMutation({
+    mutationFn: (ids: number[]) =>
+      api<{ deleted: number }>("/api/reasons/bulk-delete", {
+        method: "POST",
+        body: JSON.stringify({ ids }),
+      }),
+    onSuccess: (result) => {
+      toast.success(`${result.deleted} reason(s) deleted`);
+      setSelected(new Set());
+      queryClient.invalidateQueries({ queryKey: ["/api/reasons"] });
+    },
+    onError: (err: any) => toast.error(err.message ?? "Bulk delete failed"),
   });
 
   const seedMut = useMutation({
@@ -1020,10 +1347,49 @@ function ReasonsTab() {
         </form>
       </div>
 
+      {selected.size > 0 && (
+        <div className="flex items-center justify-between bg-destructive/10 border border-destructive/30 rounded-lg px-4 py-2">
+          <span className="text-sm font-medium">
+            {selected.size} reason{selected.size === 1 ? "" : "s"} selected
+          </span>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setSelected(new Set())}
+              className="px-3 py-1 text-xs font-semibold border rounded hover:bg-background"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={bulkDeleteMut.isPending}
+              onClick={() => {
+                const n = selected.size;
+                if (!confirm(`Delete ${n} reason${n === 1 ? "" : "s"}?`)) return;
+                bulkDeleteMut.mutate(Array.from(selected));
+              }}
+              className="px-3 py-1 text-xs font-semibold bg-destructive text-destructive-foreground rounded hover:bg-destructive/90 disabled:opacity-60"
+            >
+              {bulkDeleteMut.isPending ? "Deleting..." : `Delete ${selected.size}`}
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="bg-card border rounded-lg overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-muted/40">
             <tr>
+              <th className="px-4 py-2 w-10">
+                <input
+                  type="checkbox"
+                  checked={reasons.length > 0 && selected.size === reasons.length}
+                  onChange={(e) => {
+                    if (e.target.checked) setSelected(new Set(reasons.map((r) => r.id)));
+                    else setSelected(new Set());
+                  }}
+                />
+              </th>
               <th className="text-left px-4 py-2 text-xs font-semibold uppercase">Reason</th>
               <th className="text-left px-4 py-2 text-xs font-semibold uppercase">Category</th>
               <th className="text-left px-4 py-2 text-xs font-semibold uppercase">Status</th>
@@ -1033,20 +1399,32 @@ function ReasonsTab() {
           <tbody>
             {isLoading && (
               <tr>
-                <td colSpan={4} className="px-4 py-6 text-center text-muted-foreground">
+                <td colSpan={5} className="px-4 py-6 text-center text-muted-foreground">
                   Loading...
                 </td>
               </tr>
             )}
             {!isLoading && reasons.length === 0 && (
               <tr>
-                <td colSpan={4} className="px-4 py-6 text-center text-muted-foreground">
+                <td colSpan={5} className="px-4 py-6 text-center text-muted-foreground">
                   No reasons yet. Add some above, or click "Seed defaults" for the standard list.
                 </td>
               </tr>
             )}
             {reasons.map((r) => (
               <tr key={r.id} className="border-t">
+                <td className="px-4 py-2">
+                  <input
+                    type="checkbox"
+                    checked={selected.has(r.id)}
+                    onChange={(e) => {
+                      const next = new Set(selected);
+                      if (e.target.checked) next.add(r.id);
+                      else next.delete(r.id);
+                      setSelected(next);
+                    }}
+                  />
+                </td>
                 <td className="px-4 py-2">{r.name}</td>
                 <td className="px-4 py-2 capitalize text-muted-foreground">{r.category}</td>
                 <td className="px-4 py-2">
