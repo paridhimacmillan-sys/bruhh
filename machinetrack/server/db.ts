@@ -88,6 +88,16 @@ async function runMigrations() {
       "name" text NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS "breakdown_reasons" (
+      "id" serial PRIMARY KEY,
+      "organization_id" integer NOT NULL REFERENCES "organizations"("id"),
+      "name" text NOT NULL,
+      "category" text DEFAULT 'general',
+      "status" text NOT NULL DEFAULT 'active',
+      "created_at" timestamp NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS "IDX_reasons_org" ON "breakdown_reasons" ("organization_id");
+
     CREATE TABLE IF NOT EXISTS "alert_thresholds" (
       "id" serial PRIMARY KEY,
       "organization_id" integer NOT NULL REFERENCES "organizations"("id"),
