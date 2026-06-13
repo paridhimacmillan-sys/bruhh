@@ -9,6 +9,7 @@ import type {
   Operator,
   ProductionEntry,
   BreakdownReason,
+  MachineShift,
 } from "@shared/schema";
 import { useMe } from "@/hooks/useMe";
 import { api } from "@/lib/api";
@@ -51,6 +52,9 @@ export default function ProductionEntryPage() {
   const { data: operators = [] } = useQuery<Operator[]>({ queryKey: ["/api/operators"] });
   const { data: reasons = [] } = useQuery<BreakdownReason[]>({
     queryKey: ["/api/reasons"],
+  });
+  const { data: machineShifts = [] } = useQuery<MachineShift[]>({
+    queryKey: ["/api/machine-shifts"],
   });
 
   // Pick a default shift the first time shifts load
@@ -109,8 +113,14 @@ export default function ProductionEntryPage() {
       setRows([]);
       return;
     }
-    setRows(buildRows(machines, items, hours, entries));
-  }, [machines, items, hours, entries]);
+    // Resolve the currently-selected shift name → shift id, so buildRows
+    // can filter machines to only those assigned to this shift.
+    const currentShift = shifts.find((s) => s.name === shiftName);
+    const currentShiftId = currentShift?.id ?? null;
+    setRows(
+      buildRows(machines, items, hours, entries, currentShiftId, machineShifts)
+    );
+  }, [machines, items, hours, entries, shifts, shiftName, machineShifts]);
 
   // Manual carry-forward action: pull yesterday's last-hour closing readings and
   // pre-fill today's openings. User-triggered via a button so there's no race
