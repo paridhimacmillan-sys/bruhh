@@ -11,6 +11,7 @@ import {
   productionEntries,
   alertThresholds,
   breakdownReasons,
+  machineShifts,
   type Organization,
   type User,
   type Machine,
@@ -20,6 +21,7 @@ import {
   type ProductionEntry,
   type AlertThreshold,
   type BreakdownReason,
+  type MachineShift,
   type InsertMachine,
   type InsertItem,
   type InsertShift,
@@ -465,5 +467,41 @@ export const storage = {
       status: "active",
     }));
     await db.insert(breakdownReasons).values(rows);
+  },
+
+  // ===== MACHINE-SHIFT ASSIGNMENTS =====
+  // Get all assignments for an org. Client uses this to compute which
+  // machines are valid for which shifts. If no rows exist for a machine,
+  // it's treated as "runs in all shifts" (back-compat default).
+  async getMachineShifts(orgId: number): Promise<MachineShift[]> {
+    return db
+      .select()
+      .from(machineShifts)
+      .where(eq(machineShifts.organizationId, orgId));
+  },
+
+  // Replace the entire shift-list for a single machine atomically.
+  // Pass shiftIds=[] to remove all assignments (machine reverts to "all shifts").
+  async setMachineShifts(
+    machineId: number,
+    orgId: number,
+    shiftIds: number[]
+  ): Promise<MachineShift[]> {
+    // Delete all current rows for this machine
+    await db
+      .delete(machineShifts)
+      .where(
+        and(
+          eq(machineShifts.machineId, machineId),
+          eq(machineShifts.organizationId, orgId)
+        )
+      );
+    if (shiftIds.length === 0) return [];
+    const rows = shiftIds.map((shiftId) => ({
+      organizationId: orgId,
+      machineId,
+      shiftId,
+    }));
+    return db.insert(machineShifts).values(rows).returning();
   },
 };
