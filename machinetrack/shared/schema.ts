@@ -78,6 +78,21 @@ export const operators = pgTable("operators", {
   name: text("name").notNull(),
 });
 
+// Breakdown reasons: list of standardised reasons operators can pick when
+// an hour cell's actual output falls below target. Per-org so each factory
+// can curate its own list.
+export const breakdownReasons = pgTable("breakdown_reasons", {
+  id: serial("id").primaryKey(),
+  organizationId: integer("organization_id")
+    .notNull()
+    .references(() => organizations.id),
+  name: text("name").notNull(),
+  // Optional category for grouping in reports
+  category: text("category").default("general"),
+  status: text("status").notNull().default("active"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 // Alert thresholds: configured rules per organization
 export const alertThresholds = pgTable("alert_thresholds", {
   id: serial("id").primaryKey(),
@@ -171,6 +186,14 @@ export const insertOperatorSchema = createInsertSchema(operators)
     name: z.string().trim().min(1, "Operator name is required"),
   });
 
+export const insertBreakdownReasonSchema = createInsertSchema(breakdownReasons)
+  .omit({ id: true, organizationId: true, createdAt: true })
+  .extend({
+    name: z.string().trim().min(1, "Reason name is required"),
+    category: z.string().default("general"),
+    status: z.enum(["active", "inactive"]).default("active"),
+  });
+
 export const insertAlertThresholdSchema = createInsertSchema(alertThresholds)
   .omit({ id: true, organizationId: true, createdAt: true })
   .extend({
@@ -196,19 +219,25 @@ export type Shift = typeof shifts.$inferSelect;
 export type Operator = typeof operators.$inferSelect;
 export type ProductionEntry = typeof productionEntries.$inferSelect;
 export type AlertThreshold = typeof alertThresholds.$inferSelect;
+export type BreakdownReason = typeof breakdownReasons.$inferSelect;
 
 export type InsertMachine = z.infer<typeof insertMachineSchema>;
 export type InsertItem = z.infer<typeof insertItemSchema>;
 export type InsertShift = z.infer<typeof insertShiftSchema>;
 export type InsertOperator = z.infer<typeof insertOperatorSchema>;
 export type InsertAlertThreshold = z.infer<typeof insertAlertThresholdSchema>;
+export type InsertBreakdownReason = z.infer<typeof insertBreakdownReasonSchema>;
 
-// Hourly entry inside productionEntries.entries
+// Hourly entry inside productionEntries.entries.
+// reasonId is the BreakdownReason picked by the operator when the hour fell
+// below the efficiency threshold. NULL means no reason recorded (either the
+// hour was on target, or operator hasn't filled it in yet).
 export interface HourlyEntry {
   hour: string;
   closingReading: number | null;
   actual: number;
   expected: number;
+  reasonId?: number | null;
 }
 
 // Per-machine rate assignment for an item
