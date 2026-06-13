@@ -391,6 +391,42 @@ export function registerRoutes(app: Express) {
   });
 
   // ===================================================
+  // MACHINE-SHIFT ASSIGNMENTS
+  // GET returns every (machineId, shiftId) pair for the org.
+  // Client filters the production grid using this map.
+  // PUT replaces the full shift list for one machine.
+  // ===================================================
+  app.get("/api/machine-shifts", isAuthenticated, async (req, res, next) => {
+    try {
+      const orgId = getOrgId(req);
+      const list = await storage.getMachineShifts(orgId);
+      res.json(list);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  app.put("/api/machine-shifts/:machineId", isAdmin, async (req, res, next) => {
+    try {
+      const orgId = getOrgId(req);
+      const machineId = parseInt(String(req.params.machineId), 10);
+      const body = z
+        .object({ shiftIds: z.array(z.coerce.number().int().positive()) })
+        .parse(req.body);
+      const updated = await storage.setMachineShifts(
+        machineId,
+        orgId,
+        body.shiftIds
+      );
+      res.json(updated);
+    } catch (err) {
+      if (err instanceof z.ZodError)
+        return res.status(400).json({ message: err.errors[0].message });
+      next(err);
+    }
+  });
+
+  // ===================================================
   // PRODUCTION ENTRIES — operators MUST be able to save
   // ===================================================
   app.get("/api/entries", isAuthenticated, async (req, res, next) => {
