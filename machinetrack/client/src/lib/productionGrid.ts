@@ -1,4 +1,4 @@
-import type { Machine, Item, Shift, ProductionEntry, HourlyEntry, ItemRate } from "@shared/schema";
+import type { Machine, Item, Shift, ProductionEntry, HourlyEntry, ItemRate, MachineShift } from "@shared/schema";
 
 // Compute the hour labels for a shift. Each label is the time when the closing
 // reading is taken — i.e. the END of that worked hour. For an 08:00 → 20:00 shift,
@@ -49,11 +49,15 @@ export interface GridRow {
 
 // Build the initial grid: one row per (machine, item) assignment.
 // Same machine can appear N times if it runs N different items.
+// `currentShiftId` + `machineShifts` filter to only machines assigned to that
+// shift. Pass currentShiftId=null to include all machines (back-compat).
 export function buildRows(
   machines: Machine[],
   items: Item[],
   hours: string[],
-  entries: ProductionEntry[]
+  entries: ProductionEntry[],
+  currentShiftId: number | null = null,
+  machineShifts: MachineShift[] = []
 ): GridRow[] {
   // Defensive: every input could be undefined if a query is still loading
   // or returned an error. Treat as empty rather than crashing.
@@ -61,8 +65,33 @@ export function buildRows(
   const safeI = Array.isArray(items) ? items : [];
   const safeH = Array.isArray(hours) ? hours : [];
   const safeE = Array.isArray(entries) ? entries : [];
+  const safeMS = Array.isArray(machineShifts) ? machineShifts : [];
 
-  const activeMachines = safeM.filter((m) => m?.status === "active");
+  // Build lookup: machineId → set of shiftIds it's assigned to.
+  // A machine with NO entries in the assignment table is treated as "runs in
+  // all shifts" — back-compat for orgs that haven't set up assignments yet.
+  const machineToShifts = new Map<number, Set<number>>();
+  for (const ms of safeMS) {
+    if (!machineToShifts.has(ms.machineId)) {
+      machineToShifts.set(ms.machineId, new Set());
+    }
+    machineToShifts.get(ms.machineId)!.add(ms.shiftId);
+  }
+
+  const activeMachines = safeM
+    .filter((m) => {
+      if (m?.status !== "active") return false;
+      if (currentShiftId == null) return true;
+      const assigned = machineToShifts.get(m.id);
+      // If machine has NO assignments at all, include it (default: all shifts).
+      // If it HAS assignments, the current shift must be one of them.
+      if (!assigned || assigned.size === 0) return true;
+      return assigned.has(currentShiftId);
+    })
+    .sort((a, b) =>
+      // Natural sort so "CNC 2" comes before "CNC 10"
+      a.machineNumber.localeCompare(b.machineNumber, undefined, { numeric: true })
+    );
   const activeItems = safeI.filter((i) => i?.status === "active");
 
   const rows: GridRow[] = [];
