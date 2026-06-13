@@ -98,6 +98,15 @@ async function runMigrations() {
     );
     CREATE INDEX IF NOT EXISTS "IDX_reasons_org" ON "breakdown_reasons" ("organization_id");
 
+    CREATE TABLE IF NOT EXISTS "machine_shifts" (
+      "id" serial PRIMARY KEY,
+      "organization_id" integer NOT NULL REFERENCES "organizations"("id"),
+      "machine_id" integer NOT NULL REFERENCES "machines"("id") ON DELETE CASCADE,
+      "shift_id" integer NOT NULL REFERENCES "shifts"("id") ON DELETE CASCADE,
+      UNIQUE ("machine_id", "shift_id")
+    );
+    CREATE INDEX IF NOT EXISTS "IDX_machine_shifts_lookup" ON "machine_shifts" ("organization_id", "shift_id");
+
     CREATE TABLE IF NOT EXISTS "alert_thresholds" (
       "id" serial PRIMARY KEY,
       "organization_id" integer NOT NULL REFERENCES "organizations"("id"),
