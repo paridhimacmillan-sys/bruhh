@@ -93,6 +93,61 @@ export const breakdownReasons = pgTable("breakdown_reasons", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// Machine-shift assignments: which machines run in which shifts. Many-to-many.
+// If a machine has NO rows here, it runs in all shifts (back-compat default).
+// If it has rows, it only appears in production grid for those shifts.
+export const machineShifts = pgTable("machine_shifts", {
+  id: serial("id").primaryKey(),
+  organizationId: integer("organization_id")
+    .notNull()
+    .references(() => organizations.id),
+  machineId: integer("machine_id")
+    .notNull()
+    .references(() => machines.id, { onDelete: "cascade" }),
+  shiftId: integer("shift_id")
+    .notNull()
+    .references(() => shifts.id, { onDelete: "cascade" }),
+});
+
+// Standing assignment: which operator is assigned to which machine on which
+// shift, as a recurring/default schedule. No date — applies every day until
+// overridden by an assignmentOverride. Multiple operators per (machine, shift)
+// allowed (e.g. shift handoff or two operators sharing a machine).
+export const machineShiftAssignments = pgTable("machine_shift_assignments", {
+  id: serial("id").primaryKey(),
+  organizationId: integer("organization_id")
+    .notNull()
+    .references(() => organizations.id),
+  machineId: integer("machine_id")
+    .notNull()
+    .references(() => machines.id),
+  shiftId: integer("shift_id")
+    .notNull()
+    .references(() => shifts.id),
+  operatorName: text("operator_name").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// Daily override: replaces the standing assignment for a specific date+shift+
+// machine. When present, the resolver uses this instead of any standing row.
+// If empty (no override AND no standing row) the machine is unassigned for
+// that shift.
+export const assignmentOverrides = pgTable("assignment_overrides", {
+  id: serial("id").primaryKey(),
+  organizationId: integer("organization_id")
+    .notNull()
+    .references(() => organizations.id),
+  date: date("date").notNull(),
+  machineId: integer("machine_id")
+    .notNull()
+    .references(() => machines.id),
+  shiftId: integer("shift_id")
+    .notNull()
+    .references(() => shifts.id),
+  operatorName: text("operator_name").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 // Alert thresholds: configured rules per organization
 export const alertThresholds = pgTable("alert_thresholds", {
   id: serial("id").primaryKey(),
@@ -194,6 +249,13 @@ export const insertBreakdownReasonSchema = createInsertSchema(breakdownReasons)
     status: z.enum(["active", "inactive"]).default("active"),
   });
 
+export const insertMachineShiftSchema = createInsertSchema(machineShifts)
+  .omit({ id: true, organizationId: true })
+  .extend({
+    machineId: z.coerce.number().int().positive(),
+    shiftId: z.coerce.number().int().positive(),
+  });
+
 export const insertAlertThresholdSchema = createInsertSchema(alertThresholds)
   .omit({ id: true, organizationId: true, createdAt: true })
   .extend({
@@ -220,6 +282,7 @@ export type Operator = typeof operators.$inferSelect;
 export type ProductionEntry = typeof productionEntries.$inferSelect;
 export type AlertThreshold = typeof alertThresholds.$inferSelect;
 export type BreakdownReason = typeof breakdownReasons.$inferSelect;
+export type MachineShift = typeof machineShifts.$inferSelect;
 
 export type InsertMachine = z.infer<typeof insertMachineSchema>;
 export type InsertItem = z.infer<typeof insertItemSchema>;
@@ -227,6 +290,7 @@ export type InsertShift = z.infer<typeof insertShiftSchema>;
 export type InsertOperator = z.infer<typeof insertOperatorSchema>;
 export type InsertAlertThreshold = z.infer<typeof insertAlertThresholdSchema>;
 export type InsertBreakdownReason = z.infer<typeof insertBreakdownReasonSchema>;
+export type InsertMachineShift = z.infer<typeof insertMachineShiftSchema>;
 
 // Hourly entry inside productionEntries.entries.
 // reasonId is the BreakdownReason picked by the operator when the hour fell
