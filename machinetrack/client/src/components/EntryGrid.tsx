@@ -1,7 +1,10 @@
 import { useState, useEffect, useRef } from "react";
 import { AlertTriangle, CheckCircle2 } from "lucide-react";
-import type { Operator } from "@shared/schema";
+import type { Operator, BreakdownReason } from "@shared/schema";
 import type { GridRow } from "@/lib/productionGrid";
+
+// Below this efficiency, the cell shows a (required) reason dropdown.
+export const REASON_THRESHOLD_PCT = 90;
 
 interface Props {
   rows: GridRow[];
@@ -9,10 +12,12 @@ interface Props {
   shift: string;
   isAdmin: boolean;
   operators: Operator[];
+  reasons: BreakdownReason[];
   savingHour: number | null;
   onOpeningChange: (rowIdx: number, value: number) => void;
   onClosingChange: (rowIdx: number, hourIdx: number, value: number) => void;
   onOperatorChange: (rowIdx: number, name: string) => void;
+  onReasonChange: (rowIdx: number, hourIdx: number, reasonId: number | null) => void;
   onSaveHour: (hourIdx: number) => Promise<void>;
 }
 
@@ -22,10 +27,12 @@ export default function EntryGrid({
   shift,
   isAdmin,
   operators,
+  reasons,
   savingHour,
   onOpeningChange,
   onClosingChange,
   onOperatorChange,
+  onReasonChange,
   onSaveHour,
 }: Props) {
   if (rows.length === 0) {
@@ -46,14 +53,14 @@ export default function EntryGrid({
         <table className="w-full text-sm border-collapse">
           <thead>
             <tr className="border-b bg-muted/20">
-              <th className="text-left px-3 py-2 text-xs font-semibold uppercase">Machine</th>
-              <th className="text-left px-3 py-2 text-xs font-semibold uppercase">Item</th>
-              <th className="text-left px-3 py-2 text-xs font-semibold uppercase">Operator</th>
-              <th className="text-center px-2 py-2 text-xs font-semibold uppercase">Opening</th>
+              <th className="text-left px-3 py-2 text-xs font-semibold uppercase sticky left-0 bg-muted/20 z-20 min-w-[110px]">Machine</th>
+              <th className="text-left px-3 py-2 text-xs font-semibold uppercase sticky left-[110px] bg-muted/20 z-20 min-w-[160px] border-r">Item</th>
+              <th className="text-left px-3 py-2 text-xs font-semibold uppercase min-w-[120px]">Operator</th>
+              <th className="text-center px-2 py-2 text-xs font-semibold uppercase min-w-[90px]">Opening</th>
               {hours.map((h, i) => (
                 <th
                   key={`th-${i}`}
-                  className="text-center px-2 py-2 text-xs font-semibold uppercase font-mono"
+                  className="text-center px-2 py-2 text-xs font-semibold uppercase font-mono min-w-[90px]"
                 >
                   {h}
                 </th>
@@ -71,7 +78,7 @@ export default function EntryGrid({
 
               return (
                 <tr key={`${row.machineId}-${row.itemId}`} className="border-b hover:bg-muted/10">
-                  <td className="px-3 py-2">
+                  <td className="px-3 py-2 sticky left-0 bg-card z-10">
                     <div className="flex items-center gap-2">
                       {row.dirty && <AlertTriangle size={12} className="text-amber-500" />}
                       <div>
@@ -81,7 +88,7 @@ export default function EntryGrid({
                     </div>
                   </td>
 
-                  <td className="px-3 py-2">
+                  <td className="px-3 py-2 sticky left-[110px] bg-card z-10 border-r">
                     <p className="font-medium text-xs">{row.item.itemName}</p>
                     <p className="text-xs text-muted-foreground mt-0.5 font-mono">
                       Target: {row.expected} pcs/hr
@@ -124,10 +131,20 @@ export default function EntryGrid({
                         : pct >= 80
                         ? "bg-yellow-50"
                         : "bg-red-50";
+                    // A reason is needed when:
+                    //   1. Operator entered a closing reading (so the hour was attempted)
+                    //   2. Efficiency for that hour fell below threshold
+                    const reasonNeeded =
+                      entry.closingReading != null &&
+                      entry.expected > 0 &&
+                      pct < REASON_THRESHOLD_PCT;
+                    const missingReason = reasonNeeded && entry.reasonId == null;
                     return (
                       <td
                         key={`cell-${row.machineId}-${row.itemId}-${hourIdx}`}
-                        className={`px-1 py-2 text-center ${cellBg}`}
+                        className={`px-1 py-2 text-center align-top ${cellBg} ${
+                          missingReason ? "ring-1 ring-inset ring-red-300" : ""
+                        }`}
                       >
                         <div className="flex flex-col items-center gap-0.5">
                           {isLocked ? (
@@ -154,6 +171,43 @@ export default function EntryGrid({
                               }`}
                             >
                               {Math.round(pct)}%
+                            </span>
+                          )}
+                          {/* Reason dropdown only appears for sub-threshold cells.
+                              Stays hidden when on-target so the grid doesn't bloat. */}
+                          {reasonNeeded && !isLocked && (
+                            <select
+                              value={entry.reasonId ?? ""}
+                              onChange={(e) => {
+                                const v = e.target.value
+                                  ? parseInt(e.target.value, 10)
+                                  : null;
+                                onReasonChange(rowIdx, hourIdx, v);
+                              }}
+                              className={`mt-1 w-full max-w-[110px] px-1 py-0.5 border rounded text-[10px] font-semibold ${
+                                missingReason
+                                  ? "border-red-400 bg-white text-red-700"
+                                  : "border-input bg-white"
+                              }`}
+                              title={
+                                missingReason
+                                  ? "A reason is required for this hour"
+                                  : "Reason"
+                              }
+                            >
+                              <option value="">— pick reason —</option>
+                              {reasons
+                                .filter((r) => r.status === "active")
+                                .map((r) => (
+                                  <option key={r.id} value={r.id}>
+                                    {r.name}
+                                  </option>
+                                ))}
+                            </select>
+                          )}
+                          {reasonNeeded && isLocked && entry.reasonId != null && (
+                            <span className="mt-1 text-[10px] text-muted-foreground italic max-w-[110px] truncate">
+                              {reasons.find((r) => r.id === entry.reasonId)?.name ?? ""}
                             </span>
                           )}
                         </div>
@@ -192,9 +246,12 @@ export default function EntryGrid({
           {/* Per-hour save buttons row */}
           <tfoot>
             <tr className="border-t bg-muted/20">
-              <td colSpan={4} className="px-3 py-2 text-xs font-semibold text-muted-foreground">
+              <td className="px-3 py-2 text-xs font-semibold text-muted-foreground sticky left-0 bg-muted/20 z-10">
                 Save Hour
               </td>
+              <td className="sticky left-[110px] bg-muted/20 z-10 border-r" />
+              <td />
+              <td />
               {hours.map((h, i) => {
                 // An hour is locked overall if ALL rows have it locked
                 const allLocked =
