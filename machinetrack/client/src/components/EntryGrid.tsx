@@ -78,7 +78,7 @@ export default function EntryGrid({
 
               return (
                 <tr key={`${row.machineId}-${row.itemId}`} className="border-b hover:bg-muted/10">
-                  <td className="px-3 py-2 sticky left-0 bg-card z-10">
+                  <td className="px-3 py-2 sticky left-0 bg-card z-10 min-w-[110px]">
                     <div className="flex items-center gap-2">
                       {row.dirty && <AlertTriangle size={12} className="text-amber-500" />}
                       <div>
@@ -88,14 +88,14 @@ export default function EntryGrid({
                     </div>
                   </td>
 
-                  <td className="px-3 py-2 sticky left-[110px] bg-card z-10 border-r">
+                  <td className="px-3 py-2 sticky left-[110px] bg-card z-10 border-r min-w-[160px]">
                     <p className="font-medium text-xs">{row.item.itemName}</p>
                     <p className="text-xs text-muted-foreground mt-0.5 font-mono">
                       Target: {row.expected} pcs/hr
                     </p>
                   </td>
 
-                  <td className="px-3 py-2">
+                  <td className="px-3 py-2 min-w-[120px]">
                     <select
                       value={row.operatorName}
                       onChange={(e) => onOperatorChange(rowIdx, e.target.value)}
@@ -110,7 +110,7 @@ export default function EntryGrid({
                     </select>
                   </td>
 
-                  <td className="px-2 py-2 text-center bg-muted/10">
+                  <td className="px-2 py-2 text-center bg-muted/10 min-w-[90px]">
                     <OpeningReadingInput
                       value={row.openingReading}
                       onCommit={(v) => onOpeningChange(rowIdx, v)}
@@ -142,7 +142,7 @@ export default function EntryGrid({
                     return (
                       <td
                         key={`cell-${row.machineId}-${row.itemId}-${hourIdx}`}
-                        className={`px-1 py-2 text-center align-top ${cellBg} ${
+                        className={`px-1 py-2 text-center align-top min-w-[90px] ${cellBg} ${
                           missingReason ? "ring-1 ring-inset ring-red-300" : ""
                         }`}
                       >
