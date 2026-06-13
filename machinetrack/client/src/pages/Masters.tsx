@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Plus, Trash2, Pencil, Check, X } from "lucide-react";
-import type { Machine, Item, Shift, Operator, ItemRate, BreakdownReason } from "@shared/schema";
+import type { Machine, Item, Shift, Operator, ItemRate, BreakdownReason, MachineShift } from "@shared/schema";
 import { api } from "@/lib/api";
 import { queryClient } from "@/lib/queryClient";
 
@@ -50,8 +50,22 @@ function MachinesTab() {
   const { data: machines = [], isLoading } = useQuery<Machine[]>({
     queryKey: ["/api/machines"],
   });
+  // Natural sort: "CNC 2" before "CNC 10", not after.
+  const sortedMachines = useMemo(
+    () =>
+      [...machines].sort((a, b) =>
+        a.machineNumber.localeCompare(b.machineNumber, undefined, { numeric: true })
+      ),
+    [machines]
+  );
+  const { data: shifts = [] } = useQuery<Shift[]>({ queryKey: ["/api/shifts"] });
+  const { data: machineShifts = [] } = useQuery<MachineShift[]>({
+    queryKey: ["/api/machine-shifts"],
+  });
   const [machineNumber, setMachineNumber] = useState("");
   const [machineType, setMachineType] = useState("CNC TURNING");
+  // Which machine row currently has its shift picker open. null = none.
+  const [editingShiftsFor, setEditingShiftsFor] = useState<number | null>(null);
 
   const createMut = useMutation({
     mutationFn: () =>
@@ -97,6 +111,30 @@ function MachinesTab() {
     },
     onError: (err: any) => toast.error(err.message ?? "Failed to update status"),
   });
+
+  // Replace the full shift list for a machine. Pass shiftIds=[] to revert to
+  // "runs in all shifts" (back-compat default).
+  const setShiftsMut = useMutation({
+    mutationFn: ({ machineId, shiftIds }: { machineId: number; shiftIds: number[] }) =>
+      api(`/api/machine-shifts/${machineId}`, {
+        method: "PUT",
+        body: JSON.stringify({ shiftIds }),
+      }),
+    onSuccess: () => {
+      toast.success("Shifts updated");
+      queryClient.invalidateQueries({ queryKey: ["/api/machine-shifts"] });
+    },
+    onError: (err: any) => toast.error(err.message ?? "Failed to update shifts"),
+  });
+
+  // Build map: machineId → assigned shiftId Set, used to render the Shifts cell.
+  const machineToShifts = new Map<number, Set<number>>();
+  for (const ms of machineShifts) {
+    if (!machineToShifts.has(ms.machineId)) {
+      machineToShifts.set(ms.machineId, new Set());
+    }
+    machineToShifts.get(ms.machineId)!.add(ms.shiftId);
+  }
 
   return (
     <section className="space-y-6">
@@ -156,61 +194,145 @@ function MachinesTab() {
               <th className="text-left px-4 py-2 text-xs font-semibold uppercase">Machine</th>
               <th className="text-left px-4 py-2 text-xs font-semibold uppercase">Type</th>
               <th className="text-left px-4 py-2 text-xs font-semibold uppercase">Status</th>
+              <th className="text-left px-4 py-2 text-xs font-semibold uppercase">Shifts</th>
               <th />
             </tr>
           </thead>
           <tbody>
             {isLoading && (
               <tr>
-                <td colSpan={4} className="px-4 py-6 text-center text-muted-foreground">
+                <td colSpan={5} className="px-4 py-6 text-center text-muted-foreground">
                   Loading...
                 </td>
               </tr>
             )}
             {!isLoading && machines.length === 0 && (
               <tr>
-                <td colSpan={4} className="px-4 py-6 text-center text-muted-foreground">
+                <td colSpan={5} className="px-4 py-6 text-center text-muted-foreground">
                   No machines yet. Add one above.
                 </td>
               </tr>
             )}
-            {machines.map((m) => (
-              <tr key={m.id} className="border-t">
-                <td className="px-4 py-2 font-mono">{m.machineNumber}</td>
-                <td className="px-4 py-2">{m.machineType}</td>
-                <td className="px-4 py-2">
-                  <select
-                    value={m.status}
-                    onChange={(e) =>
-                      updateStatusMut.mutate({ id: m.id, status: e.target.value })
-                    }
-                    disabled={updateStatusMut.isPending}
-                    className={`px-2 py-1 border rounded text-xs capitalize font-semibold ${
-                      m.status === "active"
-                        ? "text-green-600 border-green-200 bg-green-50"
-                        : m.status === "maintenance"
-                        ? "text-yellow-700 border-yellow-200 bg-yellow-50"
-                        : "text-muted-foreground border-input"
-                    }`}
-                  >
-                    <option value="active">Active</option>
-                    <option value="maintenance">Maintenance</option>
-                    <option value="offline">Offline</option>
-                  </select>
-                </td>
-                <td className="px-4 py-2 text-right">
-                  <button
-                    onClick={() => {
-                      if (confirm(`Delete ${m.machineNumber}?`)) deleteMut.mutate(m.id);
-                    }}
-                    className="text-destructive hover:bg-destructive/10 p-1 rounded"
-                    title="Delete machine"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </td>
-              </tr>
-            ))}
+            {sortedMachines.map((m) => {
+              const assignedSet = machineToShifts.get(m.id) ?? new Set<number>();
+              const assignedShifts = shifts.filter((s) => assignedSet.has(s.id));
+              const isEditing = editingShiftsFor === m.id;
+              return (
+                <tr key={m.id} className="border-t align-top">
+                  <td className="px-4 py-2 font-mono">{m.machineNumber}</td>
+                  <td className="px-4 py-2">{m.machineType}</td>
+                  <td className="px-4 py-2">
+                    <select
+                      value={m.status}
+                      onChange={(e) =>
+                        updateStatusMut.mutate({ id: m.id, status: e.target.value })
+                      }
+                      disabled={updateStatusMut.isPending}
+                      className={`px-2 py-1 border rounded text-xs capitalize font-semibold ${
+                        m.status === "active"
+                          ? "text-green-600 border-green-200 bg-green-50"
+                          : m.status === "maintenance"
+                          ? "text-yellow-700 border-yellow-200 bg-yellow-50"
+                          : "text-muted-foreground border-input"
+                      }`}
+                    >
+                      <option value="active">Active</option>
+                      <option value="maintenance">Maintenance</option>
+                      <option value="offline">Offline</option>
+                    </select>
+                  </td>
+                  <td className="px-4 py-2">
+                    {!isEditing ? (
+                      <button
+                        type="button"
+                        onClick={() => setEditingShiftsFor(m.id)}
+                        className="text-xs text-left hover:underline"
+                        title="Click to edit shift assignments"
+                      >
+                        {assignedShifts.length === 0 ? (
+                          <span className="text-muted-foreground italic">
+                            All shifts (default)
+                          </span>
+                        ) : (
+                          <span className="flex flex-wrap gap-1">
+                            {assignedShifts.map((s) => (
+                              <span
+                                key={s.id}
+                                className="px-1.5 py-0.5 bg-primary/10 text-primary rounded text-[10px] font-semibold"
+                              >
+                                {s.name}
+                              </span>
+                            ))}
+                          </span>
+                        )}
+                      </button>
+                    ) : (
+                      <div className="border rounded p-2 bg-muted/20 min-w-[180px]">
+                        <div className="text-[10px] text-muted-foreground mb-1 uppercase font-semibold">
+                          Runs in shifts:
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          {shifts.length === 0 && (
+                            <span className="text-xs text-muted-foreground italic">
+                              No shifts defined. Add some on the Shifts tab first.
+                            </span>
+                          )}
+                          {shifts.map((s) => (
+                            <label
+                              key={s.id}
+                              className="flex items-center gap-2 text-xs cursor-pointer hover:bg-background rounded px-1 py-0.5"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={assignedSet.has(s.id)}
+                                onChange={(e) => {
+                                  const next = new Set(assignedSet);
+                                  if (e.target.checked) next.add(s.id);
+                                  else next.delete(s.id);
+                                  setShiftsMut.mutate({
+                                    machineId: m.id,
+                                    shiftIds: Array.from(next),
+                                  });
+                                }}
+                              />
+                              <span className="font-semibold">{s.name}</span>
+                              <span className="text-muted-foreground font-mono">
+                                {s.startTime}–{s.endTime}
+                              </span>
+                            </label>
+                          ))}
+                        </div>
+                        <div className="mt-2 pt-2 border-t flex items-center justify-between">
+                          <span className="text-[10px] text-muted-foreground">
+                            {assignedSet.size === 0
+                              ? "Empty = runs in all shifts"
+                              : `${assignedSet.size} shift(s) selected`}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setEditingShiftsFor(null)}
+                            className="text-xs text-primary font-semibold hover:underline"
+                          >
+                            Done
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </td>
+                  <td className="px-4 py-2 text-right">
+                    <button
+                      onClick={() => {
+                        if (confirm(`Delete ${m.machineNumber}?`)) deleteMut.mutate(m.id);
+                      }}
+                      className="text-destructive hover:bg-destructive/10 p-1 rounded"
+                      title="Delete machine"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -225,6 +347,14 @@ function ItemsTab() {
   const { data: items = [], isLoading } = useQuery<Item[]>({ queryKey: ["/api/items"] });
   const { data: machines = [] } = useQuery<Machine[]>({ queryKey: ["/api/machines"] });
   const [itemName, setItemName] = useState("");
+  // Natural sort so "BODY 2" comes before "BODY 10"
+  const sortedItems = useMemo(
+    () =>
+      [...items].sort((a, b) =>
+        a.itemName.localeCompare(b.itemName, undefined, { numeric: true })
+      ),
+    [items]
+  );
 
   const createMut = useMutation({
     mutationFn: () =>
@@ -317,7 +447,7 @@ function ItemsTab() {
         </div>
       )}
 
-      {items.map((item) => (
+      {sortedItems.map((item) => (
         <ItemCard
           key={item.id}
           item={item}
