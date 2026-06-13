@@ -10,6 +10,7 @@ import {
   operators,
   productionEntries,
   alertThresholds,
+  breakdownReasons,
   type Organization,
   type User,
   type Machine,
@@ -18,11 +19,13 @@ import {
   type Operator,
   type ProductionEntry,
   type AlertThreshold,
+  type BreakdownReason,
   type InsertMachine,
   type InsertItem,
   type InsertShift,
   type InsertOperator,
   type InsertAlertThreshold,
+  type InsertBreakdownReason,
   type HourlyEntry,
 } from "@shared/schema";
 import { randomBytes } from "crypto";
@@ -140,10 +143,32 @@ export const storage = {
     return m;
   },
 
-  async deleteMachine(id: number, orgId: number): Promise<void> {
+  async deleteMachine(id: number, orgId: number): Promise<{ softDeleted: boolean }> {
+    // If any production entries reference this machine, soft-delete by marking
+    // status='offline' instead of hard-deleting. Preserves historical data.
+    const refs = await db
+      .select({ id: productionEntries.id })
+      .from(productionEntries)
+      .where(
+        and(
+          eq(productionEntries.machineId, id),
+          eq(productionEntries.organizationId, orgId)
+        )
+      )
+      .limit(1);
+
+    if (refs.length > 0) {
+      await db
+        .update(machines)
+        .set({ status: "offline" })
+        .where(and(eq(machines.id, id), eq(machines.organizationId, orgId)));
+      return { softDeleted: true };
+    }
+
     await db
       .delete(machines)
       .where(and(eq(machines.id, id), eq(machines.organizationId, orgId)));
+    return { softDeleted: false };
   },
 
   // ===== ITEMS =====
@@ -173,10 +198,30 @@ export const storage = {
     return i;
   },
 
-  async deleteItem(id: number, orgId: number): Promise<void> {
+  async deleteItem(id: number, orgId: number): Promise<{ softDeleted: boolean }> {
+    const refs = await db
+      .select({ id: productionEntries.id })
+      .from(productionEntries)
+      .where(
+        and(
+          eq(productionEntries.itemId, id),
+          eq(productionEntries.organizationId, orgId)
+        )
+      )
+      .limit(1);
+
+    if (refs.length > 0) {
+      await db
+        .update(items)
+        .set({ status: "inactive" })
+        .where(and(eq(items.id, id), eq(items.organizationId, orgId)));
+      return { softDeleted: true };
+    }
+
     await db
       .delete(items)
       .where(and(eq(items.id, id), eq(items.organizationId, orgId)));
+    return { softDeleted: false };
   },
 
   // ===== SHIFTS =====
@@ -356,5 +401,69 @@ export const storage = {
     await db
       .delete(alertThresholds)
       .where(and(eq(alertThresholds.id, id), eq(alertThresholds.organizationId, orgId)));
+  },
+
+  // ===== BREAKDOWN REASONS =====
+  async getBreakdownReasons(orgId: number): Promise<BreakdownReason[]> {
+    return db
+      .select()
+      .from(breakdownReasons)
+      .where(eq(breakdownReasons.organizationId, orgId))
+      .orderBy(breakdownReasons.name);
+  },
+
+  async createBreakdownReason(
+    data: InsertBreakdownReason & { organizationId: number }
+  ): Promise<BreakdownReason> {
+    const [r] = await db.insert(breakdownReasons).values(data).returning();
+    return r;
+  },
+
+  async updateBreakdownReason(
+    id: number,
+    orgId: number,
+    data: Partial<InsertBreakdownReason>
+  ): Promise<BreakdownReason | undefined> {
+    const [r] = await db
+      .update(breakdownReasons)
+      .set(data)
+      .where(
+        and(
+          eq(breakdownReasons.id, id),
+          eq(breakdownReasons.organizationId, orgId)
+        )
+      )
+      .returning();
+    return r;
+  },
+
+  async deleteBreakdownReason(id: number, orgId: number): Promise<void> {
+    await db
+      .delete(breakdownReasons)
+      .where(
+        and(
+          eq(breakdownReasons.id, id),
+          eq(breakdownReasons.organizationId, orgId)
+        )
+      );
+  },
+
+  // Seed common reasons for a fresh org. Idempotent — caller checks first.
+  async seedBreakdownReasons(orgId: number): Promise<void> {
+    const defaults = [
+      "No Operator", "Tea Break", "Meeting", "No Electricity", "No Air",
+      "Insert Change", "Bit Change", "Drill Change", "Tool Set Up", "Collet Change",
+      "Collet Cleaning", "Chuck Greasing", "Machine Breakdown", "Machine Set Up",
+      "Machine Alarm", "Hydraulic Problem", "Pressure Down", "No Material",
+      "Re-Work", "Scrap Removal", "Cleaning", "Maintenance", "New Operator",
+      "Process Limitation", "No Work", "Other",
+    ];
+    const rows = defaults.map((name) => ({
+      organizationId: orgId,
+      name,
+      category: "general",
+      status: "active",
+    }));
+    await db.insert(breakdownReasons).values(rows);
   },
 };
