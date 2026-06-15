@@ -130,11 +130,16 @@ async function runMigrations() {
       "operator_name" text,
       "notes" text,
       "locked_hours" integer[] DEFAULT '{}',
+      "hour_saved_at" jsonb DEFAULT '{}'::jsonb,
       "total_actual" integer DEFAULT 0,
       "total_expected" integer DEFAULT 0,
       "status" text DEFAULT 'draft',
       "updated_at" timestamp NOT NULL DEFAULT now()
     );
+
+    -- Idempotent column add for existing databases
+    ALTER TABLE "production_entries"
+      ADD COLUMN IF NOT EXISTS "hour_saved_at" jsonb DEFAULT '{}'::jsonb;
 
     CREATE UNIQUE INDEX IF NOT EXISTS "IDX_production_unique"
       ON "production_entries" ("organization_id", "date", "machine_id", "item_id", "shift");
