@@ -10,6 +10,7 @@ import type {
   ProductionEntry,
   BreakdownReason,
   MachineShift,
+  ItemRate,
 } from "@shared/schema";
 import { useMe } from "@/hooks/useMe";
 import { api } from "@/lib/api";
@@ -143,9 +144,14 @@ export default function ProductionEntryPage() {
       return;
     }
 
-    // Build carry map: (machineId-itemId) → last non-null closing, falling back to opening
-    const carryMap = new Map<string, number>();
+    // For each machine on yesterday, find:
+    //   - the LAST itemId it ran (presumed "current item")
+    //   - the closing reading at end of that run
+    // We'll use this to both auto-pick the item AND seed the opening.
+    type Carry = { itemId: number; value: number };
+    const carryByMachine = new Map<number, Carry>();
     for (const e of yesterdaysEntries) {
+      if (e.itemId == null) continue;
       const list = (e.entries as Array<{ closingReading: number | null }>) ?? [];
       let lastClosing: number | null = null;
       for (const h of list) {
@@ -153,12 +159,12 @@ export default function ProductionEntryPage() {
       }
       const fallback = e.openingReading ?? 0;
       const value = lastClosing ?? (fallback > 0 ? fallback : null);
-      if (value != null && e.itemId != null) {
-        carryMap.set(`${e.machineId}-${e.itemId}`, value);
-      }
+      if (value == null) continue;
+      // If multiple entries for same machine (shift split), the last one wins
+      carryByMachine.set(e.machineId, { itemId: e.itemId, value });
     }
 
-    if (carryMap.size === 0) {
+    if (carryByMachine.size === 0) {
       toast.error(`No usable readings found in ${prevDate}'s entries`);
       return;
     }
@@ -166,13 +172,42 @@ export default function ProductionEntryPage() {
     let appliedCount = 0;
     setRows((prev) =>
       prev.map((r) => {
-        const carried = carryMap.get(`${r.machineId}-${r.itemId}`);
-        if (carried == null) return r;
+        const carry = carryByMachine.get(r.machineId);
+        if (!carry) return r;
+        // If the row has no item picked yet, auto-pick yesterday's item
+        // (looking it up in the items list to attach the item object + rate)
+        let nextItem = r.item;
+        let nextItemId = r.itemId;
+        let nextExpected = r.expected;
+        if (r.itemId == null) {
+          const item = items.find((i) => i.id === carry.itemId) ?? null;
+          if (item) {
+            const rates = Array.isArray(item.rates)
+              ? (item.rates as ItemRate[])
+              : [];
+            nextExpected =
+              rates.find((rt) => rt?.machineId === r.machineId)?.rate ?? 0;
+            nextItem = item;
+            nextItemId = item.id;
+          }
+        } else if (r.itemId !== carry.itemId) {
+          // Different item picked today — don't override their choice.
+          // Skip the carry entirely (don't apply yesterday's reading
+          // since it's for a different part).
+          return r;
+        }
         appliedCount++;
+        const newEntries = r.entries.map((e) => ({
+          ...e,
+          expected: nextExpected,
+        }));
         return {
           ...r,
-          openingReading: carried,
-          entries: recomputeActuals(carried, r.entries),
+          itemId: nextItemId,
+          item: nextItem,
+          expected: nextExpected,
+          openingReading: carry.value,
+          entries: recomputeActuals(carry.value, newEntries),
           dirty: true,
         };
       })
@@ -241,6 +276,8 @@ export default function ProductionEntryPage() {
     let failed = 0;
     try {
       for (const row of rowsRef.current) {
+        // Skip rows with no item picked yet
+        if (row.itemId == null) continue;
         // Skip rows that have no data at all
         if (
           row.openingReading === 0 &&
@@ -364,6 +401,93 @@ export default function ProductionEntryPage() {
     updateRow(idx, (r) => ({ ...r, operatorName: name }));
   };
 
+  // Item picker: operator/admin chose a different item for this row.
+  // Update the row's itemId, item ref, and recompute the per-hour `expected` rate
+  // (from item.rates for this machine).
+  const handleItemChange = (rowIdx: number, itemId: number | null) => {
+    setRows((prev) => {
+      const next = [...prev];
+      const row = next[rowIdx];
+      if (itemId == null) {
+        next[rowIdx] = {
+          ...row,
+          itemId: null,
+          item: null,
+          expected: 0,
+          entries: row.entries.map((e) => ({ ...e, expected: 0 })),
+          dirty: true,
+        };
+        return next;
+      }
+      const item = items.find((i) => i.id === itemId);
+      if (!item) return prev;
+      const rates = Array.isArray(item.rates) ? (item.rates as ItemRate[]) : [];
+      const rate = rates.find((r) => r?.machineId === row.machineId)?.rate ?? 0;
+      next[rowIdx] = {
+        ...row,
+        itemId,
+        item,
+        expected: rate,
+        entries: row.entries.map((e) => ({ ...e, expected: rate })),
+        dirty: true,
+      };
+      // Recompute actuals based on new expected rate
+      next[rowIdx].entries = recomputeActuals(
+        next[rowIdx].openingReading,
+        next[rowIdx].entries
+      );
+      return next;
+    });
+  };
+
+  // Split: add a new empty row for the given machine so the operator can log
+  // a second item run later in the shift. The new row goes right after the
+  // last existing row for that machine.
+  const handleSplitRow = (machineId: number) => {
+    setRows((prev) => {
+      // Reject if the machine already has a row with no item picked — they
+      // should fill that one first instead of stacking blanks.
+      const hasBlank = prev.some(
+        (r) => r.machineId === machineId && r.itemId == null
+      );
+      if (hasBlank) {
+        toast.error("Pick an item for the existing row first");
+        return prev;
+      }
+      const lastIdx = prev
+        .map((r, i) => ({ r, i }))
+        .filter(({ r }) => r.machineId === machineId)
+        .map(({ i }) => i)
+        .pop();
+      const machine = prev.find((r) => r.machineId === machineId)?.machine;
+      if (!machine) return prev;
+      // Use a unique synthetic key so React doesn't reuse fiber state
+      const newRow: GridRow = {
+        rowKey: `split-${machineId}-${Date.now()}`,
+        machineId,
+        machine,
+        itemId: null,
+        item: null,
+        expected: 0,
+        openingReading: 0,
+        entries: hours.map((hour) => ({
+          hour,
+          closingReading: null,
+          actual: 0,
+          expected: 0,
+        })),
+        operatorName: "",
+        notes: "",
+        lockedHours: [],
+        dirty: false,
+      };
+      const insertAt = (lastIdx ?? prev.length - 1) + 1;
+      const next = [...prev];
+      next.splice(insertAt, 0, newRow);
+      return next;
+    });
+  };
+
   // Reason chosen for a specific hour cell. NULL means "cleared".
   // Stored inside the row's entries[hourIdx].reasonId — auto-save picks it up.
   const handleReasonChange = (
@@ -416,6 +540,7 @@ export default function ProductionEntryPage() {
       savingRef.current = true;
       try {
         for (const row of rowsWithLock) {
+          if (row.itemId == null) continue;
           if (
             row.openingReading === 0 &&
             row.entries.every((e) => e.closingReading == null)
@@ -623,11 +748,14 @@ export default function ProductionEntryPage() {
         isAdmin={isAdmin}
         operators={operators}
         reasons={reasons}
+        items={items}
         savingHour={savingHour}
+        onItemChange={handleItemChange}
         onOpeningChange={handleOpeningChange}
         onClosingChange={handleClosingChange}
         onOperatorChange={handleOperatorChange}
         onReasonChange={handleReasonChange}
+        onSplitRow={handleSplitRow}
         onSaveHour={handleSaveHour}
       />
     </div>
