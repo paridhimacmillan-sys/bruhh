@@ -33,11 +33,17 @@ export function rateFor(item: Item | undefined, machine: Machine | undefined): n
 }
 
 export interface GridRow {
+  // Unique row identifier — needed because the same machine can have multiple
+  // rows in a single day (operator splits the shift between two items).
+  // Stable across re-renders for new rows, equals the production_entries.id
+  // for rows backed by a saved entry, or a synthetic negative id for fresh rows.
+  rowKey: string;
   machineId: number;
   machine: Machine;
-  // itemId is non-null now — every grid row corresponds to a real (machine, item) pair.
-  itemId: number;
-  item: Item;
+  // null when no item picked yet — row is shown but inputs are disabled
+  itemId: number | null;
+  item: Item | null;
+  // Hourly target rate (pcs/hr) for the picked item on this machine. 0 when no item.
   expected: number;
   openingReading: number;
   entries: HourlyEntry[];
@@ -92,26 +98,60 @@ export function buildRows(
       // Natural sort so "CNC 2" comes before "CNC 10"
       a.machineNumber.localeCompare(b.machineNumber, undefined, { numeric: true })
     );
-  const activeItems = safeI.filter((i) => i?.status === "active");
+
+  // Index items by id for fast lookup
+  const itemById = new Map<number, Item>();
+  for (const i of safeI) itemById.set(i.id, i);
+
+  // Group saved entries by machineId for this date+shift
+  const entriesByMachine = new Map<number, ProductionEntry[]>();
+  for (const e of safeE) {
+    if (!entriesByMachine.has(e.machineId)) entriesByMachine.set(e.machineId, []);
+    entriesByMachine.get(e.machineId)!.push(e);
+  }
 
   const rows: GridRow[] = [];
 
   for (const machine of activeMachines) {
-    const assignedItems = activeItems.flatMap((item) => {
-      const rates = Array.isArray(item.rates) ? (item.rates as ItemRate[]) : [];
-      const rate = rates.find((r) => r?.machineId === machine.id)?.rate ?? 0;
-      return rate > 0 ? [{ item, rate }] : [];
-    });
+    const machineEntries = entriesByMachine.get(machine.id) ?? [];
 
-    if (assignedItems.length === 0) continue;
+    if (machineEntries.length === 0) {
+      // No saved entry for this machine today — show ONE empty row with item
+      // picker disabled until user picks an item.
+      rows.push({
+        rowKey: `new-${machine.id}-0`,
+        machineId: machine.id,
+        machine,
+        itemId: null,
+        item: null,
+        expected: 0,
+        openingReading: 0,
+        entries: safeH.map((hour) => ({
+          hour,
+          closingReading: null,
+          actual: 0,
+          expected: 0,
+        })),
+        operatorName: "",
+        notes: "",
+        lockedHours: [],
+        dirty: false,
+      });
+      continue;
+    }
 
-    for (const { item, rate } of assignedItems) {
-      const existing = safeE.find(
-        (e) => e.machineId === machine.id && e.itemId === item.id
-      );
+    // One row per saved entry — supports multi-item-per-machine (shift splitting).
+    for (const existing of machineEntries) {
+      const item = existing.itemId != null ? itemById.get(existing.itemId) ?? null : null;
+      // Resolve the per-machine rate from item.rates
+      let expected = 0;
+      if (item) {
+        const rates = Array.isArray(item.rates) ? (item.rates as ItemRate[]) : [];
+        expected = rates.find((r) => r?.machineId === machine.id)?.rate ?? 0;
+      }
 
-      const existingEntries = Array.isArray(existing?.entries)
-        ? (existing!.entries as HourlyEntry[])
+      const existingEntries = Array.isArray(existing.entries)
+        ? (existing.entries as HourlyEntry[])
         : [];
       const hourlyEntries: HourlyEntry[] = safeH.map((hour, idx) => {
         const e = existingEntries[idx];
@@ -119,22 +159,24 @@ export function buildRows(
           hour,
           closingReading: e?.closingReading ?? null,
           actual: e?.actual ?? 0,
-          expected: rate,
+          expected,
+          reasonId: e?.reasonId ?? null,
         };
       });
 
       rows.push({
+        rowKey: `saved-${existing.id}`,
         machineId: machine.id,
         machine,
-        itemId: item.id,
+        itemId: existing.itemId,
         item,
-        expected: rate,
-        openingReading: existing?.openingReading ?? 0,
+        expected,
+        openingReading: existing.openingReading ?? 0,
         entries: hourlyEntries,
-        operatorName: existing?.operatorName ?? "",
-        notes: existing?.notes ?? "",
-        lockedHours: Array.isArray(existing?.lockedHours)
-          ? (existing!.lockedHours as number[])
+        operatorName: existing.operatorName ?? "",
+        notes: existing.notes ?? "",
+        lockedHours: Array.isArray(existing.lockedHours)
+          ? (existing.lockedHours as number[])
           : [],
         dirty: false,
       });
@@ -142,6 +184,21 @@ export function buildRows(
   }
 
   return rows;
+}
+
+// Helper: given a machine, return the items that have a rate defined for it.
+// Used by the per-row item picker dropdown.
+export function getItemsForMachine(
+  machineId: number,
+  items: Item[]
+): Array<{ item: Item; rate: number }> {
+  return items.flatMap((item) => {
+    if (item.status !== "active") return [];
+    const rates = Array.isArray(item.rates) ? (item.rates as ItemRate[]) : [];
+    const rate = rates.find((r) => r?.machineId === machineId)?.rate ?? 0;
+    if (rate <= 0) return [];
+    return [{ item, rate }];
+  });
 }
 
 // Recompute the `actual` values for a row given an opening reading and entries.
