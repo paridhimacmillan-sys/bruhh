@@ -305,6 +305,21 @@ export function registerRoutes(app: Express) {
     }
   });
 
+  app.put("/api/operators/:id", isAdmin, async (req, res, next) => {
+    try {
+      const orgId = getOrgId(req);
+      const id = parseInt(String(req.params.id), 10);
+      const input = insertOperatorSchema.partial().parse(req.body);
+      const updated = await storage.updateOperator(id, orgId, input);
+      if (!updated) return res.status(404).json({ message: "Not found" });
+      res.json(updated);
+    } catch (err) {
+      if (err instanceof z.ZodError)
+        return res.status(400).json({ message: err.errors[0].message });
+      next(err);
+    }
+  });
+
   app.delete("/api/operators/:id", isAdmin, async (req, res, next) => {
     try {
       const orgId = getOrgId(req);
@@ -543,6 +558,7 @@ export function registerRoutes(app: Express) {
           operatorName: z.string().nullable(),
           notes: z.string().nullable(),
           lockedHours: z.array(z.number().int()),
+          hourSavedAt: z.record(z.string(), z.string()).optional(),
           status: z.string(),
         })
         .parse(req.body);
@@ -584,6 +600,7 @@ export function registerRoutes(app: Express) {
         operatorName: input.operatorName,
         notes: input.notes,
         lockedHours: input.lockedHours,
+        hourSavedAt: input.hourSavedAt,
         totalActual,
         totalExpected,
         status: input.status,
@@ -596,7 +613,70 @@ export function registerRoutes(app: Express) {
     }
   });
 
-  // Delete is destructive — admin only
+  // Undo / unlock a previously saved hour. Authorisation rules:
+  //   admin → always allowed
+  //   operator → only if the hour was saved less than 10 minutes ago
+  // Removes the hour from every matching entry's lockedHours AND clears its
+  // hourSavedAt entry, so the operator can edit the closing readings again.
+  app.post("/api/entries/unlock-hour", isAuthenticated, async (req, res, next) => {
+    try {
+      const orgId = getOrgId(req);
+      const user = req.user as User;
+      const input = z
+        .object({
+          date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+          shift: z.string().min(1),
+          hourIdx: z.coerce.number().int().min(0),
+        })
+        .parse(req.body);
+
+      const isAdmin = user.role === "admin";
+
+      // First check whether the operator is within the allowed window. Don't
+      // mutate anything until that's settled.
+      if (!isAdmin) {
+        // Peek at the earliest savedAt across matching entries to decide.
+        // We do this by calling the underlying unlock then potentially
+        // rolling back — but cleaner: a small read-only pre-check.
+        const matches = await storage.getEntries(orgId, {
+          dateFrom: input.date,
+          dateTo: input.date,
+          shift: input.shift,
+        });
+        let earliest: string | null = null;
+        for (const m of matches) {
+          const savedAt = (m.hourSavedAt as Record<string, string>) ?? {};
+          const t = savedAt[String(input.hourIdx)];
+          if (t && (earliest == null || t < earliest)) earliest = t;
+        }
+        if (earliest == null) {
+          return res.status(400).json({
+            message: "This hour has no recorded save time. Admin must unlock it.",
+          });
+        }
+        const ageMs = Date.now() - new Date(earliest).getTime();
+        const TEN_MIN = 10 * 60 * 1000;
+        if (ageMs > TEN_MIN) {
+          const minutesAgo = Math.round(ageMs / 60000);
+          return res.status(403).json({
+            message: `Saved ${minutesAgo} min ago — only admin can undo after 10 minutes.`,
+          });
+        }
+      }
+
+      const result = await storage.unlockHour(
+        orgId,
+        input.date,
+        input.shift,
+        input.hourIdx
+      );
+      res.json(result);
+    } catch (err) {
+      if (err instanceof z.ZodError)
+        return res.status(400).json({ message: err.errors[0].message });
+      next(err);
+    }
+  });
   app.delete("/api/entries", isAdmin, async (req, res, next) => {
     try {
       const orgId = getOrgId(req);
