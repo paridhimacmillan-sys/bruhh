@@ -278,8 +278,11 @@ export default function ProductionEntryPage() {
       for (const row of rowsRef.current) {
         // Skip rows with no item picked yet
         if (row.itemId == null) continue;
-        // Skip rows that have no data at all
+        // Skip rows with no data AND no pending changes. A row with item
+        // picked but no readings still needs to be saved if the user just
+        // picked the item (dirty=true) so the choice persists.
         if (
+          !row.dirty &&
           row.openingReading === 0 &&
           row.entries.every((e) => e.closingReading == null)
         ) {
@@ -542,6 +545,7 @@ export default function ProductionEntryPage() {
         for (const row of rowsWithLock) {
           if (row.itemId == null) continue;
           if (
+            !row.dirty &&
             row.openingReading === 0 &&
             row.entries.every((e) => e.closingReading == null)
           ) {
