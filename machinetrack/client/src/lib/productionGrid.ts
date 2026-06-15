@@ -1,5 +1,42 @@
 import type { Machine, Item, Shift, ProductionEntry, HourlyEntry, ItemRate, MachineShift } from "@shared/schema";
 
+// Global lunch break: production pauses 13:00–13:30 every day on every shift.
+// The hour cell covering this window gets a reduced "expected" rate so that
+// efficiency math stays honest (you can't make a full hour of parts in
+// 30 minutes). Stored as minutes-since-midnight to keep math simple.
+export const LUNCH_START_MIN = 13 * 60; // 13:00
+export const LUNCH_END_MIN = 13 * 60 + 30; // 13:30
+
+// Compute the productive minutes for an hour cell whose END is the given
+// label time. Subtracts any overlap with the global lunch break. Handles
+// overnight shifts correctly because the input is already a wall-clock
+// "HH:MM" label — lunch at 13:00 simply doesn't overlap a 03:00 cell.
+//
+// Examples (for the global 13:00–13:30 lunch):
+//   hourLabel="14:00" (covers 13:00–14:00) → overlap = 30 min → returns 30
+//   hourLabel="13:00" (covers 12:00–13:00) → overlap = 0      → returns 60
+//   hourLabel="09:00" (covers 08:00–09:00) → overlap = 0      → returns 60
+export function workedMinutesForHour(hourLabel: string): number {
+  const [h, m] = hourLabel.split(":").map(Number);
+  const endMin = h * 60 + m;
+  const startMin = endMin - 60;
+  // Overlap of [startMin, endMin] with [LUNCH_START_MIN, LUNCH_END_MIN]
+  const overlapStart = Math.max(startMin, LUNCH_START_MIN);
+  const overlapEnd = Math.min(endMin, LUNCH_END_MIN);
+  const overlap = Math.max(0, overlapEnd - overlapStart);
+  return 60 - overlap;
+}
+
+// Compute the expected (target) production for one hour cell given the
+// per-hour rate and the hour label. During the lunch hour the result is
+// scaled down by the lost minutes.
+export function expectedForHour(rate: number, hourLabel: string): number {
+  if (rate <= 0) return 0;
+  const minutes = workedMinutesForHour(hourLabel);
+  // Round to nearest integer — we deal in whole pieces, not fractions.
+  return Math.round((rate * minutes) / 60);
+}
+
 // Compute the hour labels for a shift. Each label is the time when the closing
 // reading is taken — i.e. the END of that worked hour. For an 08:00 → 20:00 shift,
 // the operator does an opening read at 08:00, then closing reads at 09:00, 10:00,
@@ -50,6 +87,9 @@ export interface GridRow {
   operatorName: string;
   notes: string;
   lockedHours: number[];
+  // Per-hour save timestamps (ISO strings), keyed by stringified hourIdx.
+  // Used to enforce the 10-min operator-undo window.
+  hourSavedAt: Record<string, string>;
   dirty: boolean;
 }
 
@@ -135,6 +175,7 @@ export function buildRows(
         operatorName: "",
         notes: "",
         lockedHours: [],
+        hourSavedAt: {},
         dirty: false,
       });
       continue;
@@ -143,11 +184,12 @@ export function buildRows(
     // One row per saved entry — supports multi-item-per-machine (shift splitting).
     for (const existing of machineEntries) {
       const item = existing.itemId != null ? itemById.get(existing.itemId) ?? null : null;
-      // Resolve the per-machine rate from item.rates
-      let expected = 0;
+      // Resolve the per-machine rate from item.rates. `rate` is pcs/hr — the
+      // theoretical max. Per-hour `expected` is rate scaled down for lunch.
+      let rate = 0;
       if (item) {
         const rates = Array.isArray(item.rates) ? (item.rates as ItemRate[]) : [];
-        expected = rates.find((r) => r?.machineId === machine.id)?.rate ?? 0;
+        rate = rates.find((r) => r?.machineId === machine.id)?.rate ?? 0;
       }
 
       const existingEntries = Array.isArray(existing.entries)
@@ -159,7 +201,7 @@ export function buildRows(
           hour,
           closingReading: e?.closingReading ?? null,
           actual: e?.actual ?? 0,
-          expected,
+          expected: expectedForHour(rate, hour),
           reasonId: e?.reasonId ?? null,
         };
       });
@@ -170,7 +212,7 @@ export function buildRows(
         machine,
         itemId: existing.itemId,
         item,
-        expected,
+        expected: rate,
         openingReading: existing.openingReading ?? 0,
         entries: hourlyEntries,
         operatorName: existing.operatorName ?? "",
@@ -178,6 +220,8 @@ export function buildRows(
         lockedHours: Array.isArray(existing.lockedHours)
           ? (existing.lockedHours as number[])
           : [],
+        hourSavedAt:
+          (existing.hourSavedAt as Record<string, string> | null) ?? {},
         dirty: false,
       });
     }
