@@ -19,6 +19,7 @@ import {
   buildRows,
   computeShiftHours,
   recomputeActuals,
+  expectedForHour,
   type GridRow,
 } from "@/lib/productionGrid";
 import EntryGrid, { REASON_THRESHOLD_PCT } from "@/components/EntryGrid";
@@ -233,6 +234,7 @@ export default function ProductionEntryPage() {
       operatorName: row.operatorName || null,
       notes: row.notes || null,
       lockedHours: row.lockedHours,
+      hourSavedAt: row.hourSavedAt,
       totalActual,
       totalExpected,
       status: "submitted",
@@ -431,7 +433,10 @@ export default function ProductionEntryPage() {
         itemId,
         item,
         expected: rate,
-        entries: row.entries.map((e) => ({ ...e, expected: rate })),
+        entries: row.entries.map((e) => ({
+          ...e,
+          expected: expectedForHour(rate, e.hour),
+        })),
         dirty: true,
       };
       // Recompute actuals based on new expected rate
@@ -482,6 +487,7 @@ export default function ProductionEntryPage() {
         operatorName: "",
         notes: "",
         lockedHours: [],
+        hourSavedAt: {},
         dirty: false,
       };
       const insertAt = (lastIdx ?? prev.length - 1) + 1;
@@ -489,6 +495,49 @@ export default function ProductionEntryPage() {
       next.splice(insertAt, 0, newRow);
       return next;
     });
+  };
+
+  // Delete a row from the grid. For unsaved rows (rowKey starts with "new-"
+  // or "split-") just remove from local state. For saved rows (rowKey
+  // "saved-<id>") also DELETE the production_entries row on the server.
+  // Admin-only (the trash button is hidden for non-admins in EntryGrid).
+  const handleDeleteRow = async (rowIdx: number) => {
+    const row = rowsRef.current[rowIdx];
+    if (!row) return;
+
+    const isSaved = row.rowKey.startsWith("saved-");
+    const label = row.item?.itemName
+      ? `${row.machine.machineNumber} — ${row.item.itemName}`
+      : `${row.machine.machineNumber} (empty row)`;
+
+    if (
+      !confirm(
+        isSaved
+          ? `Delete saved entry for ${label}? This permanently removes the readings for this row.`
+          : `Remove ${label} row?`
+      )
+    ) {
+      return;
+    }
+
+    // Remove from local state first for snappy UI
+    setRows((prev) => prev.filter((_, i) => i !== rowIdx));
+
+    if (isSaved) {
+      const entryId = parseInt(row.rowKey.replace("saved-", ""), 10);
+      try {
+        await api(`/api/entries/${entryId}`, { method: "DELETE" });
+        toast.success(`Removed ${label}`);
+        // Refetch so server-side state is the source of truth
+        await refetchEntries();
+      } catch (e: any) {
+        toast.error(`Failed to delete: ${e.message ?? "server error"}`);
+        // Server state still has it — refetch will restore the row on next rebuild
+        await refetchEntries();
+      }
+    } else {
+      toast.success(`Removed ${label}`);
+    }
   };
 
   // Reason chosen for a specific hour cell. NULL means "cleared".
@@ -530,12 +579,16 @@ export default function ProductionEntryPage() {
 
     setSavingHour(hourIdx);
     try {
-      // Lock this hour on every row that has data for it, then save all rows
+      // Lock this hour on every row that has data for it, then save all rows.
+      // Stamp the current time as the hourSavedAt for this hourIdx so the
+      // undo logic can enforce the 10-min window.
+      const nowIso = new Date().toISOString();
       const rowsWithLock = rows.map((r) => ({
         ...r,
         lockedHours: r.lockedHours.includes(hourIdx)
           ? r.lockedHours
           : [...r.lockedHours, hourIdx].sort((a, b) => a - b),
+        hourSavedAt: { ...r.hourSavedAt, [String(hourIdx)]: nowIso },
         dirty: true,
       }));
       setRows(rowsWithLock);
@@ -563,6 +616,58 @@ export default function ProductionEntryPage() {
       toast.error(e.message ?? "Save failed");
     } finally {
       setSavingHour(null);
+    }
+  };
+
+  // Undo a locked hour. Server enforces the rule: admin always, operator only
+  // if it was saved less than 10 minutes ago. We also do a client-side check
+  // first for an instant error message; server is the source of truth.
+  const handleUnlockHour = async (hourIdx: number) => {
+    // Find the earliest saved-at across all rows for this hour
+    let earliest: number | null = null;
+    for (const r of rows) {
+      const t = r.hourSavedAt?.[String(hourIdx)];
+      if (t) {
+        const ms = new Date(t).getTime();
+        if (earliest == null || ms < earliest) earliest = ms;
+      }
+    }
+
+    if (!isAdmin) {
+      if (earliest == null) {
+        toast.error("No save timestamp on record — ask admin to undo");
+        return;
+      }
+      const ageMin = (Date.now() - earliest) / 60000;
+      if (ageMin > 10) {
+        toast.error(
+          `Saved ${Math.round(ageMin)} min ago — only admin can undo after 10 minutes`
+        );
+        return;
+      }
+    }
+
+    const ageText =
+      earliest != null
+        ? ` (saved ${Math.round((Date.now() - earliest) / 60000)} min ago)`
+        : "";
+    if (
+      !confirm(
+        `Undo save for ${hours[hourIdx]}${ageText}? You'll be able to edit those closing readings again.`
+      )
+    ) {
+      return;
+    }
+
+    try {
+      await api("/api/entries/unlock-hour", {
+        method: "POST",
+        body: JSON.stringify({ date, shift: shiftName, hourIdx }),
+      });
+      toast.success(`Hour ${hours[hourIdx]} unlocked`);
+      await refetchEntries();
+    } catch (e: any) {
+      toast.error(e.message ?? "Unlock failed");
     }
   };
 
@@ -760,7 +865,9 @@ export default function ProductionEntryPage() {
         onOperatorChange={handleOperatorChange}
         onReasonChange={handleReasonChange}
         onSplitRow={handleSplitRow}
+        onDeleteRow={handleDeleteRow}
         onSaveHour={handleSaveHour}
+        onUnlockHour={handleUnlockHour}
       />
     </div>
   );
