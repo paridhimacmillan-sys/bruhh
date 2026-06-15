@@ -183,6 +183,10 @@ export const productionEntries = pgTable("production_entries", {
   operatorName: text("operator_name"),
   notes: text("notes"),
   lockedHours: integer("locked_hours").array().default([]),
+  // Per-hour save timestamps: { "0": "2026-06-15T13:01:00Z", "1": "..." }.
+  // Used to determine whether an operator can still undo a recently-saved
+  // hour (within 10 minutes); admin can undo any.
+  hourSavedAt: jsonb("hour_saved_at").default({}),
   totalActual: integer("total_actual").default(0),
   totalExpected: integer("total_expected").default(0),
   status: text("status").default("draft"),
