@@ -68,6 +68,10 @@ function MachinesTab() {
   const [editingShiftsFor, setEditingShiftsFor] = useState<number | null>(null);
   // Set of selected machine ids for bulk delete
   const [selected, setSelected] = useState<Set<number>>(new Set());
+  // Inline edit state: which row is being edited, and the draft values
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editNumber, setEditNumber] = useState("");
+  const [editType, setEditType] = useState("");
 
   const createMut = useMutation({
     mutationFn: () =>
@@ -112,6 +116,29 @@ function MachinesTab() {
       queryClient.invalidateQueries({ queryKey: ["/api/machines"] });
     },
     onError: (err: any) => toast.error(err.message ?? "Failed to update status"),
+  });
+
+  // Inline edit of machine number + type.
+  const updateMut = useMutation({
+    mutationFn: ({
+      id,
+      machineNumber,
+      machineType,
+    }: {
+      id: number;
+      machineNumber: string;
+      machineType: string;
+    }) =>
+      api<Machine>(`/api/machines/${id}`, {
+        method: "PUT",
+        body: JSON.stringify({ machineNumber, machineType }),
+      }),
+    onSuccess: () => {
+      toast.success("Machine updated");
+      setEditingId(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/machines"] });
+    },
+    onError: (err: any) => toast.error(err.message ?? "Failed to update"),
   });
 
   // Replace the full shift list for a machine. Pass shiftIds=[] to revert to
@@ -305,8 +332,30 @@ function MachinesTab() {
                       }}
                     />
                   </td>
-                  <td className="px-4 py-2 font-mono">{m.machineNumber}</td>
-                  <td className="px-4 py-2">{m.machineType}</td>
+                  <td className="px-4 py-2 font-mono">
+                    {editingId === m.id ? (
+                      <input
+                        type="text"
+                        value={editNumber}
+                        onChange={(e) => setEditNumber(e.target.value)}
+                        className="w-24 px-2 py-1 border rounded text-sm font-mono"
+                      />
+                    ) : (
+                      m.machineNumber
+                    )}
+                  </td>
+                  <td className="px-4 py-2">
+                    {editingId === m.id ? (
+                      <input
+                        type="text"
+                        value={editType}
+                        onChange={(e) => setEditType(e.target.value)}
+                        className="w-36 px-2 py-1 border rounded text-sm"
+                      />
+                    ) : (
+                      m.machineType
+                    )}
+                  </td>
                   <td className="px-4 py-2">
                     <select
                       value={m.status}
@@ -406,15 +455,61 @@ function MachinesTab() {
                     )}
                   </td>
                   <td className="px-4 py-2 text-right">
-                    <button
-                      onClick={() => {
-                        if (confirm(`Delete ${m.machineNumber}?`)) deleteMut.mutate(m.id);
-                      }}
-                      className="text-destructive hover:bg-destructive/10 p-1 rounded"
-                      title="Delete machine"
-                    >
-                      <Trash2 size={14} />
-                    </button>
+                    <div className="flex items-center justify-end gap-1">
+                      {editingId === m.id ? (
+                        <>
+                          <button
+                            onClick={() => {
+                              if (!editNumber.trim() || !editType.trim()) {
+                                toast.error("Both fields are required");
+                                return;
+                              }
+                              updateMut.mutate({
+                                id: m.id,
+                                machineNumber: editNumber.trim(),
+                                machineType: editType.trim(),
+                              });
+                            }}
+                            disabled={updateMut.isPending}
+                            className="text-green-600 hover:bg-green-50 p-1 rounded"
+                            title="Save"
+                          >
+                            <Check size={14} />
+                          </button>
+                          <button
+                            onClick={() => setEditingId(null)}
+                            className="text-muted-foreground hover:bg-muted p-1 rounded"
+                            title="Cancel"
+                          >
+                            <X size={14} />
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            onClick={() => {
+                              setEditingId(m.id);
+                              setEditNumber(m.machineNumber);
+                              setEditType(m.machineType);
+                            }}
+                            className="text-muted-foreground hover:bg-muted p-1 rounded"
+                            title="Edit machine"
+                          >
+                            <Pencil size={13} />
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (confirm(`Delete ${m.machineNumber}?`))
+                                deleteMut.mutate(m.id);
+                            }}
+                            className="text-destructive hover:bg-destructive/10 p-1 rounded"
+                            title="Delete machine"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </td>
                 </tr>
               );
@@ -500,6 +595,19 @@ function ItemsTab() {
         body: JSON.stringify({ rates }),
       }),
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/items"] });
+    },
+    onError: (err: any) => toast.error(err.message ?? "Failed to update"),
+  });
+
+  const updateNameMut = useMutation({
+    mutationFn: ({ id, itemName }: { id: number; itemName: string }) =>
+      api(`/api/items/${id}`, {
+        method: "PUT",
+        body: JSON.stringify({ itemName }),
+      }),
+    onSuccess: () => {
+      toast.success("Item name updated");
       queryClient.invalidateQueries({ queryKey: ["/api/items"] });
     },
     onError: (err: any) => toast.error(err.message ?? "Failed to update"),
@@ -615,6 +723,7 @@ function ItemsTab() {
             else next.delete(item.id);
             setSelected(next);
           }}
+          onUpdateName={(name) => updateNameMut.mutate({ id: item.id, itemName: name })}
           onUpdateRates={(rates) => updateRatesMut.mutate({ id: item.id, rates })}
           onDelete={() => {
             if (confirm(`Delete ${item.itemName}?`)) deleteMut.mutate(item.id);
@@ -631,6 +740,7 @@ function ItemCard({
   machines,
   selected,
   onToggleSelected,
+  onUpdateName,
   onUpdateRates,
   onDelete,
 }: {
@@ -638,6 +748,7 @@ function ItemCard({
   machines: Machine[];
   selected: boolean;
   onToggleSelected: (checked: boolean) => void;
+  onUpdateName: (name: string) => void;
   onUpdateRates: (rates: ItemRate[]) => void;
   onDelete: () => void;
 }) {
@@ -650,6 +761,10 @@ function ItemCard({
   // Inline edit for an existing rate
   const [editingMachineId, setEditingMachineId] = useState<number | null>(null);
   const [editingRateValue, setEditingRateValue] = useState("");
+
+  // Inline edit for item name itself
+  const [editingName, setEditingName] = useState(false);
+  const [nameValue, setNameValue] = useState(item.itemName);
 
   // Machines NOT already assigned to this item — eligible for the add dropdown
   const availableMachines = machines.filter(
@@ -697,15 +812,63 @@ function ItemCard({
   return (
     <div className={`bg-card border rounded-lg p-4 ${selected ? "ring-2 ring-primary" : ""}`}>
       <div className="flex items-start justify-between mb-3">
-        <div className="flex items-start gap-3">
+        <div className="flex items-start gap-3 flex-1">
           <input
             type="checkbox"
             checked={selected}
             onChange={(e) => onToggleSelected(e.target.checked)}
             className="mt-1"
           />
-          <div>
-            <p className="font-semibold">{item.itemName}</p>
+          <div className="flex-1">
+            {editingName ? (
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={nameValue}
+                  onChange={(e) => setNameValue(e.target.value)}
+                  className="px-2 py-1 border rounded text-sm font-semibold"
+                  autoFocus
+                />
+                <button
+                  onClick={() => {
+                    if (!nameValue.trim()) {
+                      toast.error("Name required");
+                      return;
+                    }
+                    onUpdateName(nameValue.trim());
+                    setEditingName(false);
+                  }}
+                  className="text-green-600 hover:bg-green-50 p-1 rounded"
+                  title="Save"
+                >
+                  <Check size={14} />
+                </button>
+                <button
+                  onClick={() => {
+                    setNameValue(item.itemName);
+                    setEditingName(false);
+                  }}
+                  className="text-muted-foreground hover:bg-muted p-1 rounded"
+                  title="Cancel"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <p className="font-semibold">{item.itemName}</p>
+                <button
+                  onClick={() => {
+                    setNameValue(item.itemName);
+                    setEditingName(true);
+                  }}
+                  className="text-muted-foreground hover:bg-muted p-1 rounded"
+                  title="Edit name"
+                >
+                  <Pencil size={12} />
+                </button>
+              </div>
+            )}
             <p className="text-xs text-muted-foreground mt-0.5">
               Runs on {rates.length} machine{rates.length === 1 ? "" : "s"}
             </p>
@@ -860,6 +1023,10 @@ function ShiftsTab() {
   const [startTime, setStartTime] = useState("08:00");
   const [endTime, setEndTime] = useState("20:00");
   const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editStart, setEditStart] = useState("");
+  const [editEnd, setEditEnd] = useState("");
 
   const createMut = useMutation({
     mutationFn: () =>
@@ -873,6 +1040,26 @@ function ShiftsTab() {
       queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
     },
     onError: (err: any) => toast.error(err.message ?? "Failed to add shift"),
+  });
+
+  const updateMut = useMutation({
+    mutationFn: ({
+      id,
+      data,
+    }: {
+      id: number;
+      data: { name: string; startTime: string; endTime: string };
+    }) =>
+      api<Shift>(`/api/shifts/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      toast.success("Shift updated");
+      setEditingId(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
+    },
+    onError: (err: any) => toast.error(err.message ?? "Failed to update"),
   });
 
   const deleteMut = useMutation({
@@ -1015,35 +1202,121 @@ function ShiftsTab() {
                 </td>
               </tr>
             )}
-            {shifts.map((s) => (
-              <tr key={s.id} className="border-t">
-                <td className="px-4 py-2">
-                  <input
-                    type="checkbox"
-                    checked={selected.has(s.id)}
-                    onChange={(e) => {
-                      const next = new Set(selected);
-                      if (e.target.checked) next.add(s.id);
-                      else next.delete(s.id);
-                      setSelected(next);
-                    }}
-                  />
-                </td>
-                <td className="px-4 py-2 font-semibold">{s.name}</td>
-                <td className="px-4 py-2 font-mono">{s.startTime}</td>
-                <td className="px-4 py-2 font-mono">{s.endTime}</td>
-                <td className="px-4 py-2 text-right">
-                  <button
-                    onClick={() => {
-                      if (confirm(`Delete shift ${s.name}?`)) deleteMut.mutate(s.id);
-                    }}
-                    className="text-destructive hover:bg-destructive/10 p-1 rounded"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </td>
-              </tr>
-            ))}
+            {shifts.map((s) => {
+              const isEditing = editingId === s.id;
+              return (
+                <tr key={s.id} className="border-t">
+                  <td className="px-4 py-2">
+                    <input
+                      type="checkbox"
+                      checked={selected.has(s.id)}
+                      onChange={(e) => {
+                        const next = new Set(selected);
+                        if (e.target.checked) next.add(s.id);
+                        else next.delete(s.id);
+                        setSelected(next);
+                      }}
+                    />
+                  </td>
+                  <td className="px-4 py-2 font-semibold">
+                    {isEditing ? (
+                      <input
+                        type="text"
+                        value={editName}
+                        onChange={(e) => setEditName(e.target.value)}
+                        className="w-24 px-2 py-1 border rounded text-sm"
+                      />
+                    ) : (
+                      s.name
+                    )}
+                  </td>
+                  <td className="px-4 py-2 font-mono">
+                    {isEditing ? (
+                      <input
+                        type="time"
+                        value={editStart}
+                        onChange={(e) => setEditStart(e.target.value)}
+                        className="px-2 py-1 border rounded text-sm font-mono"
+                      />
+                    ) : (
+                      s.startTime
+                    )}
+                  </td>
+                  <td className="px-4 py-2 font-mono">
+                    {isEditing ? (
+                      <input
+                        type="time"
+                        value={editEnd}
+                        onChange={(e) => setEditEnd(e.target.value)}
+                        className="px-2 py-1 border rounded text-sm font-mono"
+                      />
+                    ) : (
+                      s.endTime
+                    )}
+                  </td>
+                  <td className="px-4 py-2 text-right">
+                    <div className="flex items-center justify-end gap-1">
+                      {isEditing ? (
+                        <>
+                          <button
+                            onClick={() => {
+                              if (!editName.trim()) {
+                                toast.error("Name required");
+                                return;
+                              }
+                              updateMut.mutate({
+                                id: s.id,
+                                data: {
+                                  name: editName.trim(),
+                                  startTime: editStart,
+                                  endTime: editEnd,
+                                },
+                              });
+                            }}
+                            disabled={updateMut.isPending}
+                            className="text-green-600 hover:bg-green-50 p-1 rounded"
+                            title="Save"
+                          >
+                            <Check size={14} />
+                          </button>
+                          <button
+                            onClick={() => setEditingId(null)}
+                            className="text-muted-foreground hover:bg-muted p-1 rounded"
+                            title="Cancel"
+                          >
+                            <X size={14} />
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            onClick={() => {
+                              setEditingId(s.id);
+                              setEditName(s.name);
+                              setEditStart(s.startTime);
+                              setEditEnd(s.endTime);
+                            }}
+                            className="text-muted-foreground hover:bg-muted p-1 rounded"
+                            title="Edit shift"
+                          >
+                            <Pencil size={13} />
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (confirm(`Delete shift ${s.name}?`))
+                                deleteMut.mutate(s.id);
+                            }}
+                            className="text-destructive hover:bg-destructive/10 p-1 rounded"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -1060,6 +1333,8 @@ function OperatorsTab() {
   });
   const [name, setName] = useState("");
   const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editName, setEditName] = useState("");
 
   const createMut = useMutation({
     mutationFn: () =>
@@ -1073,6 +1348,20 @@ function OperatorsTab() {
       queryClient.invalidateQueries({ queryKey: ["/api/operators"] });
     },
     onError: (err: any) => toast.error(err.message),
+  });
+
+  const updateMut = useMutation({
+    mutationFn: ({ id, name }: { id: number; name: string }) =>
+      api<Operator>(`/api/operators/${id}`, {
+        method: "PUT",
+        body: JSON.stringify({ name }),
+      }),
+    onSuccess: () => {
+      toast.success("Operator updated");
+      setEditingId(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/operators"] });
+    },
+    onError: (err: any) => toast.error(err.message ?? "Failed to update"),
   });
 
   const deleteMut = useMutation({
@@ -1180,31 +1469,87 @@ function OperatorsTab() {
             </span>
           </div>
         )}
-        {operators.map((o) => (
-          <div key={o.id} className="flex items-center justify-between px-4 py-2 border-t first:border-t-0">
-            <div className="flex items-center gap-3">
-              <input
-                type="checkbox"
-                checked={selected.has(o.id)}
-                onChange={(e) => {
-                  const next = new Set(selected);
-                  if (e.target.checked) next.add(o.id);
-                  else next.delete(o.id);
-                  setSelected(next);
-                }}
-              />
-              <span>{o.name}</span>
-            </div>
-            <button
-              onClick={() => {
-                if (confirm(`Delete ${o.name}?`)) deleteMut.mutate(o.id);
-              }}
-              className="text-destructive hover:bg-destructive/10 p-1 rounded"
+        {operators.map((o) => {
+          const isEditing = editingId === o.id;
+          return (
+            <div
+              key={o.id}
+              className="flex items-center justify-between px-4 py-2 border-t first:border-t-0"
             >
-              <Trash2 size={14} />
-            </button>
-          </div>
-        ))}
+              <div className="flex items-center gap-3 flex-1">
+                <input
+                  type="checkbox"
+                  checked={selected.has(o.id)}
+                  onChange={(e) => {
+                    const next = new Set(selected);
+                    if (e.target.checked) next.add(o.id);
+                    else next.delete(o.id);
+                    setSelected(next);
+                  }}
+                />
+                {isEditing ? (
+                  <input
+                    type="text"
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    className="px-2 py-1 border rounded text-sm flex-1 max-w-xs"
+                    autoFocus
+                  />
+                ) : (
+                  <span>{o.name}</span>
+                )}
+              </div>
+              <div className="flex items-center gap-1">
+                {isEditing ? (
+                  <>
+                    <button
+                      onClick={() => {
+                        if (!editName.trim()) {
+                          toast.error("Name required");
+                          return;
+                        }
+                        updateMut.mutate({ id: o.id, name: editName.trim() });
+                      }}
+                      disabled={updateMut.isPending}
+                      className="text-green-600 hover:bg-green-50 p-1 rounded"
+                      title="Save"
+                    >
+                      <Check size={14} />
+                    </button>
+                    <button
+                      onClick={() => setEditingId(null)}
+                      className="text-muted-foreground hover:bg-muted p-1 rounded"
+                      title="Cancel"
+                    >
+                      <X size={14} />
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => {
+                        setEditingId(o.id);
+                        setEditName(o.name);
+                      }}
+                      className="text-muted-foreground hover:bg-muted p-1 rounded"
+                      title="Edit operator"
+                    >
+                      <Pencil size={13} />
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (confirm(`Delete ${o.name}?`)) deleteMut.mutate(o.id);
+                      }}
+                      className="text-destructive hover:bg-destructive/10 p-1 rounded"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          );
+        })}
       </div>
     </section>
   );
@@ -1220,6 +1565,9 @@ function ReasonsTab() {
   const [name, setName] = useState("");
   const [category, setCategory] = useState("general");
   const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editCategory, setEditCategory] = useState("general");
 
   const createMut = useMutation({
     mutationFn: () =>
@@ -1247,6 +1595,26 @@ function ReasonsTab() {
       }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/reasons"] }),
     onError: (err: any) => toast.error(err.message ?? "Update failed"),
+  });
+
+  const updateMut = useMutation({
+    mutationFn: ({
+      id,
+      data,
+    }: {
+      id: number;
+      data: { name: string; category: string };
+    }) =>
+      api<BreakdownReason>(`/api/reasons/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      toast.success("Reason updated");
+      setEditingId(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/reasons"] });
+    },
+    onError: (err: any) => toast.error(err.message ?? "Failed to update"),
   });
 
   const deleteMut = useMutation({
@@ -1411,50 +1779,129 @@ function ReasonsTab() {
                 </td>
               </tr>
             )}
-            {reasons.map((r) => (
-              <tr key={r.id} className="border-t">
-                <td className="px-4 py-2">
-                  <input
-                    type="checkbox"
-                    checked={selected.has(r.id)}
-                    onChange={(e) => {
-                      const next = new Set(selected);
-                      if (e.target.checked) next.add(r.id);
-                      else next.delete(r.id);
-                      setSelected(next);
-                    }}
-                  />
-                </td>
-                <td className="px-4 py-2">{r.name}</td>
-                <td className="px-4 py-2 capitalize text-muted-foreground">{r.category}</td>
-                <td className="px-4 py-2">
-                  <select
-                    value={r.status}
-                    onChange={(e) =>
-                      updateStatusMut.mutate({ id: r.id, status: e.target.value })
-                    }
-                    className={`px-2 py-1 border rounded text-xs capitalize font-semibold ${
-                      r.status === "active"
-                        ? "text-green-600 border-green-200 bg-green-50"
-                        : "text-muted-foreground border-input"
-                    }`}
-                  >
-                    <option value="active">Active</option>
-                    <option value="inactive">Inactive</option>
-                  </select>
-                </td>
-                <td className="px-4 py-2 text-right">
-                  <button
-                    onClick={() => {
-                      if (confirm(`Delete "${r.name}"?`)) deleteMut.mutate(r.id);
-                    }}
-                    className="text-destructive hover:bg-destructive/10 p-1 rounded"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </td>
-              </tr>
-            ))}
+            {reasons.map((r) => {
+              const isEditing = editingId === r.id;
+              return (
+                <tr key={r.id} className="border-t">
+                  <td className="px-4 py-2">
+                    <input
+                      type="checkbox"
+                      checked={selected.has(r.id)}
+                      onChange={(e) => {
+                        const next = new Set(selected);
+                        if (e.target.checked) next.add(r.id);
+                        else next.delete(r.id);
+                        setSelected(next);
+                      }}
+                    />
+                  </td>
+                  <td className="px-4 py-2">
+                    {isEditing ? (
+                      <input
+                        type="text"
+                        value={editName}
+                        onChange={(e) => setEditName(e.target.value)}
+                        className="w-full px-2 py-1 border rounded text-sm"
+                      />
+                    ) : (
+                      r.name
+                    )}
+                  </td>
+                  <td className="px-4 py-2 capitalize text-muted-foreground">
+                    {isEditing ? (
+                      <select
+                        value={editCategory}
+                        onChange={(e) => setEditCategory(e.target.value)}
+                        className="px-2 py-1 border rounded text-sm"
+                      >
+                        <option value="general">General</option>
+                        <option value="machine">Machine</option>
+                        <option value="operator">Operator</option>
+                        <option value="material">Material</option>
+                        <option value="setup">Setup</option>
+                        <option value="utility">Utility</option>
+                      </select>
+                    ) : (
+                      r.category
+                    )}
+                  </td>
+                  <td className="px-4 py-2">
+                    <select
+                      value={r.status}
+                      onChange={(e) =>
+                        updateStatusMut.mutate({ id: r.id, status: e.target.value })
+                      }
+                      className={`px-2 py-1 border rounded text-xs capitalize font-semibold ${
+                        r.status === "active"
+                          ? "text-green-600 border-green-200 bg-green-50"
+                          : "text-muted-foreground border-input"
+                      }`}
+                    >
+                      <option value="active">Active</option>
+                      <option value="inactive">Inactive</option>
+                    </select>
+                  </td>
+                  <td className="px-4 py-2 text-right">
+                    <div className="flex items-center justify-end gap-1">
+                      {isEditing ? (
+                        <>
+                          <button
+                            onClick={() => {
+                              if (!editName.trim()) {
+                                toast.error("Name required");
+                                return;
+                              }
+                              updateMut.mutate({
+                                id: r.id,
+                                data: {
+                                  name: editName.trim(),
+                                  category: editCategory,
+                                },
+                              });
+                            }}
+                            disabled={updateMut.isPending}
+                            className="text-green-600 hover:bg-green-50 p-1 rounded"
+                            title="Save"
+                          >
+                            <Check size={14} />
+                          </button>
+                          <button
+                            onClick={() => setEditingId(null)}
+                            className="text-muted-foreground hover:bg-muted p-1 rounded"
+                            title="Cancel"
+                          >
+                            <X size={14} />
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            onClick={() => {
+                              setEditingId(r.id);
+                              setEditName(r.name);
+                              setEditCategory(r.category ?? "general");
+                            }}
+                            className="text-muted-foreground hover:bg-muted p-1 rounded"
+                            title="Edit reason"
+                          >
+                            <Pencil size={13} />
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (confirm(`Delete "${r.name}"?`))
+                                deleteMut.mutate(r.id);
+                            }}
+                            className="text-destructive hover:bg-destructive/10 p-1 rounded"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
