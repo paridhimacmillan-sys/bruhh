@@ -320,6 +320,7 @@ export const storage = {
     operatorName: string | null;
     notes: string | null;
     lockedHours: number[];
+    hourSavedAt?: Record<string, string>;
     totalActual: number;
     totalExpected: number;
     status: string;
@@ -339,6 +340,19 @@ export const storage = {
         )
       );
     if (existing.length) {
+      // Merge: keep existing hourSavedAt keys for hours that are still locked,
+      // overlay incoming new ones. We never reset a save timestamp from here —
+      // only the explicit unlock endpoint clears them.
+      const prevSaved = (existing[0].hourSavedAt as Record<string, string>) ?? {};
+      const incoming = input.hourSavedAt ?? {};
+      const merged: Record<string, string> = { ...prevSaved };
+      for (const [k, v] of Object.entries(incoming)) merged[k] = v;
+      // Drop keys for hours no longer locked
+      const lockedSet = new Set(input.lockedHours.map(String));
+      for (const k of Object.keys(merged)) {
+        if (!lockedSet.has(k)) delete merged[k];
+      }
+
       const [updated] = await db
         .update(productionEntries)
         .set({
@@ -347,6 +361,7 @@ export const storage = {
           operatorName: input.operatorName,
           notes: input.notes,
           lockedHours: input.lockedHours,
+          hourSavedAt: merged,
           totalActual: input.totalActual,
           totalExpected: input.totalExpected,
           status: input.status,
@@ -356,8 +371,65 @@ export const storage = {
         .returning();
       return updated;
     }
-    const [created] = await db.insert(productionEntries).values(input).returning();
+    const [created] = await db
+      .insert(productionEntries)
+      .values({
+        ...input,
+        hourSavedAt: input.hourSavedAt ?? {},
+      })
+      .returning();
     return created;
+  },
+
+  // Unlock a specific hour across all entries matching (date, shift) for an org.
+  // Returns the count of entries affected, and the earliest hour-save timestamp
+  // found across them so the caller can enforce the 10-minute operator window.
+  async unlockHour(
+    orgId: number,
+    date: string,
+    shift: string,
+    hourIdx: number
+  ): Promise<{ updated: number; earliestSavedAt: string | null }> {
+    const matches = await db
+      .select()
+      .from(productionEntries)
+      .where(
+        and(
+          eq(productionEntries.organizationId, orgId),
+          eq(productionEntries.date, date),
+          eq(productionEntries.shift, shift)
+        )
+      );
+
+    if (matches.length === 0) return { updated: 0, earliestSavedAt: null };
+
+    let earliest: string | null = null;
+    for (const m of matches) {
+      const savedAt = (m.hourSavedAt as Record<string, string>) ?? {};
+      const t = savedAt[String(hourIdx)];
+      if (t) {
+        if (earliest == null || t < earliest) earliest = t;
+      }
+    }
+
+    let updated = 0;
+    for (const m of matches) {
+      const lockedHours = (m.lockedHours as number[] | null) ?? [];
+      if (!lockedHours.includes(hourIdx)) continue;
+      const newLocked = lockedHours.filter((h) => h !== hourIdx);
+      const savedAt = { ...((m.hourSavedAt as Record<string, string>) ?? {}) };
+      delete savedAt[String(hourIdx)];
+      await db
+        .update(productionEntries)
+        .set({
+          lockedHours: newLocked,
+          hourSavedAt: savedAt,
+          updatedAt: new Date(),
+        })
+        .where(eq(productionEntries.id, m.id));
+      updated++;
+    }
+    return { updated, earliestSavedAt: earliest };
   },
 
   async deleteEntries(orgId: number, date: string, shift: string): Promise<void> {
