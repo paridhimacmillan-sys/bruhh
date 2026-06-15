@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from "react";
-import { AlertTriangle, CheckCircle2, Plus } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Plus, Trash2 } from "lucide-react";
 import type { Operator, BreakdownReason, Item } from "@shared/schema";
 import type { GridRow } from "@/lib/productionGrid";
-import { getItemsForMachine } from "@/lib/productionGrid";
+import { getItemsForMachine, workedMinutesForHour } from "@/lib/productionGrid";
 
 // Below this efficiency, the cell shows a (required) reason dropdown.
 export const REASON_THRESHOLD_PCT = 90;
@@ -22,7 +22,9 @@ interface Props {
   onOperatorChange: (rowIdx: number, name: string) => void;
   onReasonChange: (rowIdx: number, hourIdx: number, reasonId: number | null) => void;
   onSplitRow: (machineId: number) => void;
+  onDeleteRow: (rowIdx: number) => void;
   onSaveHour: (hourIdx: number) => Promise<void>;
+  onUnlockHour: (hourIdx: number) => Promise<void>;
 }
 
 export default function EntryGrid({
@@ -40,7 +42,9 @@ export default function EntryGrid({
   onOperatorChange,
   onReasonChange,
   onSplitRow,
+  onDeleteRow,
   onSaveHour,
+  onUnlockHour,
 }: Props) {
   if (rows.length === 0) {
     return (
@@ -91,14 +95,30 @@ export default function EntryGrid({
                       <div>
                         <p className="font-semibold font-mono text-xs">{row.machine.machineNumber}</p>
                         <p className="text-xs text-muted-foreground">{row.machine.machineType}</p>
-                        <button
-                          type="button"
-                          onClick={() => onSplitRow(row.machineId)}
-                          className="mt-1 text-[10px] text-primary hover:underline inline-flex items-center gap-0.5"
-                          title="Add another row for this machine (running a different item)"
-                        >
-                          <Plus size={9} /> Split
-                        </button>
+                        <div className="mt-1 flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => onSplitRow(row.machineId)}
+                            className="text-[10px] text-primary hover:underline inline-flex items-center gap-0.5"
+                            title="Add another row for this machine (running a different item)"
+                          >
+                            <Plus size={9} /> Split
+                          </button>
+                          {isAdmin && (
+                            <button
+                              type="button"
+                              onClick={() => onDeleteRow(rowIdx)}
+                              className="text-[10px] text-destructive hover:underline inline-flex items-center gap-0.5"
+                              title={
+                                row.rowKey.startsWith("saved-")
+                                  ? "Delete this saved entry (admin)"
+                                  : "Remove this row"
+                              }
+                            >
+                              <Trash2 size={9} /> Remove
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </td>
@@ -208,6 +228,14 @@ export default function EntryGrid({
                               {entry.actual}/{entry.expected}
                             </span>
                           )}
+                          {!noItem && workedMinutesForHour(entry.hour) < 60 && (
+                            <span
+                              className="text-[9px] text-amber-600 italic leading-none"
+                              title={`Lunch break — only ${workedMinutesForHour(entry.hour)} min of work in this hour`}
+                            >
+                              lunch ({workedMinutesForHour(entry.hour)}m)
+                            </span>
+                          )}
                           {entry.actual > 0 && (
                             <span
                               className={`text-[10px] font-mono leading-none ${
@@ -308,12 +336,46 @@ export default function EntryGrid({
                     (r) => Array.isArray(r.lockedHours) && r.lockedHours.includes(i)
                   );
                 const isSaving = savingHour === i;
+
+                // For the undo button, compute the earliest savedAt across rows
+                // — used to show how long ago this hour was saved (operator
+                // window is 10 min). Admin can undo any time.
+                let earliestMs: number | null = null;
+                if (allLocked) {
+                  for (const r of rows) {
+                    const t = r.hourSavedAt?.[String(i)];
+                    if (t) {
+                      const ms = new Date(t).getTime();
+                      if (earliestMs == null || ms < earliestMs) earliestMs = ms;
+                    }
+                  }
+                }
+                const ageMin =
+                  earliestMs != null
+                    ? Math.round((Date.now() - earliestMs) / 60000)
+                    : null;
+                const canOperatorUndo = ageMin != null && ageMin <= 10;
+                const canUndo = isAdmin || canOperatorUndo;
+
                 return (
                   <td key={`save-${i}`} className="px-1 py-2 text-center">
                     {allLocked ? (
-                      <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-green-600">
+                      <button
+                        onClick={() => onUnlockHour(i)}
+                        disabled={!canUndo}
+                        className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-1 rounded transition ${
+                          canUndo
+                            ? "text-green-700 bg-green-50 hover:bg-amber-50 hover:text-amber-700 border border-green-200 hover:border-amber-300"
+                            : "text-green-600 bg-green-50 border border-green-200 cursor-not-allowed opacity-60"
+                        }`}
+                        title={
+                          canUndo
+                            ? `Click to undo${ageMin != null ? ` (saved ${ageMin} min ago)` : ""}`
+                            : `Saved ${ageMin} min ago — only admin can undo after 10 minutes`
+                        }
+                      >
                         <CheckCircle2 size={10} /> Saved
-                      </span>
+                      </button>
                     ) : (
                       <button
                         onClick={() => onSaveHour(i)}
