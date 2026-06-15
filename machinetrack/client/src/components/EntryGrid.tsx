@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from "react";
-import { AlertTriangle, CheckCircle2 } from "lucide-react";
-import type { Operator, BreakdownReason } from "@shared/schema";
+import { AlertTriangle, CheckCircle2, Plus } from "lucide-react";
+import type { Operator, BreakdownReason, Item } from "@shared/schema";
 import type { GridRow } from "@/lib/productionGrid";
+import { getItemsForMachine } from "@/lib/productionGrid";
 
 // Below this efficiency, the cell shows a (required) reason dropdown.
 export const REASON_THRESHOLD_PCT = 90;
@@ -13,11 +14,14 @@ interface Props {
   isAdmin: boolean;
   operators: Operator[];
   reasons: BreakdownReason[];
+  items: Item[];
   savingHour: number | null;
+  onItemChange: (rowIdx: number, itemId: number | null) => void;
   onOpeningChange: (rowIdx: number, value: number) => void;
   onClosingChange: (rowIdx: number, hourIdx: number, value: number) => void;
   onOperatorChange: (rowIdx: number, name: string) => void;
   onReasonChange: (rowIdx: number, hourIdx: number, reasonId: number | null) => void;
+  onSplitRow: (machineId: number) => void;
   onSaveHour: (hourIdx: number) => Promise<void>;
 }
 
@@ -28,11 +32,14 @@ export default function EntryGrid({
   isAdmin,
   operators,
   reasons,
+  items,
   savingHour,
+  onItemChange,
   onOpeningChange,
   onClosingChange,
   onOperatorChange,
   onReasonChange,
+  onSplitRow,
   onSaveHour,
 }: Props) {
   if (rows.length === 0) {
@@ -77,22 +84,52 @@ export default function EntryGrid({
               const eff = totalExpected > 0 ? (totalActual / totalExpected) * 100 : 0;
 
               return (
-                <tr key={`${row.machineId}-${row.itemId}`} className="border-b hover:bg-muted/10">
+                <tr key={row.rowKey} className="border-b hover:bg-muted/10">
                   <td className="px-3 py-2 sticky left-0 bg-card z-10 min-w-[110px]">
                     <div className="flex items-center gap-2">
                       {row.dirty && <AlertTriangle size={12} className="text-amber-500" />}
                       <div>
                         <p className="font-semibold font-mono text-xs">{row.machine.machineNumber}</p>
                         <p className="text-xs text-muted-foreground">{row.machine.machineType}</p>
+                        <button
+                          type="button"
+                          onClick={() => onSplitRow(row.machineId)}
+                          className="mt-1 text-[10px] text-primary hover:underline inline-flex items-center gap-0.5"
+                          title="Add another row for this machine (running a different item)"
+                        >
+                          <Plus size={9} /> Split
+                        </button>
                       </div>
                     </div>
                   </td>
 
-                  <td className="px-3 py-2 sticky left-[110px] bg-card z-10 border-r min-w-[160px]">
-                    <p className="font-medium text-xs">{row.item.itemName}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5 font-mono">
-                      Target: {row.expected} pcs/hr
-                    </p>
+                  <td className="px-3 py-2 sticky left-[110px] bg-card z-10 border-r min-w-[180px]">
+                    {/* Item picker: operator/admin chooses which item is running on this machine.
+                        Lists only items that have a rate defined for this machine. */}
+                    <select
+                      value={row.itemId ?? ""}
+                      onChange={(e) => {
+                        const v = e.target.value ? parseInt(e.target.value, 10) : null;
+                        onItemChange(rowIdx, v);
+                      }}
+                      className={`w-full px-2 py-1 border rounded text-xs ${
+                        row.itemId == null
+                          ? "border-amber-400 bg-amber-50"
+                          : "border-input"
+                      }`}
+                    >
+                      <option value="">— Pick item —</option>
+                      {getItemsForMachine(row.machineId, items).map(({ item, rate }) => (
+                        <option key={item.id} value={item.id}>
+                          {item.itemName} ({rate}/hr)
+                        </option>
+                      ))}
+                    </select>
+                    {row.itemId != null && (
+                      <p className="text-xs text-muted-foreground mt-0.5 font-mono">
+                        Target: {row.expected} pcs/hr
+                      </p>
+                    )}
                   </td>
 
                   <td className="px-3 py-2 min-w-[120px]">
@@ -111,16 +148,21 @@ export default function EntryGrid({
                   </td>
 
                   <td className="px-2 py-2 text-center bg-muted/10 min-w-[90px]">
-                    <OpeningReadingInput
-                      value={row.openingReading}
-                      onCommit={(v) => onOpeningChange(rowIdx, v)}
-                    />
+                    {row.itemId == null ? (
+                      <span className="text-xs text-muted-foreground italic">—</span>
+                    ) : (
+                      <OpeningReadingInput
+                        value={row.openingReading}
+                        onCommit={(v) => onOpeningChange(rowIdx, v)}
+                      />
+                    )}
                   </td>
 
                   {row.entries.map((entry, hourIdx) => {
                     const isLocked = Array.isArray(row.lockedHours)
                       ? row.lockedHours.includes(hourIdx)
                       : false;
+                    const noItem = row.itemId == null;
                     const pct =
                       entry.expected > 0 ? (entry.actual / entry.expected) * 100 : 0;
                     const cellBg =
@@ -147,7 +189,11 @@ export default function EntryGrid({
                         }`}
                       >
                         <div className="flex flex-col items-center gap-0.5">
-                          {isLocked ? (
+                          {noItem ? (
+                            <span className="w-16 text-center text-xs text-muted-foreground italic">
+                              —
+                            </span>
+                          ) : isLocked ? (
                             <span className="w-16 text-center text-xs font-mono font-semibold text-muted-foreground">
                               {entry.closingReading ?? "—"}
                             </span>
@@ -157,9 +203,11 @@ export default function EntryGrid({
                               onCommit={(v) => onClosingChange(rowIdx, hourIdx, v)}
                             />
                           )}
-                          <span className="text-xs text-muted-foreground font-mono leading-none">
-                            {entry.actual}/{entry.expected}
-                          </span>
+                          {!noItem && (
+                            <span className="text-xs text-muted-foreground font-mono leading-none">
+                              {entry.actual}/{entry.expected}
+                            </span>
+                          )}
                           {entry.actual > 0 && (
                             <span
                               className={`text-[10px] font-mono leading-none ${
