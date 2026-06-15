@@ -273,6 +273,19 @@ export const storage = {
     return o;
   },
 
+  async updateOperator(
+    id: number,
+    orgId: number,
+    data: Partial<InsertOperator>
+  ): Promise<Operator | undefined> {
+    const [o] = await db
+      .update(operators)
+      .set(data)
+      .where(and(eq(operators.id, id), eq(operators.organizationId, orgId)))
+      .returning();
+    return o;
+  },
+
   async deleteOperator(id: number, orgId: number): Promise<void> {
     await db
       .delete(operators)
