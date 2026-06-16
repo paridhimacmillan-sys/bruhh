@@ -18,7 +18,7 @@ interface Props {
   savingHour: number | null;
   onItemChange: (rowIdx: number, itemId: number | null) => void;
   onOpeningChange: (rowIdx: number, value: number) => void;
-  onClosingChange: (rowIdx: number, hourIdx: number, value: number) => void;
+  onClosingChange: (rowIdx: number, hourIdx: number, value: number | null) => void;
   onOperatorChange: (rowIdx: number, name: string) => void;
   onReasonChange: (rowIdx: number, hourIdx: number, reasonId: number | null) => void;
   onSplitRow: (machineId: number) => void;
@@ -450,7 +450,7 @@ function ClosingReadingInput({
   onCommit,
 }: {
   value: number | null;
-  onCommit: (v: number) => void;
+  onCommit: (v: number | null) => void;
 }) {
   const [draft, setDraft] = useState<string>(value == null ? "" : String(value));
   const valueRef = useRef(value);
@@ -460,12 +460,14 @@ function ClosingReadingInput({
   }, [value]);
 
   const commit = () => {
+    // Empty input means "no reading entered for this hour" (gap). Send null
+    // so the validator treats it as skipped, not as "produced -1940 pcs".
     if (draft === "") {
-      onCommit(0);
+      onCommit(null);
       return;
     }
     const v = parseInt(draft, 10);
-    onCommit(isNaN(v) ? 0 : Math.max(0, v));
+    onCommit(isNaN(v) ? null : Math.max(0, v));
     setTimeout(
       () => setDraft(valueRef.current == null ? "" : String(valueRef.current)),
       0
