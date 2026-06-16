@@ -563,23 +563,26 @@ export function registerRoutes(app: Express) {
         })
         .parse(req.body);
 
-      // Server-side validation: REJECT (don't silently cap) anything that exceeds expected.
+      // Server-side validation: REJECT (don't silently cap) anything that
+      // exceeds expected. Skipped (null closing) cells are tolerated — meter
+      // doesn't advance during gaps. `prev` only updates on real readings,
+      // so the next non-null reading is compared against the last real one.
       const validated: HourlyEntry[] = [];
       let prev = input.openingReading;
       for (const [idx, e] of input.entries.entries()) {
         if (e.closingReading == null) {
-          validated.push({ ...e, actual: 0 });
+          validated.push({ ...e, actual: 0, closingReading: null });
           continue;
         }
         if (e.closingReading < prev) {
           return res.status(400).json({
-            message: `Hour ${idx + 1}: closing reading (${e.closingReading}) cannot be less than previous reading (${prev})`,
+            message: `Hour ${e.hour}: closing reading (${e.closingReading}) cannot be less than the last recorded reading (${prev})`,
           });
         }
         const actual = e.closingReading - prev;
         if (e.expected > 0 && actual > e.expected) {
           return res.status(400).json({
-            message: `Hour ${idx + 1}: produced ${actual} exceeds target of ${e.expected}. Max allowed closing = ${prev + e.expected}`,
+            message: `Hour ${e.hour}: produced ${actual} exceeds target of ${e.expected}. Max allowed closing = ${prev + e.expected}`,
           });
         }
         validated.push({ ...e, actual });
