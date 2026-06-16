@@ -59,8 +59,13 @@ async function runMigrations() {
       "machine_number" text NOT NULL,
       "machine_type" text NOT NULL,
       "status" text NOT NULL DEFAULT 'active',
+      "tracking_mode" text NOT NULL DEFAULT 'hourly',
       "created_at" timestamp NOT NULL DEFAULT now()
     );
+
+    -- Idempotent: add tracking_mode to existing databases.
+    ALTER TABLE "machines"
+      ADD COLUMN IF NOT EXISTS "tracking_mode" text NOT NULL DEFAULT 'hourly';
 
     CREATE TABLE IF NOT EXISTS "items" (
       "id" serial PRIMARY KEY,
@@ -126,8 +131,12 @@ async function runMigrations() {
       "item_id" integer NOT NULL REFERENCES "items"("id"),
       "shift" text NOT NULL,
       "opening_reading" integer DEFAULT 0,
+      "opening_at" timestamp,
+      "closing_at" timestamp,
       "entries" jsonb NOT NULL,
       "operator_name" text,
+      "operator_name_2" text,
+      "operator_change_time" text,
       "notes" text,
       "locked_hours" integer[] DEFAULT '{}',
       "hour_saved_at" jsonb DEFAULT '{}'::jsonb,
@@ -140,6 +149,14 @@ async function runMigrations() {
     -- Idempotent column add for existing databases
     ALTER TABLE "production_entries"
       ADD COLUMN IF NOT EXISTS "hour_saved_at" jsonb DEFAULT '{}'::jsonb;
+    ALTER TABLE "production_entries"
+      ADD COLUMN IF NOT EXISTS "operator_name_2" text;
+    ALTER TABLE "production_entries"
+      ADD COLUMN IF NOT EXISTS "operator_change_time" text;
+    ALTER TABLE "production_entries"
+      ADD COLUMN IF NOT EXISTS "opening_at" timestamp;
+    ALTER TABLE "production_entries"
+      ADD COLUMN IF NOT EXISTS "closing_at" timestamp;
 
     CREATE UNIQUE INDEX IF NOT EXISTS "IDX_production_unique"
       ON "production_entries" ("organization_id", "date", "machine_id", "item_id", "shift");
