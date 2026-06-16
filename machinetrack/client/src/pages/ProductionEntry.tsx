@@ -31,6 +31,10 @@ function todayYMD(): string {
   ).padStart(2, "0")}`;
 }
 
+function formatTimeHHMM(d: Date): string {
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
 export default function ProductionEntryPage() {
   const { user } = useMe();
   const isAdmin = user?.role === "admin";
@@ -230,8 +234,14 @@ export default function ProductionEntryPage() {
       itemId: row.itemId,
       shift: shiftName,
       openingReading: row.openingReading,
+      // Shift-total mode persists when opening/closing were clocked.
+      // Server uses these to compute target. Send as ISO strings; null clears.
+      openingAt: row.openingAt ? row.openingAt.toISOString() : null,
+      closingAt: row.closingAt ? row.closingAt.toISOString() : null,
       entries: row.entries,
       operatorName: row.operatorName || null,
+      operatorName2: row.operatorName2 || null,
+      operatorChangeTime: row.operatorChangeTime || null,
       notes: row.notes || null,
       lockedHours: row.lockedHours,
       hourSavedAt: row.hourSavedAt,
@@ -267,6 +277,25 @@ export default function ProductionEntryPage() {
           } below ${REASON_THRESHOLD_PCT}% efficiency: ${sample}${
             missing.length > 3 ? "..." : ""
           }`,
+          { duration: 6000 }
+        );
+      }
+      return { ok: 0, failed: 0, blocked: true };
+    }
+
+    // Validate "both or neither" for second operator + change time
+    const handoverIssues: string[] = [];
+    for (const row of rowsRef.current) {
+      const op2 = row.operatorName2.trim();
+      const chg = row.operatorChangeTime.trim();
+      if ((op2 && !chg) || (!op2 && chg)) {
+        handoverIssues.push(row.machine.machineNumber);
+      }
+    }
+    if (handoverIssues.length > 0) {
+      if (!opts.silent) {
+        toast.error(
+          `Fill BOTH operator-2 name AND change time (or leave both blank): ${handoverIssues.join(", ")}`,
           { duration: 6000 }
         );
       }
@@ -423,6 +452,16 @@ export default function ProductionEntryPage() {
     updateRow(idx, (r) => ({ ...r, operatorName: name }));
   };
 
+  // Second operator (handover mid-shift). Optional.
+  const handleOperator2Change = (idx: number, name: string) => {
+    updateRow(idx, (r) => ({ ...r, operatorName2: name }));
+  };
+
+  // Time at which the operator handover happened. "HH:MM".
+  const handleOperatorChangeTimeChange = (idx: number, time: string) => {
+    updateRow(idx, (r) => ({ ...r, operatorChangeTime: time }));
+  };
+
   // Item picker: operator/admin chose a different item for this row.
   // Update the row's itemId, item ref, and recompute the per-hour `expected` rate
   // (from item.rates for this machine).
@@ -486,7 +525,9 @@ export default function ProductionEntryPage() {
         .pop();
       const machine = prev.find((r) => r.machineId === machineId)?.machine;
       if (!machine) return prev;
-      // Use a unique synthetic key so React doesn't reuse fiber state
+      // Use a unique synthetic key so React doesn't reuse fiber state.
+      // Inherit trackingMode from the existing row for this machine.
+      const existingForMachine = prev.find((r) => r.machineId === machineId);
       const newRow: GridRow = {
         rowKey: `split-${machineId}-${Date.now()}`,
         machineId,
@@ -502,9 +543,14 @@ export default function ProductionEntryPage() {
           expected: 0,
         })),
         operatorName: "",
+        operatorName2: "",
+        operatorChangeTime: "",
         notes: "",
         lockedHours: [],
         hourSavedAt: {},
+        trackingMode: existingForMachine?.trackingMode ?? "hourly",
+        openingAt: null,
+        closingAt: null,
         dirty: false,
       };
       const insertAt = (lastIdx ?? prev.length - 1) + 1;
@@ -688,6 +734,70 @@ export default function ProductionEntryPage() {
     }
   };
 
+  // SHIFT-TOTAL MODE HANDLERS
+  // For machines configured as 'shift_total' in masters, the operator clicks
+  // "Save Opening" at shift start (stamps openingAt) and "Save Closing" at
+  // shift end (stamps closingAt). Server computes target from elapsed time.
+  //
+  // Both actions trigger an immediate save so the timestamps persist even
+  // if the operator's network drops before they tab out of the cell.
+  const handleSaveOpening = async (rowIdx: number) => {
+    const row = rowsRef.current[rowIdx];
+    if (!row) return;
+    if (row.itemId == null) {
+      toast.error("Pick an item first");
+      return;
+    }
+    if (row.openingReading <= 0) {
+      toast.error("Enter the opening meter reading first");
+      return;
+    }
+    const now = new Date();
+    setRows((prev) => {
+      const next = [...prev];
+      next[rowIdx] = { ...next[rowIdx], openingAt: now, dirty: true };
+      return next;
+    });
+    try {
+      await saveRow({ ...row, openingAt: now });
+      toast.success(`Opening clocked @ ${formatTimeHHMM(now)}`);
+      await refetchEntries();
+    } catch (e: any) {
+      toast.error(e.message ?? "Save failed");
+    }
+  };
+
+  const handleSaveClosing = async (rowIdx: number) => {
+    const row = rowsRef.current[rowIdx];
+    if (!row) return;
+    if (!row.openingAt) {
+      toast.error("Click Save Opening first");
+      return;
+    }
+    // Find the entry the closing reading goes into. For shift-total mode the
+    // grid renders a single cell — we use the LAST entry slot to store the
+    // closing reading so the existing entries[] structure still works.
+    const lastIdx = row.entries.length - 1;
+    const lastEntry = row.entries[lastIdx];
+    if (lastEntry.closingReading == null || lastEntry.closingReading <= 0) {
+      toast.error("Enter the closing meter reading first");
+      return;
+    }
+    const now = new Date();
+    setRows((prev) => {
+      const next = [...prev];
+      next[rowIdx] = { ...next[rowIdx], closingAt: now, dirty: true };
+      return next;
+    });
+    try {
+      await saveRow({ ...row, closingAt: now });
+      toast.success(`Closing clocked @ ${formatTimeHHMM(now)}`);
+      await refetchEntries();
+    } catch (e: any) {
+      toast.error(e.message ?? "Save failed");
+    }
+  };
+
   const handleManualSave = async () => {
     setSaving(true);
     try {
@@ -768,11 +878,11 @@ export default function ProductionEntryPage() {
   }
 
   return (
-    <div className="p-6 space-y-4">
+    <div className="p-4 space-y-3">
       <header className="flex items-start justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Production Entry</h1>
-          <p className="text-sm text-muted-foreground">
+          <h1 className="text-xl font-bold">Production Entry</h1>
+          <p className="text-xs text-muted-foreground">
             Log hourly meter readings. App computes actual vs target.
           </p>
         </div>
@@ -820,19 +930,19 @@ export default function ProductionEntryPage() {
           </div>
           <div className="md:col-span-2">
             <label className="block text-xs font-medium mb-1">Shift</label>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-1">
               {shifts.map((s) => (
                 <button
                   key={s.id}
                   onClick={() => handleShiftChange(s.name)}
-                  className={`px-3 py-2 text-sm rounded font-semibold ${
+                  className={`px-2 py-1 text-xs rounded font-semibold leading-tight ${
                     s.name === shiftName
                       ? "bg-primary text-primary-foreground"
                       : "bg-muted hover:bg-muted/70"
                   }`}
                 >
                   Shift {s.name}
-                  <span className="block text-[10px] font-normal opacity-80 font-mono">
+                  <span className="block text-[9px] font-normal opacity-80 font-mono">
                     {s.startTime}-{s.endTime}
                   </span>
                 </button>
@@ -880,11 +990,15 @@ export default function ProductionEntryPage() {
         onOpeningChange={handleOpeningChange}
         onClosingChange={handleClosingChange}
         onOperatorChange={handleOperatorChange}
+        onOperator2Change={handleOperator2Change}
+        onOperatorChangeTimeChange={handleOperatorChangeTimeChange}
         onReasonChange={handleReasonChange}
         onSplitRow={handleSplitRow}
         onDeleteRow={handleDeleteRow}
         onSaveHour={handleSaveHour}
         onUnlockHour={handleUnlockHour}
+        onSaveOpening={handleSaveOpening}
+        onSaveClosing={handleSaveClosing}
       />
     </div>
   );
