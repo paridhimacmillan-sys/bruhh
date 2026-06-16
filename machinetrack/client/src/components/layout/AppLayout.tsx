@@ -48,13 +48,16 @@ export default function AppLayout({ user, children }: Props) {
   });
 
   return (
-    <div className="flex h-screen">
-      <aside className="w-60 border-r bg-card flex flex-col">
-        <div className="p-4 border-b">
-          <h1 className="font-bold text-lg">MachineTrack</h1>
-          <p className="text-xs text-muted-foreground">Production Monitor</p>
+    <div className="flex flex-col h-screen">
+      <header className="flex items-center gap-4 px-4 h-11 border-b bg-card shrink-0">
+        <div className="flex items-baseline gap-1.5 mr-2">
+          <h1 className="font-bold text-sm leading-none">MachineTrack</h1>
+          <span className="text-[10px] text-muted-foreground leading-none hidden sm:inline">
+            Production Monitor
+          </span>
         </div>
-        <nav className="flex-1 p-3 space-y-1">
+
+        <nav className="flex items-center gap-0.5 flex-1 overflow-x-auto">
           {nav.map((item) => {
             const Icon = item.icon;
             const active = location === item.href;
@@ -63,32 +66,38 @@ export default function AppLayout({ user, children }: Props) {
                 key={item.href}
                 href={item.href}
                 className={cn(
-                  "flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium",
+                  "flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-medium whitespace-nowrap",
                   active
                     ? "bg-primary text-primary-foreground"
                     : "text-muted-foreground hover:bg-muted"
                 )}
               >
-                <Icon size={16} />
+                <Icon size={13} />
                 {item.label}
               </Link>
             );
           })}
         </nav>
-        <div className="border-t p-3 text-sm">
-          <p className="font-semibold truncate">
-            {user.email ?? user.username}
-          </p>
-          <p className="text-xs text-muted-foreground capitalize">{user.role}</p>
+
+        <div className="flex items-center gap-3 text-xs shrink-0">
+          <div className="text-right leading-tight hidden md:block">
+            <p className="font-semibold text-[11px] truncate max-w-[180px]">
+              {user.email ?? user.username}
+            </p>
+            <p className="text-[9px] text-muted-foreground capitalize">
+              {user.role}
+            </p>
+          </div>
           <button
             onClick={() => logoutMut.mutate()}
-            className="mt-2 flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground"
+            className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground px-2 py-1 rounded hover:bg-muted"
+            title="Sign out"
           >
             <LogOut size={12} />
-            Sign out
+            <span className="hidden sm:inline">Sign out</span>
           </button>
         </div>
-      </aside>
+      </header>
       <main className="flex-1 overflow-auto">{children}</main>
     </div>
   );
