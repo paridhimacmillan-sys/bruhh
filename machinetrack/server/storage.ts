@@ -182,6 +182,14 @@ export const storage = {
       .orderBy(items.itemName);
   },
 
+  async getItemById(id: number, orgId: number): Promise<Item | undefined> {
+    const [i] = await db
+      .select()
+      .from(items)
+      .where(and(eq(items.id, id), eq(items.organizationId, orgId)));
+    return i;
+  },
+
   async createItem(data: InsertItem & { organizationId: number }): Promise<Item> {
     const [i] = await db.insert(items).values(data).returning();
     return i;
@@ -316,8 +324,12 @@ export const storage = {
     itemId: number;
     shift: string;
     openingReading: number;
+    openingAt?: Date | null;
+    closingAt?: Date | null;
     entries: HourlyEntry[];
     operatorName: string | null;
+    operatorName2: string | null;
+    operatorChangeTime: string | null;
     notes: string | null;
     lockedHours: number[];
     hourSavedAt?: Record<string, string>;
@@ -353,12 +365,25 @@ export const storage = {
         if (!lockedSet.has(k)) delete merged[k];
       }
 
+      // For shift-total mode, openingAt is stamped at first save and shouldn't
+      // be overwritten on subsequent updates (unless explicitly cleared). Same
+      // for closingAt. If the caller passes undefined we keep the existing
+      // value; if they pass null, we clear it (undo-save case).
+      const nextOpeningAt =
+        input.openingAt === undefined ? existing[0].openingAt : input.openingAt;
+      const nextClosingAt =
+        input.closingAt === undefined ? existing[0].closingAt : input.closingAt;
+
       const [updated] = await db
         .update(productionEntries)
         .set({
           openingReading: input.openingReading,
+          openingAt: nextOpeningAt,
+          closingAt: nextClosingAt,
           entries: input.entries,
           operatorName: input.operatorName,
+          operatorName2: input.operatorName2,
+          operatorChangeTime: input.operatorChangeTime,
           notes: input.notes,
           lockedHours: input.lockedHours,
           hourSavedAt: merged,
@@ -375,6 +400,8 @@ export const storage = {
       .insert(productionEntries)
       .values({
         ...input,
+        openingAt: input.openingAt ?? null,
+        closingAt: input.closingAt ?? null,
         hourSavedAt: input.hourSavedAt ?? {},
       })
       .returning();
