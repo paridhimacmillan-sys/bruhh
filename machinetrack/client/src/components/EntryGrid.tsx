@@ -77,7 +77,7 @@ export default function EntryGrid({
 
   return (
     <div className="bg-card border rounded-lg overflow-hidden">
-      <div className="px-4 py-2 border-b bg-muted/40 text-xs font-semibold uppercase text-muted-foreground">
+      <div className="px-3 py-1 border-b bg-muted/40 text-[10px] font-semibold uppercase text-muted-foreground">
         Hourly Production Grid — Shift {shift}
       </div>
 
@@ -85,20 +85,20 @@ export default function EntryGrid({
         <table className="w-full text-sm border-collapse">
           <thead>
             <tr className="border-b bg-muted/20">
-              <th className="text-left px-3 py-2 text-xs font-semibold uppercase sticky left-0 bg-muted/20 z-20 min-w-[110px]">Machine</th>
-              <th className="text-left px-3 py-2 text-xs font-semibold uppercase sticky left-[110px] bg-muted/20 z-20 min-w-[160px] border-r">Item</th>
-              <th className="text-left px-3 py-2 text-xs font-semibold uppercase min-w-[120px]">Operator</th>
-              <th className="text-center px-2 py-2 text-xs font-semibold uppercase min-w-[90px]">Opening</th>
+              <th className="text-left px-2 py-2 text-[10px] font-semibold uppercase sticky left-0 bg-muted/20 z-20 min-w-[88px]">Machine</th>
+              <th className="text-left px-2 py-2 text-[10px] font-semibold uppercase sticky left-[88px] bg-muted/20 z-20 min-w-[150px] border-r">Item</th>
+              <th className="text-left px-2 py-2 text-[10px] font-semibold uppercase min-w-[110px]">Operator</th>
+              <th className="text-center px-1 py-1 text-[10px] font-semibold uppercase min-w-[80px]">Opening</th>
               {hours.map((h, i) => (
                 <th
                   key={`th-${i}`}
-                  className="text-center px-2 py-2 text-xs font-semibold uppercase font-mono min-w-[90px]"
+                  className="text-center px-1 py-1 text-[10px] font-semibold uppercase font-mono min-w-[80px]"
                 >
                   {h}
                 </th>
               ))}
-              <th className="text-right px-3 py-2 text-xs font-semibold uppercase">Total</th>
-              <th className="text-right px-3 py-2 text-xs font-semibold uppercase">Var</th>
+              <th className="text-right px-2 py-1 text-[10px] font-semibold uppercase">Total</th>
+              <th className="text-right px-2 py-1 text-[10px] font-semibold uppercase">Var</th>
             </tr>
           </thead>
           <tbody>
@@ -110,33 +110,33 @@ export default function EntryGrid({
 
               return (
                 <tr key={row.rowKey} className="border-b hover:bg-muted/10">
-                  <td className="px-3 py-2 sticky left-0 bg-card z-10 min-w-[110px]">
-                    <div className="flex items-center gap-2">
-                      {row.dirty && <AlertTriangle size={12} className="text-amber-500" />}
-                      <div>
-                        <p className="font-semibold font-mono text-xs">{row.machine.machineNumber}</p>
-                        <p className="text-xs text-muted-foreground">{row.machine.machineType}</p>
-                        <div className="mt-1 flex items-center gap-2">
+                  <td className="px-2 py-1 sticky left-0 bg-card z-10 min-w-[88px]">
+                    <div className="flex items-center gap-1">
+                      {row.dirty && <AlertTriangle size={10} className="text-amber-500 shrink-0" />}
+                      <div className="min-w-0">
+                        <p className="font-semibold font-mono text-[11px] leading-tight">{row.machine.machineNumber}</p>
+                        <p className="text-[9px] text-muted-foreground leading-tight truncate">{row.machine.machineType}</p>
+                        <div className="mt-0.5 flex items-center gap-1">
                           <button
                             type="button"
                             onClick={() => onSplitRow(row.machineId)}
-                            className="text-[10px] text-primary hover:underline inline-flex items-center gap-0.5"
-                            title="Add another row for this machine (running a different item)"
+                            className="text-[9px] text-primary hover:bg-primary/10 inline-flex items-center justify-center w-4 h-4 rounded"
+                            title="Add another row for this machine (different item)"
                           >
-                            <Plus size={9} /> Split
+                            <Plus size={10} />
                           </button>
                           {isAdmin && (
                             <button
                               type="button"
                               onClick={() => onDeleteRow(rowIdx)}
-                              className="text-[10px] text-destructive hover:underline inline-flex items-center gap-0.5"
+                              className="text-[9px] text-destructive hover:bg-destructive/10 inline-flex items-center justify-center w-4 h-4 rounded"
                               title={
                                 row.rowKey.startsWith("saved-")
                                   ? "Delete this saved entry (admin)"
                                   : "Remove this row"
                               }
                             >
-                              <Trash2 size={9} /> Remove
+                              <Trash2 size={10} />
                             </button>
                           )}
                         </div>
@@ -144,16 +144,17 @@ export default function EntryGrid({
                     </div>
                   </td>
 
-                  <td className="px-3 py-2 sticky left-[110px] bg-card z-10 border-r min-w-[180px]">
+                  <td className="px-2 py-1 sticky left-[88px] bg-card z-10 border-r min-w-[150px]">
                     {/* Item picker: operator/admin chooses which item is running on this machine.
-                        Lists only items that have a rate defined for this machine. */}
+                        Lists only items that have a rate defined for this machine.
+                        Rate appears inline in dropdown text — no separate target line needed. */}
                     <select
                       value={row.itemId ?? ""}
                       onChange={(e) => {
                         const v = e.target.value ? parseInt(e.target.value, 10) : null;
                         onItemChange(rowIdx, v);
                       }}
-                      className={`w-full px-2 py-1 border rounded text-xs ${
+                      className={`w-full px-1.5 py-0.5 border rounded text-[11px] ${
                         row.itemId == null
                           ? "border-amber-400 bg-amber-50"
                           : "border-input"
@@ -166,18 +167,13 @@ export default function EntryGrid({
                         </option>
                       ))}
                     </select>
-                    {row.itemId != null && (
-                      <p className="text-xs text-muted-foreground mt-0.5 font-mono">
-                        Target: {row.expected} pcs/hr
-                      </p>
-                    )}
                   </td>
 
-                  <td className="px-3 py-2 min-w-[140px]">
+                  <td className="px-2 py-1 min-w-[110px]">
                     <select
                       value={row.operatorName}
                       onChange={(e) => onOperatorChange(rowIdx, e.target.value)}
-                      className="w-full px-2 py-1 border rounded text-xs"
+                      className="w-full px-1.5 py-0.5 border rounded text-[11px]"
                     >
                       <option value="">Unassigned</option>
                       {operators.map((o) => (
@@ -186,12 +182,26 @@ export default function EntryGrid({
                         </option>
                       ))}
                     </select>
-                    {/* Second operator + change time (optional handover).
-                        Server enforces "both or neither" — UI shows a subtle
-                        amber outline if only one is filled. */}
+                    {/* Second operator + change time. Collapsed to a small
+                        link when unused; expanded to dual inputs when active.
+                        Server enforces "both or neither" — amber outline if
+                        only one is filled. */}
                     {(() => {
                       const op2 = row.operatorName2 ?? "";
                       const chg = row.operatorChangeTime ?? "";
+                      const isActive = !!op2.trim() || !!chg.trim();
+                      if (!isActive) {
+                        return (
+                          <button
+                            type="button"
+                            onClick={() => onOperator2Change(rowIdx, " ")}
+                            className="mt-0.5 text-[9px] text-muted-foreground hover:text-primary"
+                            title="Add a second operator (handover mid-shift)"
+                          >
+                            + handover
+                          </button>
+                        );
+                      }
                       const mismatched =
                         (op2.trim() && !chg.trim()) ||
                         (!op2.trim() && chg.trim());
@@ -199,16 +209,16 @@ export default function EntryGrid({
                         ? "border-amber-400 bg-amber-50"
                         : "";
                       return (
-                        <div className="mt-1 flex gap-1">
+                        <div className="mt-0.5 flex gap-0.5">
                           <select
                             value={op2}
                             onChange={(e) =>
                               onOperator2Change(rowIdx, e.target.value)
                             }
-                            className={`flex-1 min-w-0 px-1 py-0.5 border rounded text-[10px] ${ring}`}
+                            className={`flex-1 min-w-0 px-1 py-0 border rounded text-[10px] ${ring}`}
                             title="Second operator (handover mid-shift)"
                           >
-                            <option value="">+ 2nd operator</option>
+                            <option value="">— none —</option>
                             {operators.map((o) => (
                               <option key={o.id} value={o.name}>
                                 {o.name}
@@ -221,7 +231,7 @@ export default function EntryGrid({
                             onChange={(e) =>
                               onOperatorChangeTimeChange(rowIdx, e.target.value)
                             }
-                            className={`w-[72px] px-1 py-0.5 border rounded text-[10px] font-mono ${ring}`}
+                            className={`w-[60px] px-0.5 py-0 border rounded text-[10px] font-mono ${ring}`}
                             title="Time of handover (HH:MM)"
                           />
                         </div>
@@ -229,7 +239,7 @@ export default function EntryGrid({
                     })()}
                   </td>
 
-                  <td className="px-2 py-2 text-center bg-muted/10 min-w-[90px]">
+                  <td className="px-1 py-1 text-center bg-muted/10 min-w-[80px]">
                     {row.itemId == null ? (
                       <span className="text-xs text-muted-foreground italic">—</span>
                     ) : (
@@ -390,7 +400,7 @@ export default function EntryGrid({
                     return (
                       <td
                         key={`cell-${row.machineId}-${row.itemId}-${hourIdx}`}
-                        className={`px-1 py-2 text-center align-top min-w-[90px] ${cellBg} ${
+                        className={`px-0.5 py-1 text-center align-top min-w-[80px] ${cellBg} ${
                           missingReason ? "ring-1 ring-inset ring-red-300" : ""
                         }`}
                       >
@@ -422,19 +432,9 @@ export default function EntryGrid({
                               lunch ({workedMinutesForHour(entry.hour)}m)
                             </span>
                           )}
-                          {entry.actual > 0 && (
-                            <span
-                              className={`text-[10px] font-mono leading-none ${
-                                pct >= 95
-                                  ? "text-green-600"
-                                  : pct >= 80
-                                  ? "text-yellow-600"
-                                  : "text-red-600"
-                              }`}
-                            >
-                              {Math.round(pct)}%
-                            </span>
-                          )}
+                          {/* % efficiency text removed to save vertical space.
+                              The cell background color (green/yellow/red) already
+                              conveys the same info at a glance. */}
                           {/* Reason dropdown only appears for sub-threshold cells.
                               Stays hidden when on-target so the grid doesn't bloat. */}
                           {reasonNeeded && !isLocked && (
@@ -467,11 +467,9 @@ export default function EntryGrid({
                                 ))}
                             </select>
                           )}
-                          {reasonNeeded && isLocked && entry.reasonId != null && (
-                            <span className="mt-1 text-[10px] text-muted-foreground italic max-w-[110px] truncate">
-                              {reasons.find((r) => r.id === entry.reasonId)?.name ?? ""}
-                            </span>
-                          )}
+                          {/* Reason name caption removed to save vertical space.
+                              The reason is still saved with the entry — see the
+                              Recent Entries page or Reports for the reason audit. */}
                         </div>
                       </td>
                     );
@@ -514,7 +512,7 @@ export default function EntryGrid({
               <td className="px-3 py-2 text-xs font-semibold text-muted-foreground sticky left-0 bg-muted/20 z-10">
                 Save Hour
               </td>
-              <td className="sticky left-[110px] bg-muted/20 z-10 border-r" />
+              <td className="sticky left-[88px] bg-muted/20 z-10 border-r" />
               <td />
               <td />
               {hours.map((h, i) => {
