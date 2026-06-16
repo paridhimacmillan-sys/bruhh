@@ -198,7 +198,14 @@ export default function RecentEntriesPage() {
                   <td className="px-4 py-2">{e.shift}</td>
                   <td className="px-4 py-2 font-mono">{machine?.machineNumber ?? "-"}</td>
                   <td className="px-4 py-2">{item?.itemName ?? "-"}</td>
-                  <td className="px-4 py-2">{e.operatorName ?? "-"}</td>
+                  <td className="px-4 py-2">
+                    {e.operatorName ?? "-"}
+                    {e.operatorName2 && e.operatorChangeTime && (
+                      <span className="block text-[10px] text-muted-foreground">
+                        → {e.operatorName2} @ {e.operatorChangeTime}
+                      </span>
+                    )}
+                  </td>
                   <td className="px-4 py-2 text-right font-mono font-semibold">
                     {actual.toLocaleString()}
                   </td>
