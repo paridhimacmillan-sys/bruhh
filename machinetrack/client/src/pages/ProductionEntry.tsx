@@ -878,7 +878,7 @@ export default function ProductionEntryPage() {
   }
 
   return (
-    <div className="p-4 space-y-3">
+    <div className="p-3 space-y-2">
       <header className="flex items-start justify-between">
         <div>
           <h1 className="text-xl font-bold">Production Entry</h1>
@@ -909,20 +909,20 @@ export default function ProductionEntryPage() {
         </div>
       </header>
 
-      <div className="bg-card border rounded-lg p-4">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-start">
+      <div className="bg-card border rounded-lg p-3">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-start">
           <div>
             <label className="block text-xs font-medium mb-1">Date</label>
             <input
               type="date"
               value={date}
               onChange={(e) => handleDateChange(e.target.value)}
-              className="px-3 py-2 border rounded text-sm font-mono"
+              className="px-2 py-1 border rounded text-xs font-mono"
             />
             <button
               type="button"
               onClick={handleCarryForward}
-              className="block mt-2 text-xs text-primary hover:underline"
+              className="block mt-1 text-[10px] text-primary hover:underline"
               title={`Pre-fill openings from ${prevDate}`}
             >
               ← Carry forward from {prevDate}
