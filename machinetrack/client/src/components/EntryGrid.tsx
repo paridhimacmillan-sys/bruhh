@@ -7,6 +7,19 @@ import { getItemsForMachine, workedMinutesForHour } from "@/lib/productionGrid";
 // Below this efficiency, the cell shows a (required) reason dropdown.
 export const REASON_THRESHOLD_PCT = 90;
 
+// Format a Date as HH:MM in local time
+function formatHHMM(d: Date): string {
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+// Round a Date to the nearest whole hour (for shift-total target estimate)
+function roundHr(d: Date): Date {
+  const r = new Date(d);
+  if (r.getMinutes() >= 30) r.setHours(r.getHours() + 1);
+  r.setMinutes(0, 0, 0);
+  return r;
+}
+
 interface Props {
   rows: GridRow[];
   hours: string[];
@@ -20,11 +33,15 @@ interface Props {
   onOpeningChange: (rowIdx: number, value: number) => void;
   onClosingChange: (rowIdx: number, hourIdx: number, value: number | null) => void;
   onOperatorChange: (rowIdx: number, name: string) => void;
+  onOperator2Change: (rowIdx: number, name: string) => void;
+  onOperatorChangeTimeChange: (rowIdx: number, time: string) => void;
   onReasonChange: (rowIdx: number, hourIdx: number, reasonId: number | null) => void;
   onSplitRow: (machineId: number) => void;
   onDeleteRow: (rowIdx: number) => void;
   onSaveHour: (hourIdx: number) => Promise<void>;
   onUnlockHour: (hourIdx: number) => Promise<void>;
+  onSaveOpening: (rowIdx: number) => Promise<void>;
+  onSaveClosing: (rowIdx: number) => Promise<void>;
 }
 
 export default function EntryGrid({
@@ -40,11 +57,15 @@ export default function EntryGrid({
   onOpeningChange,
   onClosingChange,
   onOperatorChange,
+  onOperator2Change,
+  onOperatorChangeTimeChange,
   onReasonChange,
   onSplitRow,
   onDeleteRow,
   onSaveHour,
   onUnlockHour,
+  onSaveOpening,
+  onSaveClosing,
 }: Props) {
   if (rows.length === 0) {
     return (
@@ -152,7 +173,7 @@ export default function EntryGrid({
                     )}
                   </td>
 
-                  <td className="px-3 py-2 min-w-[120px]">
+                  <td className="px-3 py-2 min-w-[140px]">
                     <select
                       value={row.operatorName}
                       onChange={(e) => onOperatorChange(rowIdx, e.target.value)}
@@ -165,20 +186,185 @@ export default function EntryGrid({
                         </option>
                       ))}
                     </select>
+                    {/* Second operator + change time (optional handover).
+                        Server enforces "both or neither" — UI shows a subtle
+                        amber outline if only one is filled. */}
+                    {(() => {
+                      const op2 = row.operatorName2 ?? "";
+                      const chg = row.operatorChangeTime ?? "";
+                      const mismatched =
+                        (op2.trim() && !chg.trim()) ||
+                        (!op2.trim() && chg.trim());
+                      const ring = mismatched
+                        ? "border-amber-400 bg-amber-50"
+                        : "";
+                      return (
+                        <div className="mt-1 flex gap-1">
+                          <select
+                            value={op2}
+                            onChange={(e) =>
+                              onOperator2Change(rowIdx, e.target.value)
+                            }
+                            className={`flex-1 min-w-0 px-1 py-0.5 border rounded text-[10px] ${ring}`}
+                            title="Second operator (handover mid-shift)"
+                          >
+                            <option value="">+ 2nd operator</option>
+                            {operators.map((o) => (
+                              <option key={o.id} value={o.name}>
+                                {o.name}
+                              </option>
+                            ))}
+                          </select>
+                          <input
+                            type="time"
+                            value={chg}
+                            onChange={(e) =>
+                              onOperatorChangeTimeChange(rowIdx, e.target.value)
+                            }
+                            className={`w-[72px] px-1 py-0.5 border rounded text-[10px] font-mono ${ring}`}
+                            title="Time of handover (HH:MM)"
+                          />
+                        </div>
+                      );
+                    })()}
                   </td>
 
                   <td className="px-2 py-2 text-center bg-muted/10 min-w-[90px]">
                     {row.itemId == null ? (
                       <span className="text-xs text-muted-foreground italic">—</span>
                     ) : (
-                      <OpeningReadingInput
-                        value={row.openingReading}
-                        onCommit={(v) => onOpeningChange(rowIdx, v)}
-                      />
+                      <div className="flex flex-col items-center gap-0.5">
+                        <OpeningReadingInput
+                          value={row.openingReading}
+                          onCommit={(v) => onOpeningChange(rowIdx, v)}
+                        />
+                        {row.trackingMode === "shift_total" &&
+                          (row.openingAt ? (
+                            <span
+                              className="text-[9px] text-green-700 font-mono leading-none"
+                              title={`Clocked at ${row.openingAt.toLocaleString()}`}
+                            >
+                              ✓ {formatHHMM(row.openingAt)}
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => onSaveOpening(rowIdx)}
+                              className="text-[9px] px-1.5 py-0.5 rounded bg-primary text-primary-foreground hover:bg-primary/90 leading-none"
+                              title="Clock the start time for this shift"
+                            >
+                              Save Opening
+                            </button>
+                          ))}
+                      </div>
                     )}
                   </td>
 
-                  {row.entries.map((entry, hourIdx) => {
+                  {row.trackingMode === "shift_total" ? (
+                    /* SHIFT-TOTAL: single big cell spanning all the hour columns
+                       with one closing reading + Save Closing button. The target
+                       is computed by the server from elapsed time. */
+                    <td
+                      colSpan={hours.length}
+                      className="px-3 py-2 text-center bg-blue-50/40"
+                    >
+                      {row.itemId == null ? (
+                        <span className="text-xs text-muted-foreground italic">
+                          Pick an item to start tracking this shift
+                        </span>
+                      ) : !row.openingAt ? (
+                        <span className="text-xs text-muted-foreground italic">
+                          Enter opening reading and click <b>Save Opening</b> to start
+                        </span>
+                      ) : (
+                        <div className="flex items-center justify-center gap-3">
+                          <span className="text-xs text-muted-foreground">
+                            Started {formatHHMM(row.openingAt)} •
+                            {row.closingAt
+                              ? ` ended ${formatHHMM(row.closingAt)}`
+                              : " running…"}
+                          </span>
+                          <div className="flex flex-col items-center gap-0.5">
+                            <span className="text-[10px] uppercase font-semibold text-muted-foreground">
+                              Closing reading
+                            </span>
+                            <ClosingReadingInput
+                              value={
+                                row.entries[row.entries.length - 1]
+                                  ?.closingReading ?? null
+                              }
+                              onCommit={(v) =>
+                                onClosingChange(
+                                  rowIdx,
+                                  row.entries.length - 1,
+                                  v
+                                )
+                              }
+                            />
+                          </div>
+                          {row.closingAt ? (
+                            <span
+                              className="text-[10px] text-green-700 font-mono"
+                              title={`Clocked at ${row.closingAt.toLocaleString()}`}
+                            >
+                              ✓ Closed @ {formatHHMM(row.closingAt)}
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => onSaveClosing(rowIdx)}
+                              className="text-[10px] px-2 py-1 rounded bg-primary text-primary-foreground hover:bg-primary/90 font-semibold"
+                              title="Clock the end time for this shift"
+                            >
+                              Save Closing
+                            </button>
+                          )}
+                          {(() => {
+                            const last = row.entries[row.entries.length - 1];
+                            if (!last || last.closingReading == null) return null;
+                            const actual = last.actual;
+                            // Target only known after server save; show last
+                            // saved expected if any, otherwise live estimate.
+                            const target =
+                              row.entries.reduce(
+                                (s, e) => s + (e.expected || 0),
+                                0
+                              ) ||
+                              (row.openingAt && row.closingAt
+                                ? Math.round(
+                                    (row.expected *
+                                      Math.max(
+                                        0,
+                                        (roundHr(row.closingAt).getTime() -
+                                          roundHr(row.openingAt).getTime()) /
+                                          60000
+                                      )) /
+                                      60
+                                  )
+                                : 0);
+                            const eff =
+                              target > 0
+                                ? Math.round((actual / target) * 100)
+                                : 0;
+                            const effColor =
+                              eff >= 95
+                                ? "text-green-700"
+                                : eff >= 80
+                                ? "text-amber-700"
+                                : "text-red-600";
+                            return (
+                              <span
+                                className={`text-xs font-semibold font-mono ${effColor}`}
+                              >
+                                {actual} / {target} ({eff}%)
+                              </span>
+                            );
+                          })()}
+                        </div>
+                      )}
+                    </td>
+                  ) : (
+                  row.entries.map((entry, hourIdx) => {
                     const isLocked = Array.isArray(row.lockedHours)
                       ? row.lockedHours.includes(hourIdx)
                       : false;
@@ -289,7 +475,7 @@ export default function EntryGrid({
                         </div>
                       </td>
                     );
-                  })}
+                  }))}
 
                   <td className="px-3 py-2 text-right">
                     <span className="font-mono font-bold text-xs">
@@ -319,7 +505,10 @@ export default function EntryGrid({
             })}
           </tbody>
 
-          {/* Per-hour save buttons row */}
+          {/* Per-hour save buttons row. Hidden entirely when all rows are
+              shift-total (those save via inline "Save Closing"). When mixed,
+              only counts hourly rows for the "all locked" check. */}
+          {rows.some((r) => r.trackingMode !== "shift_total") && (
           <tfoot>
             <tr className="border-t bg-muted/20">
               <td className="px-3 py-2 text-xs font-semibold text-muted-foreground sticky left-0 bg-muted/20 z-10">
@@ -329,10 +518,14 @@ export default function EntryGrid({
               <td />
               <td />
               {hours.map((h, i) => {
-                // An hour is locked overall if ALL rows have it locked
+                // Only count rows in HOURLY mode — shift-total rows don't
+                // participate in per-hour locking.
+                const hourlyRows = rows.filter(
+                  (r) => r.trackingMode !== "shift_total"
+                );
                 const allLocked =
-                  rows.length > 0 &&
-                  rows.every(
+                  hourlyRows.length > 0 &&
+                  hourlyRows.every(
                     (r) => Array.isArray(r.lockedHours) && r.lockedHours.includes(i)
                   );
                 const isSaving = savingHour === i;
@@ -391,6 +584,7 @@ export default function EntryGrid({
               <td colSpan={2} />
             </tr>
           </tfoot>
+          )}
         </table>
       </div>
     </div>
