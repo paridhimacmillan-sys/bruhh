@@ -348,10 +348,27 @@ export default function ProductionEntryPage() {
     }));
   };
 
-  const handleClosingChange = (idx: number, hourIdx: number, value: number) => {
+  const handleClosingChange = (
+    idx: number,
+    hourIdx: number,
+    value: number | null
+  ) => {
     setRows((prev) => {
       const next = [...prev];
       const row = next[idx];
+
+      // Clearing the cell: just remove and recompute. No validation needed.
+      if (value == null) {
+        const newEntries = [...row.entries];
+        newEntries[hourIdx] = { ...newEntries[hourIdx], closingReading: null };
+        next[idx] = {
+          ...row,
+          entries: recomputeActuals(row.openingReading, newEntries),
+          dirty: true,
+        };
+        return next;
+      }
+
       const expected = row.entries[hourIdx]?.expected ?? 0;
 
       // Validate: opening must be set
@@ -360,20 +377,20 @@ export default function ProductionEntryPage() {
         return prev;
       }
 
-      // Validate: previous hours must be entered before this one
-      for (let i = 0; i < hourIdx; i++) {
-        if (row.entries[i].closingReading == null) {
-          toast.error(`Enter hour ${row.entries[i].hour} first`);
-          return prev;
+      // "Previous reading" is the most recent non-null closing BEFORE this
+      // hour. Skipped/gap hours are tolerated — meter doesn't move when no
+      // production happens. Falls back to opening reading if nothing earlier
+      // is set yet.
+      let prevReading = row.openingReading;
+      for (let i = hourIdx - 1; i >= 0; i--) {
+        const c = row.entries[i].closingReading;
+        if (c != null) {
+          prevReading = c;
+          break;
         }
       }
 
-      const prevReading =
-        hourIdx === 0
-          ? row.openingReading
-          : row.entries[hourIdx - 1].closingReading ?? row.openingReading;
-
-      // Validate: must not go backwards
+      // Validate: must not go backwards from the last real reading
       if (value < prevReading) {
         toast.error(
           `Closing (${value}) cannot be less than previous reading (${prevReading})`
@@ -381,7 +398,7 @@ export default function ProductionEntryPage() {
         return prev;
       }
 
-      // Validate: must not exceed target
+      // Validate: must not exceed target for THIS hour (lunch-adjusted)
       const wouldBeActual = value - prevReading;
       if (expected > 0 && wouldBeActual > expected) {
         const maxClosing = prevReading + expected;
