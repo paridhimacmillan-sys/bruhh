@@ -118,6 +118,21 @@ function MachinesTab() {
     onError: (err: any) => toast.error(err.message ?? "Failed to update status"),
   });
 
+  // Tracking mode: 'hourly' (default, full hourly grid) or 'shift_total'
+  // (single opening + closing per shift, target computed from elapsed time).
+  const updateTrackingModeMut = useMutation({
+    mutationFn: ({ id, trackingMode }: { id: number; trackingMode: string }) =>
+      api(`/api/machines/${id}`, {
+        method: "PUT",
+        body: JSON.stringify({ trackingMode }),
+      }),
+    onSuccess: () => {
+      toast.success("Tracking mode updated");
+      queryClient.invalidateQueries({ queryKey: ["/api/machines"] });
+    },
+    onError: (err: any) => toast.error(err.message ?? "Failed to update mode"),
+  });
+
   // Inline edit of machine number + type.
   const updateMut = useMutation({
     mutationFn: ({
@@ -295,6 +310,7 @@ function MachinesTab() {
               <th className="text-left px-4 py-2 text-xs font-semibold uppercase">Machine</th>
               <th className="text-left px-4 py-2 text-xs font-semibold uppercase">Type</th>
               <th className="text-left px-4 py-2 text-xs font-semibold uppercase">Status</th>
+              <th className="text-left px-4 py-2 text-xs font-semibold uppercase">Mode</th>
               <th className="text-left px-4 py-2 text-xs font-semibold uppercase">Shifts</th>
               <th />
             </tr>
@@ -302,14 +318,14 @@ function MachinesTab() {
           <tbody>
             {isLoading && (
               <tr>
-                <td colSpan={6} className="px-4 py-6 text-center text-muted-foreground">
+                <td colSpan={7} className="px-4 py-6 text-center text-muted-foreground">
                   Loading...
                 </td>
               </tr>
             )}
             {!isLoading && machines.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-6 text-center text-muted-foreground">
+                <td colSpan={7} className="px-4 py-6 text-center text-muted-foreground">
                   No machines yet. Add one above.
                 </td>
               </tr>
@@ -374,6 +390,23 @@ function MachinesTab() {
                       <option value="active">Active</option>
                       <option value="maintenance">Maintenance</option>
                       <option value="offline">Offline</option>
+                    </select>
+                  </td>
+                  <td className="px-4 py-2">
+                    <select
+                      value={(m as any).trackingMode ?? "hourly"}
+                      onChange={(e) =>
+                        updateTrackingModeMut.mutate({
+                          id: m.id,
+                          trackingMode: e.target.value,
+                        })
+                      }
+                      disabled={updateTrackingModeMut.isPending}
+                      className="px-2 py-1 border rounded text-xs font-semibold"
+                      title="Hourly: log each hour. Shift total: just opening + closing per shift."
+                    >
+                      <option value="hourly">Hourly</option>
+                      <option value="shift_total">Shift total</option>
                     </select>
                   </td>
                   <td className="px-4 py-2">
