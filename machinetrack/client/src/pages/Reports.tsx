@@ -123,6 +123,7 @@ export default function ReportsPage() {
         if (it) r.itemSet.add(it.itemName);
       }
       if (e.operatorName) r.operatorSet.add(e.operatorName);
+      if (e.operatorName2) r.operatorSet.add(e.operatorName2);
 
       // Loss minutes for THIS entry: shortfall_pcs / rate × 60
       // Look up the item's hourly rate on this machine.
@@ -307,6 +308,8 @@ export default function ReportsPage() {
         "Machine Type",
         "Item",
         "Operator",
+        "Operator 2",
+        "Change Time",
         "Opening",
         "Actual",
         "Target",
@@ -326,6 +329,8 @@ export default function ReportsPage() {
           m?.machineType ?? "",
           it?.itemName ?? "",
           e.operatorName ?? "",
+          e.operatorName2 ?? "",
+          e.operatorChangeTime ?? "",
           e.openingReading ?? 0,
           actual,
           expected,
