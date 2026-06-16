@@ -546,6 +546,9 @@ export function registerRoutes(app: Express) {
           itemId: z.number().int().positive(),
           shift: z.string().min(1),
           openingReading: z.number().int().min(0),
+          // ISO timestamp strings; null is allowed but undefined is also fine.
+          openingAt: z.string().datetime().nullable().optional(),
+          closingAt: z.string().datetime().nullable().optional(),
           entries: z.array(
             z.object({
               hour: z.string(),
@@ -556,6 +559,12 @@ export function registerRoutes(app: Express) {
             })
           ),
           operatorName: z.string().nullable(),
+          operatorName2: z.string().nullable().optional(),
+          operatorChangeTime: z
+            .string()
+            .regex(/^\d{2}:\d{2}$/, "Change time must be HH:MM")
+            .nullable()
+            .optional(),
           notes: z.string().nullable(),
           lockedHours: z.array(z.number().int()),
           hourSavedAt: z.record(z.string(), z.string()).optional(),
@@ -563,10 +572,74 @@ export function registerRoutes(app: Express) {
         })
         .parse(req.body);
 
+      // "Both or neither" rule for operator handover. Treat empty string as
+      // unset so the frontend can send '' and we normalise to null.
+      const op2 = input.operatorName2?.trim() || null;
+      const chg = input.operatorChangeTime?.trim() || null;
+      if ((op2 && !chg) || (!op2 && chg)) {
+        return res.status(400).json({
+          message:
+            "Second operator and change time must be filled together — fill both or leave both blank.",
+        });
+      }
+
+      // Convert ISO strings to Date for the DB driver. Undefined means
+      // "don't change" (preserve existing). null means "clear".
+      const openingAt =
+        input.openingAt === undefined
+          ? undefined
+          : input.openingAt === null
+          ? null
+          : new Date(input.openingAt);
+      const closingAt =
+        input.closingAt === undefined
+          ? undefined
+          : input.closingAt === null
+          ? null
+          : new Date(input.closingAt);
+
       // Server-side validation: REJECT (don't silently cap) anything that
       // exceeds expected. Skipped (null closing) cells are tolerated — meter
       // doesn't advance during gaps. `prev` only updates on real readings,
       // so the next non-null reading is compared against the last real one.
+      //
+      // For machines in shift_total mode, the client sends a single entry
+      // covering the whole shift. We compute its `expected` server-side from
+      // elapsed (openingAt → closingAt, rounded to nearest hour, minus lunch)
+      // so the client can't inflate the target.
+      const machine = await storage.getMachineById(input.machineId, orgId);
+      const item = await storage.getItemById(input.itemId, orgId);
+      const isShiftTotal = machine?.trackingMode === "shift_total";
+
+      let serverComputedExpected: number | null = null;
+      if (isShiftTotal && openingAt && closingAt && item) {
+        const rates = (item.rates as Array<{ machineId: number; rate: number }>) ?? [];
+        const rate =
+          rates.find((r) => r?.machineId === input.machineId)?.rate ?? 0;
+        // Round each timestamp to the nearest hour, then subtract lunch
+        // overlap (13:00–13:30) before computing target.
+        const roundHr = (d: Date) => {
+          const r = new Date(d);
+          const mm = r.getMinutes();
+          if (mm >= 30) r.setHours(r.getHours() + 1);
+          r.setMinutes(0, 0, 0);
+          return r;
+        };
+        const oH = roundHr(openingAt);
+        const cH = roundHr(closingAt);
+        let workedMin = Math.max(0, (cH.getTime() - oH.getTime()) / 60000);
+        // Subtract lunch overlap if the range covers 13:00-13:30 of that day.
+        const lunchStart = new Date(oH);
+        lunchStart.setHours(13, 0, 0, 0);
+        const lunchEnd = new Date(oH);
+        lunchEnd.setHours(13, 30, 0, 0);
+        const overlapStart = Math.max(oH.getTime(), lunchStart.getTime());
+        const overlapEnd = Math.min(cH.getTime(), lunchEnd.getTime());
+        const lunchOverlap = Math.max(0, (overlapEnd - overlapStart) / 60000);
+        workedMin -= lunchOverlap;
+        serverComputedExpected = Math.round((rate * workedMin) / 60);
+      }
+
       const validated: HourlyEntry[] = [];
       let prev = input.openingReading;
       for (const [idx, e] of input.entries.entries()) {
@@ -580,12 +653,17 @@ export function registerRoutes(app: Express) {
           });
         }
         const actual = e.closingReading - prev;
-        if (e.expected > 0 && actual > e.expected) {
+        // Override expected with server-computed value in shift-total mode
+        const effectiveExpected =
+          isShiftTotal && serverComputedExpected != null
+            ? serverComputedExpected
+            : e.expected;
+        if (effectiveExpected > 0 && actual > effectiveExpected) {
           return res.status(400).json({
-            message: `Hour ${e.hour}: produced ${actual} exceeds target of ${e.expected}. Max allowed closing = ${prev + e.expected}`,
+            message: `Hour ${e.hour}: produced ${actual} exceeds target of ${effectiveExpected}. Max allowed closing = ${prev + effectiveExpected}`,
           });
         }
-        validated.push({ ...e, actual });
+        validated.push({ ...e, actual, expected: effectiveExpected });
         prev = e.closingReading;
       }
 
@@ -599,8 +677,12 @@ export function registerRoutes(app: Express) {
         itemId: input.itemId,
         shift: input.shift,
         openingReading: input.openingReading,
+        openingAt,
+        closingAt,
         entries: validated,
         operatorName: input.operatorName,
+        operatorName2: op2,
+        operatorChangeTime: chg,
         notes: input.notes,
         lockedHours: input.lockedHours,
         hourSavedAt: input.hourSavedAt,
