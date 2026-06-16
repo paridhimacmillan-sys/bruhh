@@ -40,6 +40,12 @@ export const machines = pgTable("machines", {
   machineNumber: text("machine_number").notNull(),
   machineType: text("machine_type").notNull(),
   status: text("status").notNull().default("active"), // active / maintenance / offline
+  // How operators log production for this machine:
+  //   'hourly'      → full hourly grid (default, existing behavior)
+  //   'shift_total' → single opening + single closing per shift; target computed
+  //                   from elapsed time between Save Opening and Save Closing
+  //                   (rounded to nearest hour, minus lunch overlap)
+  trackingMode: text("tracking_mode").notNull().default("hourly"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -178,9 +184,19 @@ export const productionEntries = pgTable("production_entries", {
     .references(() => items.id),
   shift: text("shift").notNull(),
   openingReading: integer("opening_reading").default(0),
+  // Timestamps for shift-total mode: when the operator clicked "Save Opening"
+  // and "Save Closing". Used to compute elapsed productive time → target.
+  // The actual click time is stored; rounding to nearest hour happens in the
+  // target calculation. Null for hourly-mode entries (timestamp irrelevant).
+  openingAt: timestamp("opening_at"),
+  closingAt: timestamp("closing_at"),
   // entries: [{ hour: 'HH:MM', closingReading: number|null, actual: number, expected: number }]
   entries: jsonb("entries").notNull(),
   operatorName: text("operator_name"),
+  // Second operator when handover happens mid-shift. Both fields go together —
+  // setting one without the other is rejected at the API layer.
+  operatorName2: text("operator_name_2"),
+  operatorChangeTime: text("operator_change_time"), // HH:MM
   notes: text("notes"),
   lockedHours: integer("locked_hours").array().default([]),
   // Per-hour save timestamps: { "0": "2026-06-15T13:01:00Z", "1": "..." }.
