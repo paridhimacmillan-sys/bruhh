@@ -45,6 +45,8 @@ export default function ProductionEntryPage() {
   const [saving, setSaving] = useState(false);
   const [savingHour, setSavingHour] = useState<number | null>(null);
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
+  // Whether the carry-forward "what to copy" picker is open
+  const [carryPickerOpen, setCarryPickerOpen] = useState(false);
 
   // Refs to avoid stale closures in the debounced auto-save effect
   const rowsRef = useRef(rows);
@@ -131,7 +133,15 @@ export default function ProductionEntryPage() {
   // Manual carry-forward action: pull yesterday's last-hour closing readings and
   // pre-fill today's openings. User-triggered via a button so there's no race
   // condition with React Query loading state.
-  const handleCarryForward = () => {
+  // Carry forward behavior depends on what the user picked from the dialog:
+  //   "part"          → only the item (so the row knows what's running today)
+  //   "part_op"       → item + operator name (most common: same operator
+  //                     continues today)
+  //   "part_op_close" → item + operator + yesterday's closing becomes today's
+  //                     opening reading (full continuation)
+  type CarryMode = "part" | "part_op" | "part_op_close";
+
+  const handleCarryForward = (mode: CarryMode) => {
     const matchesDate = (entryDate: unknown, targetYMD: string): boolean => {
       if (entryDate == null) return false;
       const s =
@@ -152,8 +162,15 @@ export default function ProductionEntryPage() {
     // For each machine on yesterday, find:
     //   - the LAST itemId it ran (presumed "current item")
     //   - the closing reading at end of that run
-    // We'll use this to both auto-pick the item AND seed the opening.
-    type Carry = { itemId: number; value: number };
+    //   - the operator name(s)
+    // We use this to repopulate today's row(s) based on `mode`.
+    type Carry = {
+      itemId: number;
+      value: number;
+      operatorName: string;
+      operatorName2: string;
+      operatorChangeTime: string;
+    };
     const carryByMachine = new Map<number, Carry>();
     for (const e of yesterdaysEntries) {
       if (e.itemId == null) continue;
@@ -163,14 +180,19 @@ export default function ProductionEntryPage() {
         if (h.closingReading != null) lastClosing = h.closingReading;
       }
       const fallback = e.openingReading ?? 0;
-      const value = lastClosing ?? (fallback > 0 ? fallback : null);
-      if (value == null) continue;
+      const value = lastClosing ?? (fallback > 0 ? fallback : 0);
       // If multiple entries for same machine (shift split), the last one wins
-      carryByMachine.set(e.machineId, { itemId: e.itemId, value });
+      carryByMachine.set(e.machineId, {
+        itemId: e.itemId,
+        value,
+        operatorName: e.operatorName ?? "",
+        operatorName2: (e as any).operatorName2 ?? "",
+        operatorChangeTime: (e as any).operatorChangeTime ?? "",
+      });
     }
 
     if (carryByMachine.size === 0) {
-      toast.error(`No usable readings found in ${prevDate}'s entries`);
+      toast.error(`No items to carry forward from ${prevDate}`);
       return;
     }
 
@@ -206,19 +228,45 @@ export default function ProductionEntryPage() {
           ...e,
           expected: nextExpected,
         }));
+        // Apply operator only for modes that include it. Don't overwrite
+        // an already-picked operator today (operator might already be at
+        // the machine and chosen themselves).
+        const applyOp = mode === "part_op" || mode === "part_op_close";
+        const applyClose = mode === "part_op_close";
+        const nextOperator =
+          applyOp && !r.operatorName ? carry.operatorName : r.operatorName;
+        const nextOperator2 =
+          applyOp && !r.operatorName2 ? carry.operatorName2 : r.operatorName2;
+        const nextChangeTime =
+          applyOp && !r.operatorChangeTime
+            ? carry.operatorChangeTime
+            : r.operatorChangeTime;
+        const nextOpening = applyClose ? carry.value : r.openingReading;
         return {
           ...r,
           itemId: nextItemId,
           item: nextItem,
           expected: nextExpected,
-          openingReading: carry.value,
-          entries: recomputeActuals(carry.value, newEntries),
+          openingReading: nextOpening,
+          operatorName: nextOperator,
+          operatorName2: nextOperator2,
+          operatorChangeTime: nextChangeTime,
+          entries: recomputeActuals(nextOpening, newEntries),
           dirty: true,
         };
       })
     );
 
-    toast.success(`Carried forward ${appliedCount} opening reading(s) from ${prevDate}`);
+    const label =
+      mode === "part"
+        ? "items"
+        : mode === "part_op"
+        ? "items + operators"
+        : "items + operators + opening readings";
+    toast.success(
+      `Carried forward ${label} for ${appliedCount} machine(s) from ${prevDate}`
+    );
+    setCarryPickerOpen(false);
   };
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -878,39 +926,34 @@ export default function ProductionEntryPage() {
   }
 
   return (
-    <div className="p-3 space-y-2">
-      <header className="flex items-start justify-between">
-        <div>
-          <h1 className="text-xl font-bold">Production Entry</h1>
-          <p className="text-xs text-muted-foreground">
-            Log hourly meter readings. App computes actual vs target.
-          </p>
-        </div>
+    <div className="p-2 space-y-2">
+      <header className="flex items-center justify-between">
+        <h1 className="text-base font-bold">Production Entry</h1>
         <div className="flex items-center gap-2">
           {isAdmin && (
             <button
               onClick={handleDelete}
               disabled={!hasData}
               title={hasData ? "Delete all entries for this date and shift" : "No entries to delete"}
-              className="flex items-center gap-2 px-3 py-2 text-sm font-medium border border-destructive/30 text-destructive rounded hover:bg-destructive/10 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium border border-destructive/30 text-destructive rounded hover:bg-destructive/10 disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              <Trash2 size={14} />
+              <Trash2 size={12} />
               Delete
             </button>
           )}
           <button
             onClick={handleManualSave}
             disabled={saving}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-semibold bg-primary text-primary-foreground rounded hover:bg-primary/90 disabled:opacity-60 min-w-[110px] justify-center"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-primary text-primary-foreground rounded hover:bg-primary/90 disabled:opacity-60 min-w-[90px] justify-center"
           >
-            <Save size={14} />
+            <Save size={12} />
             {saving ? "Saving…" : "Save Entries"}
           </button>
         </div>
       </header>
 
-      <div className="bg-card border rounded-lg p-3">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-start">
+      <div className="bg-card border rounded-lg p-2">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-2 items-start">
           <div>
             <label className="block text-xs font-medium mb-1">Date</label>
             <input
@@ -921,9 +964,9 @@ export default function ProductionEntryPage() {
             />
             <button
               type="button"
-              onClick={handleCarryForward}
+              onClick={() => setCarryPickerOpen(true)}
               className="block mt-1 text-[10px] text-primary hover:underline"
-              title={`Pre-fill openings from ${prevDate}`}
+              title={`Pre-fill from ${prevDate}`}
             >
               ← Carry forward from {prevDate}
             </button>
@@ -950,9 +993,9 @@ export default function ProductionEntryPage() {
             </div>
           </div>
           <div className="text-right">
-            <p className="text-xs text-muted-foreground">Total Actual</p>
-            <p className="text-2xl font-bold font-mono">{totalActual.toLocaleString()}</p>
-            <p className="text-xs text-muted-foreground mt-1">
+            <p className="text-[10px] text-muted-foreground leading-none">Total Actual</p>
+            <p className="text-lg font-bold font-mono leading-tight">{totalActual.toLocaleString()}</p>
+            <p className="text-[10px] text-muted-foreground leading-none">
               Efficiency:{" "}
               <span
                 className={`font-mono font-semibold ${
@@ -967,9 +1010,9 @@ export default function ProductionEntryPage() {
               </span>
             </p>
             {anyDirty ? (
-              <p className="text-xs text-amber-600 font-medium mt-1">● Unsaved changes</p>
+              <p className="text-[10px] text-amber-600 font-medium leading-none mt-0.5">● Unsaved</p>
             ) : lastSavedAt ? (
-              <p className="text-xs text-green-600 mt-1">
+              <p className="text-[10px] text-green-600 leading-none mt-0.5">
                 ✓ Saved {Math.round((Date.now() - lastSavedAt) / 1000)}s ago
               </p>
             ) : null}
@@ -1000,6 +1043,70 @@ export default function ProductionEntryPage() {
         onSaveOpening={handleSaveOpening}
         onSaveClosing={handleSaveClosing}
       />
+
+      {/* Carry-forward picker. Modal-style overlay with three options.
+          The actual logic lives in handleCarryForward(mode) above. */}
+      {carryPickerOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+          onClick={() => setCarryPickerOpen(false)}
+        >
+          <div
+            className="bg-card border rounded-lg shadow-lg p-5 w-[420px] max-w-[90vw]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="font-bold text-base mb-1">
+              Carry forward from {prevDate}
+            </h2>
+            <p className="text-xs text-muted-foreground mb-4">
+              Choose what to copy into today's grid. You can still edit
+              anything afterwards.
+            </p>
+            <div className="space-y-2">
+              <button
+                onClick={() => handleCarryForward("part")}
+                className="w-full text-left px-3 py-2 border rounded hover:bg-muted/40"
+              >
+                <p className="text-sm font-semibold">Items only</p>
+                <p className="text-[11px] text-muted-foreground">
+                  Pre-fill which item each machine is running. Operator and
+                  opening readings stay blank.
+                </p>
+              </button>
+              <button
+                onClick={() => handleCarryForward("part_op")}
+                className="w-full text-left px-3 py-2 border rounded hover:bg-muted/40"
+              >
+                <p className="text-sm font-semibold">Items + Operators</p>
+                <p className="text-[11px] text-muted-foreground">
+                  Pre-fill items and operator names (including handover, if
+                  any). Opening readings stay blank.
+                </p>
+              </button>
+              <button
+                onClick={() => handleCarryForward("part_op_close")}
+                className="w-full text-left px-3 py-2 border rounded hover:bg-muted/40"
+              >
+                <p className="text-sm font-semibold">
+                  Items + Operators + Opening (last closing → today's opening)
+                </p>
+                <p className="text-[11px] text-muted-foreground">
+                  Full continuation. Yesterday's last closing reading becomes
+                  today's opening for each machine.
+                </p>
+              </button>
+            </div>
+            <div className="flex justify-end mt-4">
+              <button
+                onClick={() => setCarryPickerOpen(false)}
+                className="px-3 py-1 text-xs border rounded hover:bg-muted/40"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
