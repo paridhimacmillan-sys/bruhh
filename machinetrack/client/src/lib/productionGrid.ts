@@ -37,6 +37,43 @@ export function expectedForHour(rate: number, hourLabel: string): number {
   return Math.round((rate * minutes) / 60);
 }
 
+// Round a Date to the nearest hour. 08:05 → 08:00, 08:30 → 09:00, 08:29 → 08:00.
+// Used by shift-total target math so a save-click at 08:05 counts as the 8 AM
+// hour and a save-click at 19:50 counts as the 8 PM hour.
+function roundToNearestHour(d: Date): Date {
+  const r = new Date(d);
+  if (r.getMinutes() >= 30) r.setHours(r.getHours() + 1);
+  r.setMinutes(0, 0, 0);
+  return r;
+}
+
+// Shift-total mode: compute target from elapsed time between when the
+// operator clicked "Save Opening" and "Save Closing". Timestamps are
+// rounded to the nearest hour, then the lunch window (13:00–13:30) is
+// subtracted if it falls within the range.
+//
+// Mirrors the same math the server uses for authoritative validation.
+export function expectedForShiftElapsed(
+  rate: number,
+  openingAt: Date | null,
+  closingAt: Date | null
+): number {
+  if (rate <= 0 || !openingAt || !closingAt) return 0;
+  const oH = roundToNearestHour(openingAt);
+  const cH = roundToNearestHour(closingAt);
+  let workedMin = Math.max(0, (cH.getTime() - oH.getTime()) / 60000);
+  // Subtract lunch overlap on the opening date.
+  const lunchStart = new Date(oH);
+  lunchStart.setHours(13, 0, 0, 0);
+  const lunchEnd = new Date(oH);
+  lunchEnd.setHours(13, 30, 0, 0);
+  const overlapStart = Math.max(oH.getTime(), lunchStart.getTime());
+  const overlapEnd = Math.min(cH.getTime(), lunchEnd.getTime());
+  const lunchOverlap = Math.max(0, (overlapEnd - overlapStart) / 60000);
+  workedMin -= lunchOverlap;
+  return Math.round((rate * workedMin) / 60);
+}
+
 // Compute the hour labels for a shift. Each label is the time when the closing
 // reading is taken — i.e. the END of that worked hour. For an 08:00 → 20:00 shift,
 // the operator does an opening read at 08:00, then closing reads at 09:00, 10:00,
@@ -85,11 +122,22 @@ export interface GridRow {
   openingReading: number;
   entries: HourlyEntry[];
   operatorName: string;
+  // Second operator name (handover mid-shift). Empty string if no handover.
+  // Must be filled together with operatorChangeTime.
+  operatorName2: string;
+  operatorChangeTime: string; // "HH:MM" or ""
   notes: string;
   lockedHours: number[];
   // Per-hour save timestamps (ISO strings), keyed by stringified hourIdx.
   // Used to enforce the 10-min operator-undo window.
   hourSavedAt: Record<string, string>;
+  // Machine's tracking mode. For 'shift_total' the grid renders a single
+  // opening+closing cell instead of the hourly columns.
+  trackingMode: "hourly" | "shift_total";
+  // Shift-total only: timestamps when operator clicked Save Opening / Closing.
+  // Server rounds to nearest hour for target math; we store the actual time.
+  openingAt: Date | null;
+  closingAt: Date | null;
   dirty: boolean;
 }
 
@@ -173,9 +221,17 @@ export function buildRows(
           expected: 0,
         })),
         operatorName: "",
+        operatorName2: "",
+        operatorChangeTime: "",
         notes: "",
         lockedHours: [],
         hourSavedAt: {},
+        trackingMode:
+          ((machine as any).trackingMode === "shift_total"
+            ? "shift_total"
+            : "hourly") as "hourly" | "shift_total",
+        openingAt: null,
+        closingAt: null,
         dirty: false,
       });
       continue;
@@ -216,12 +272,20 @@ export function buildRows(
         openingReading: existing.openingReading ?? 0,
         entries: hourlyEntries,
         operatorName: existing.operatorName ?? "",
+        operatorName2: existing.operatorName2 ?? "",
+        operatorChangeTime: existing.operatorChangeTime ?? "",
         notes: existing.notes ?? "",
         lockedHours: Array.isArray(existing.lockedHours)
           ? (existing.lockedHours as number[])
           : [],
         hourSavedAt:
           (existing.hourSavedAt as Record<string, string> | null) ?? {},
+        trackingMode:
+          ((machine as any).trackingMode === "shift_total"
+            ? "shift_total"
+            : "hourly") as "hourly" | "shift_total",
+        openingAt: existing.openingAt ? new Date(existing.openingAt) : null,
+        closingAt: existing.closingAt ? new Date(existing.closingAt) : null,
         dirty: false,
       });
     }
