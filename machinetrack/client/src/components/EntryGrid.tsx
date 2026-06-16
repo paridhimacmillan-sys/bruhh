@@ -76,6 +76,21 @@ export default function EntryGrid({
   const syncingRef = useRef(false);
   const [tableWidth, setTableWidth] = useState(0);
 
+  // Tracks which rows have the handover (2nd operator + change time) UI
+  // expanded. A row is also implicitly expanded if it already has any
+  // handover data saved — the check is `expanded || hasData`.
+  const [handoverExpanded, setHandoverExpanded] = useState<Set<string>>(
+    new Set()
+  );
+  const toggleHandover = (rowKey: string) => {
+    setHandoverExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(rowKey)) next.delete(rowKey);
+      else next.add(rowKey);
+      return next;
+    });
+  };
+
   // Mirror the table's actual rendered width into the top scrollbar's inner
   // div so the proxy scrollbar matches the real scroll range. Recalculate on
   // resize / row count changes.
@@ -252,12 +267,16 @@ export default function EntryGrid({
                     {(() => {
                       const op2 = row.operatorName2 ?? "";
                       const chg = row.operatorChangeTime ?? "";
-                      const isActive = !!op2.trim() || !!chg.trim();
-                      if (!isActive) {
+                      // Expanded if user clicked "+ handover" OR there's
+                      // existing saved data.
+                      const hasData = !!op2.trim() || !!chg.trim();
+                      const isExpanded =
+                        handoverExpanded.has(row.rowKey) || hasData;
+                      if (!isExpanded) {
                         return (
                           <button
                             type="button"
-                            onClick={() => onOperator2Change(rowIdx, " ")}
+                            onClick={() => toggleHandover(row.rowKey)}
                             className="mt-0.5 text-[9px] text-muted-foreground hover:text-primary"
                             title="Add a second operator (handover mid-shift)"
                           >
@@ -272,7 +291,7 @@ export default function EntryGrid({
                         ? "border-amber-400 bg-amber-50"
                         : "";
                       return (
-                        <div className="mt-0.5 flex gap-0.5">
+                        <div className="mt-0.5 flex gap-0.5 items-center">
                           <select
                             value={op2}
                             onChange={(e) =>
@@ -297,6 +316,16 @@ export default function EntryGrid({
                             className={`w-[60px] px-0.5 py-0 border rounded text-[10px] font-mono ${ring}`}
                             title="Time of handover (HH:MM)"
                           />
+                          {!hasData && (
+                            <button
+                              type="button"
+                              onClick={() => toggleHandover(row.rowKey)}
+                              className="text-[10px] text-muted-foreground hover:text-destructive leading-none"
+                              title="Hide handover fields"
+                            >
+                              ×
+                            </button>
+                          )}
                         </div>
                       );
                     })()}
