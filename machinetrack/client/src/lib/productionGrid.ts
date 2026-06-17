@@ -80,6 +80,41 @@ export function expectedForHour(
   return Math.round((rate * minutes) / 60);
 }
 
+// The PHYSICAL maximum production that should be accepted for an hour cell.
+// Different from `expectedForHour` because of allowances: the operator may
+// have skipped a tea/start/end break and actually produced a full hour's
+// worth. We allow that, but the expected (target) stays scaled down — so
+// the result is just shown as >100% efficiency.
+//
+// Lunch is NOT excluded here — even if the operator works through lunch,
+// they only have 30 min of actual hour-clock time, so the meter physically
+// can't exceed `rate × 30/60`. Same reasoning applies — lunch is a real
+// time loss, not a discretionary allowance. So lunch overlap is still
+// subtracted from the cap; only the shift-edge and tea allowances are
+// added back.
+export function maxAllowedForHour(
+  rate: number,
+  hourLabel: string,
+  hours: string[] = []
+): number {
+  if (rate <= 0) return 0;
+  // Start with the allowance-scaled minutes…
+  const allowanceMinutes = workedMinutesForHour(hourLabel, hours);
+  // …then add back the SHIFT-EDGE and TEA allowances (operator may have
+  // worked through them). Lunch stays subtracted because it's a real
+  // half-hour clock gap.
+  const [h, m] = hourLabel.split(":").map(Number);
+  const endMin = h * 60 + m;
+  const startMin = endMin - 60;
+  const lunchOverlap = Math.max(
+    0,
+    Math.min(endMin, LUNCH_END_MIN) - Math.max(startMin, LUNCH_START_MIN)
+  );
+  // Full hour minus only the lunch overlap (no discretionary deductions).
+  const physicalMax = 60 - lunchOverlap;
+  return Math.round((rate * physicalMax) / 60);
+}
+
 // Round a Date to the nearest hour. 08:05 → 08:00, 08:30 → 09:00, 08:29 → 08:00.
 // Used by shift-total target math so a save-click at 08:05 counts as the 8 AM
 // hour and a save-click at 19:50 counts as the 8 PM hour.
