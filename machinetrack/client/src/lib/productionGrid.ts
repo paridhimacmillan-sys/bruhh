@@ -7,32 +7,75 @@ import type { Machine, Item, Shift, ProductionEntry, HourlyEntry, ItemRate, Mach
 export const LUNCH_START_MIN = 13 * 60; // 13:00
 export const LUNCH_END_MIN = 13 * 60 + 30; // 13:30
 
-// Compute the productive minutes for an hour cell whose END is the given
-// label time. Subtracts any overlap with the global lunch break. Handles
-// overnight shifts correctly because the input is already a wall-clock
-// "HH:MM" label — lunch at 13:00 simply doesn't overlap a 03:00 cell.
+// Per-hour allowances deducted from the worked-minutes used for target math.
+// Stack additively on top of the lunch overlap — e.g. if 11:00 happens to be
+// the first hour of a shift AND a tea slot, both 10 + 7 = 17 min are removed.
 //
-// Examples (for the global 13:00–13:30 lunch):
-//   hourLabel="14:00" (covers 13:00–14:00) → overlap = 30 min → returns 30
-//   hourLabel="13:00" (covers 12:00–13:00) → overlap = 0      → returns 60
-//   hourLabel="09:00" (covers 08:00–09:00) → overlap = 0      → returns 60
-export function workedMinutesForHour(hourLabel: string): number {
+// Shift-edge allowances: 10 min off the FIRST hour cell of a shift (machine
+// warm-up, setup) and 10 min off the LAST hour cell (cool-down, paperwork).
+// These need to know the shift's hour list — that's why `hours` is now a
+// parameter on the public API.
+const SHIFT_OPENING_ALLOWANCE_MIN = 10;
+const SHIFT_CLOSING_ALLOWANCE_MIN = 10;
+
+// Tea allowances: 7 min off the 11:00 cell (mid-morning tea) and 7 min off
+// the 18:00 cell (evening tea). Recognised by exact label match.
+const TEA_ALLOWANCE_MIN = 7;
+const TEA_HOUR_LABELS = new Set(["11:00", "18:00"]);
+
+// Compute the productive minutes for an hour cell whose END is the given
+// label time. Subtracts:
+//   - any overlap with the global lunch break (13:00–13:30)
+//   - shift opening allowance (first cell of `hours`)
+//   - shift closing allowance (last cell of `hours`)
+//   - tea allowance (11:00 and 18:00 labels)
+//
+// `hours` is the array of hour labels for the shift; pass an empty array
+// when shift context isn't available and only lunch/tea should apply.
+//
+// Examples (for the global 13:00–13:30 lunch, 08:00–20:00 shift):
+//   hourLabel="09:00" (first hour) → 60 - 10 = 50 min
+//   hourLabel="11:00"              → 60 - 7  = 53 min (tea)
+//   hourLabel="14:00" (lunch)      → 60 - 30 = 30 min
+//   hourLabel="18:00"              → 60 - 7  = 53 min (tea)
+//   hourLabel="20:00" (last hour)  → 60 - 10 = 50 min
+//   hourLabel="12:00"              → 60      = 60 min (no allowance)
+export function workedMinutesForHour(
+  hourLabel: string,
+  hours: string[] = []
+): number {
   const [h, m] = hourLabel.split(":").map(Number);
   const endMin = h * 60 + m;
   const startMin = endMin - 60;
-  // Overlap of [startMin, endMin] with [LUNCH_START_MIN, LUNCH_END_MIN]
-  const overlapStart = Math.max(startMin, LUNCH_START_MIN);
-  const overlapEnd = Math.min(endMin, LUNCH_END_MIN);
-  const overlap = Math.max(0, overlapEnd - overlapStart);
-  return 60 - overlap;
+
+  // Lunch overlap (existing behaviour)
+  const lunchStart = Math.max(startMin, LUNCH_START_MIN);
+  const lunchEnd = Math.min(endMin, LUNCH_END_MIN);
+  let deduction = Math.max(0, lunchEnd - lunchStart);
+
+  // Shift-edge allowances
+  if (hours.length > 0) {
+    if (hourLabel === hours[0]) deduction += SHIFT_OPENING_ALLOWANCE_MIN;
+    if (hourLabel === hours[hours.length - 1])
+      deduction += SHIFT_CLOSING_ALLOWANCE_MIN;
+  }
+
+  // Tea allowances
+  if (TEA_HOUR_LABELS.has(hourLabel)) deduction += TEA_ALLOWANCE_MIN;
+
+  return Math.max(0, 60 - deduction);
 }
 
 // Compute the expected (target) production for one hour cell given the
-// per-hour rate and the hour label. During the lunch hour the result is
-// scaled down by the lost minutes.
-export function expectedForHour(rate: number, hourLabel: string): number {
+// per-hour rate and the hour label. Pass `hours` so shift-edge allowances
+// can be applied; pass [] to skip them.
+export function expectedForHour(
+  rate: number,
+  hourLabel: string,
+  hours: string[] = []
+): number {
   if (rate <= 0) return 0;
-  const minutes = workedMinutesForHour(hourLabel);
+  const minutes = workedMinutesForHour(hourLabel, hours);
   // Round to nearest integer — we deal in whole pieces, not fractions.
   return Math.round((rate * minutes) / 60);
 }
@@ -257,7 +300,7 @@ export function buildRows(
           hour,
           closingReading: e?.closingReading ?? null,
           actual: e?.actual ?? 0,
-          expected: expectedForHour(rate, hour),
+          expected: expectedForHour(rate, hour, safeH),
           reasonId: e?.reasonId ?? null,
         };
       });
