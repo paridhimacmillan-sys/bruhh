@@ -19,12 +19,6 @@ import {
 } from "@shared/schema";
 import type { HourlyEntry, User } from "@shared/schema";
 
-// Physical maximum production for an hour cell. Used as the validation cap
-// when the operator enters a closing reading. Deducts lunch overlap (real
-// half-hour clock gap) but ALLOWS the operator to record full-hour
-// production through tea / shift-edge allowances (discretionary).
-// This mirrors `maxAllowedForHour` in client/src/lib/productionGrid.ts —
-// keep both in sync.
 function physicalMaxForHour(hourLabel: string, rate: number): number {
   if (rate <= 0 || !hourLabel) return 0;
   const [h, m] = hourLabel.split(":").map(Number);
@@ -40,9 +34,6 @@ function physicalMaxForHour(hourLabel: string, rate: number): number {
 }
 
 export function registerRoutes(app: Express) {
-  // ===================================================
-  // AUTH
-  // ===================================================
   app.post("/api/login", (req, res, next) => {
     passport.authenticate("local", (err: any, user: any, info: any) => {
       if (err) return next(err);
@@ -85,7 +76,6 @@ export function registerRoutes(app: Express) {
     (_req, res) => res.redirect("/")
   );
 
-  // Register an operator account (admin only). Operator logs in with username + password.
   app.post("/api/operators-account", isAdmin, async (req, res, next) => {
     try {
       const { username, password } = z
@@ -138,9 +128,6 @@ export function registerRoutes(app: Express) {
     }
   });
 
-  // ===================================================
-  // MACHINES
-  // ===================================================
   app.get("/api/machines", isAuthenticated, async (req, res, next) => {
     try {
       const orgId = getOrgId(req);
@@ -194,9 +181,6 @@ export function registerRoutes(app: Express) {
     }
   });
 
-  // ===================================================
-  // ITEMS
-  // ===================================================
   app.get("/api/items", isAuthenticated, async (req, res, next) => {
     try {
       const orgId = getOrgId(req);
@@ -248,9 +232,6 @@ export function registerRoutes(app: Express) {
     }
   });
 
-  // ===================================================
-  // SHIFTS
-  // ===================================================
   app.get("/api/shifts", isAuthenticated, async (req, res, next) => {
     try {
       const orgId = getOrgId(req);
@@ -299,9 +280,6 @@ export function registerRoutes(app: Express) {
     }
   });
 
-  // ===================================================
-  // OPERATORS (assignable names, not login accounts)
-  // ===================================================
   app.get("/api/operators", isAuthenticated, async (req, res, next) => {
     try {
       const orgId = getOrgId(req);
@@ -350,9 +328,6 @@ export function registerRoutes(app: Express) {
     }
   });
 
-  // ===================================================
-  // BREAKDOWN REASONS
-  // ===================================================
   app.get("/api/reasons", isAuthenticated, async (req, res, next) => {
     try {
       const orgId = getOrgId(req);
@@ -407,7 +382,6 @@ export function registerRoutes(app: Express) {
     }
   });
 
-  // Seed default reasons for the current org. Idempotent — only seeds if empty.
   app.post("/api/reasons/seed", isAdmin, async (req, res, next) => {
     try {
       const orgId = getOrgId(req);
@@ -415,7 +389,7 @@ export function registerRoutes(app: Express) {
       if (existing.length > 0) {
         return res
           .status(409)
-          .json({ message: `${existing.length} reason(s) already exist; seed skipped` });
+          .json({ message: existing.length + " reason(s) already exist; seed skipped" });
       }
       await storage.seedBreakdownReasons(orgId);
       const list = await storage.getBreakdownReasons(orgId);
@@ -425,12 +399,6 @@ export function registerRoutes(app: Express) {
     }
   });
 
-  // ===================================================
-  // MACHINE-SHIFT ASSIGNMENTS
-  // GET returns every (machineId, shiftId) pair for the org.
-  // Client filters the production grid using this map.
-  // PUT replaces the full shift list for one machine.
-  // ===================================================
   app.get("/api/machine-shifts", isAuthenticated, async (req, res, next) => {
     try {
       const orgId = getOrgId(req);
@@ -461,11 +429,6 @@ export function registerRoutes(app: Express) {
     }
   });
 
-  // ===================================================
-  // BULK DELETE — accepts {ids: number[]} body, returns counts.
-  // Machines/items use soft-delete when production entries exist;
-  // shifts, operators, reasons are always hard-deleted.
-  // ===================================================
   const bulkIdsBody = z.object({
     ids: z.array(z.coerce.number().int().positive()).min(1),
   });
@@ -535,9 +498,6 @@ export function registerRoutes(app: Express) {
     }
   });
 
-  // ===================================================
-  // PRODUCTION ENTRIES — operators MUST be able to save
-  // ===================================================
   app.get("/api/entries", isAuthenticated, async (req, res, next) => {
     try {
       const orgId = getOrgId(req);
@@ -566,9 +526,11 @@ export function registerRoutes(app: Express) {
           itemId: z.number().int().positive(),
           shift: z.string().min(1),
           openingReading: z.number().int().min(0),
-          // ISO timestamp strings; null is allowed but undefined is also fine.
           openingAt: z.string().datetime().nullable().optional(),
           closingAt: z.string().datetime().nullable().optional(),
+          // Hour index this row started running. Used for split rows after a
+          // setting change. Optional; undefined preserves existing, null clears.
+          startHourIdx: z.number().int().min(0).nullable().optional(),
           entries: z.array(
             z.object({
               hour: z.string(),
@@ -592,8 +554,6 @@ export function registerRoutes(app: Express) {
         })
         .parse(req.body);
 
-      // "Both or neither" rule for operator handover. Treat empty string as
-      // unset so the frontend can send '' and we normalise to null.
       const op2 = input.operatorName2?.trim() || null;
       const chg = input.operatorChangeTime?.trim() || null;
       if ((op2 && !chg) || (!op2 && chg)) {
@@ -603,8 +563,6 @@ export function registerRoutes(app: Express) {
         });
       }
 
-      // Convert ISO strings to Date for the DB driver. Undefined means
-      // "don't change" (preserve existing). null means "clear".
       const openingAt =
         input.openingAt === undefined
           ? undefined
@@ -618,15 +576,6 @@ export function registerRoutes(app: Express) {
           ? null
           : new Date(input.closingAt);
 
-      // Server-side validation: REJECT (don't silently cap) anything that
-      // exceeds expected. Skipped (null closing) cells are tolerated — meter
-      // doesn't advance during gaps. `prev` only updates on real readings,
-      // so the next non-null reading is compared against the last real one.
-      //
-      // For machines in shift_total mode, the client sends a single entry
-      // covering the whole shift. We compute its `expected` server-side from
-      // elapsed (openingAt → closingAt, rounded to nearest hour, minus lunch)
-      // so the client can't inflate the target.
       const machine = await storage.getMachineById(input.machineId, orgId);
       const item = await storage.getItemById(input.itemId, orgId);
       const isShiftTotal = machine?.trackingMode === "shift_total";
@@ -636,8 +585,6 @@ export function registerRoutes(app: Express) {
         const rates = (item.rates as Array<{ machineId: number; rate: number }>) ?? [];
         const rate =
           rates.find((r) => r?.machineId === input.machineId)?.rate ?? 0;
-        // Round each timestamp to the nearest hour, then subtract lunch
-        // overlap (13:00–13:30) before computing target.
         const roundHr = (d: Date) => {
           const r = new Date(d);
           const mm = r.getMinutes();
@@ -648,7 +595,6 @@ export function registerRoutes(app: Express) {
         const oH = roundHr(openingAt);
         const cH = roundHr(closingAt);
         let workedMin = Math.max(0, (cH.getTime() - oH.getTime()) / 60000);
-        // Subtract lunch overlap if the range covers 13:00-13:30 of that day.
         const lunchStart = new Date(oH);
         lunchStart.setHours(13, 0, 0, 0);
         const lunchEnd = new Date(oH);
@@ -660,9 +606,6 @@ export function registerRoutes(app: Express) {
         serverComputedExpected = Math.round((rate * workedMin) / 60);
       }
 
-      // Look up the machine's rate for this item, used as the physical-max
-      // cap for hourly mode. For shift-total mode the rate was already
-      // computed above.
       let machineRate = 0;
       if (item) {
         const itemRates = (item.rates as Array<{ machineId: number; rate: number }>) ?? [];
@@ -679,19 +622,15 @@ export function registerRoutes(app: Express) {
         }
         if (e.closingReading < prev) {
           return res.status(400).json({
-            message: `Hour ${e.hour}: closing reading (${e.closingReading}) cannot be less than the last recorded reading (${prev})`,
+            message: "Hour " + e.hour + ": closing reading (" + e.closingReading + ") cannot be less than the last recorded reading (" + prev + ")",
           });
         }
         const actual = e.closingReading - prev;
-        // Override expected with server-computed value in shift-total mode
         const effectiveExpected =
           isShiftTotal && serverComputedExpected != null
             ? serverComputedExpected
             : e.expected;
 
-        // Physical cap. Lunch (a real clock gap) is still deducted; tea +
-        // shift-edge allowances are allowed back so operator can record
-        // full-hour production when they worked through a break.
         const cap =
           isShiftTotal && serverComputedExpected != null
             ? effectiveExpected
@@ -699,7 +638,7 @@ export function registerRoutes(app: Express) {
 
         if (cap > 0 && actual > cap) {
           return res.status(400).json({
-            message: `Hour ${e.hour}: produced ${actual} exceeds physical max of ${cap}. Max allowed closing = ${prev + cap}`,
+            message: "Hour " + e.hour + ": produced " + actual + " exceeds physical max of " + cap + ". Max allowed closing = " + (prev + cap),
           });
         }
         validated.push({ ...e, actual, expected: effectiveExpected });
@@ -718,6 +657,7 @@ export function registerRoutes(app: Express) {
         openingReading: input.openingReading,
         openingAt,
         closingAt,
+        startHourIdx: input.startHourIdx,
         entries: validated,
         operatorName: input.operatorName,
         operatorName2: op2,
@@ -737,11 +677,6 @@ export function registerRoutes(app: Express) {
     }
   });
 
-  // Undo / unlock a previously saved hour. Authorisation rules:
-  //   admin → always allowed
-  //   operator → only if the hour was saved less than 10 minutes ago
-  // Removes the hour from every matching entry's lockedHours AND clears its
-  // hourSavedAt entry, so the operator can edit the closing readings again.
   app.post("/api/entries/unlock-hour", isAuthenticated, async (req, res, next) => {
     try {
       const orgId = getOrgId(req);
@@ -756,12 +691,7 @@ export function registerRoutes(app: Express) {
 
       const isAdmin = user.role === "admin";
 
-      // First check whether the operator is within the allowed window. Don't
-      // mutate anything until that's settled.
       if (!isAdmin) {
-        // Peek at the earliest savedAt across matching entries to decide.
-        // We do this by calling the underlying unlock then potentially
-        // rolling back — but cleaner: a small read-only pre-check.
         const matches = await storage.getEntries(orgId, {
           dateFrom: input.date,
           dateTo: input.date,
@@ -783,7 +713,7 @@ export function registerRoutes(app: Express) {
         if (ageMs > TEN_MIN) {
           const minutesAgo = Math.round(ageMs / 60000);
           return res.status(403).json({
-            message: `Saved ${minutesAgo} min ago — only admin can undo after 10 minutes.`,
+            message: "Saved " + minutesAgo + " min ago — only admin can undo after 10 minutes.",
           });
         }
       }
@@ -801,6 +731,7 @@ export function registerRoutes(app: Express) {
       next(err);
     }
   });
+
   app.delete("/api/entries", isAdmin, async (req, res, next) => {
     try {
       const orgId = getOrgId(req);
@@ -815,7 +746,6 @@ export function registerRoutes(app: Express) {
     }
   });
 
-  // Delete one row by id — admin only
   app.delete("/api/entries/:id", isAdmin, async (req, res, next) => {
     try {
       const orgId = getOrgId(req);
@@ -828,9 +758,6 @@ export function registerRoutes(app: Express) {
     }
   });
 
-  // ===================================================
-  // ALERT THRESHOLDS
-  // ===================================================
   app.get("/api/alerts", isAuthenticated, async (req, res, next) => {
     try {
       const orgId = getOrgId(req);
@@ -879,11 +806,6 @@ export function registerRoutes(app: Express) {
     }
   });
 
-  // ===================================================
-  // DASHBOARD AGGREGATIONS
-  // ===================================================
-  // Single endpoint that returns everything the dashboard needs for a given date.
-  // Aggregates entries client-side rather than running heavy SQL — fine at this scale.
   app.get("/api/dashboard", isAuthenticated, async (req, res, next) => {
     try {
       const orgId = getOrgId(req);
@@ -893,11 +815,8 @@ export function registerRoutes(app: Express) {
       const entries = await storage.getEntries(orgId, { dateFrom, dateTo });
       const machines = await storage.getMachines(orgId);
 
-      // Per-machine totals
       const byMachine: Record<number, { actual: number; expected: number }> = {};
-      // Per-hour totals across all machines
       const byHour: Record<string, { actual: number; expected: number }> = {};
-      // Per-item totals
       const byItem: Record<number, { actual: number; expected: number; count: number }> = {};
 
       for (const e of entries) {
