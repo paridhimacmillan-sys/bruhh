@@ -516,14 +516,32 @@ export default function EntryGrid({
                               {entry.actual}/{entry.expected}
                             </span>
                           )}
-                          {!noItem && workedMinutesForHour(entry.hour) < 60 && (
-                            <span
-                              className="text-[9px] text-amber-600 italic leading-none"
-                              title={`Lunch break — only ${workedMinutesForHour(entry.hour)} min of work in this hour`}
-                            >
-                              lunch ({workedMinutesForHour(entry.hour)}m)
-                            </span>
-                          )}
+                          {!noItem &&
+                            (() => {
+                              const worked = workedMinutesForHour(entry.hour, hours);
+                              if (worked >= 60) return null;
+                              // Build a human label explaining WHICH allowance(s)
+                              // are deducting from this hour.
+                              const isLunch = entry.hour === "14:00";
+                              const isFirst = entry.hour === hours[0];
+                              const isLast = entry.hour === hours[hours.length - 1];
+                              const isTea =
+                                entry.hour === "11:00" || entry.hour === "18:00";
+                              const tags: string[] = [];
+                              if (isLunch) tags.push("lunch");
+                              if (isFirst) tags.push("start");
+                              if (isLast) tags.push("end");
+                              if (isTea) tags.push("tea");
+                              const label = tags.join("+") || "break";
+                              return (
+                                <span
+                                  className="text-[9px] text-amber-600 italic leading-none"
+                                  title={`${label} allowance — only ${worked} min of work in this hour`}
+                                >
+                                  {label} ({worked}m)
+                                </span>
+                              );
+                            })()}
                           {/* % efficiency text removed to save vertical space.
                               The cell background color (green/yellow/red) already
                               conveys the same info at a glance. */}
