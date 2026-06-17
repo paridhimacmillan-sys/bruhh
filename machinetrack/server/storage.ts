@@ -146,8 +146,6 @@ export const storage = {
   },
 
   async deleteMachine(id: number, orgId: number): Promise<{ softDeleted: boolean }> {
-    // If any production entries reference this machine, soft-delete by marking
-    // status='offline' instead of hard-deleting. Preserves historical data.
     const refs = await db
       .select({ id: productionEntries.id })
       .from(productionEntries)
@@ -326,6 +324,10 @@ export const storage = {
     openingReading: number;
     openingAt?: Date | null;
     closingAt?: Date | null;
+    // Hour index at which this entry's row started running. Set by the
+    // split-row picker. Undefined preserves the existing value on update;
+    // null clears it (back to "ran from shift start").
+    startHourIdx?: number | null;
     entries: HourlyEntry[];
     operatorName: string | null;
     operatorName2: string | null;
@@ -337,8 +339,6 @@ export const storage = {
     totalExpected: number;
     status: string;
   }): Promise<ProductionEntry> {
-    // Match on (org, date, machine, item, shift). Same machine running two items
-    // in the same shift = two separate entries.
     const existing = await db
       .select()
       .from(productionEntries)
@@ -353,26 +353,26 @@ export const storage = {
       );
     if (existing.length) {
       // Merge: keep existing hourSavedAt keys for hours that are still locked,
-      // overlay incoming new ones. We never reset a save timestamp from here —
-      // only the explicit unlock endpoint clears them.
+      // overlay incoming new ones.
       const prevSaved = (existing[0].hourSavedAt as Record<string, string>) ?? {};
       const incoming = input.hourSavedAt ?? {};
       const merged: Record<string, string> = { ...prevSaved };
       for (const [k, v] of Object.entries(incoming)) merged[k] = v;
-      // Drop keys for hours no longer locked
       const lockedSet = new Set(input.lockedHours.map(String));
       for (const k of Object.keys(merged)) {
         if (!lockedSet.has(k)) delete merged[k];
       }
 
-      // For shift-total mode, openingAt is stamped at first save and shouldn't
-      // be overwritten on subsequent updates (unless explicitly cleared). Same
-      // for closingAt. If the caller passes undefined we keep the existing
-      // value; if they pass null, we clear it (undo-save case).
+      // Preserve-on-undefined for the optional shift-total / split-row fields:
+      // caller passes undefined → keep existing, null → clear, value → set.
       const nextOpeningAt =
         input.openingAt === undefined ? existing[0].openingAt : input.openingAt;
       const nextClosingAt =
         input.closingAt === undefined ? existing[0].closingAt : input.closingAt;
+      const nextStartHourIdx =
+        input.startHourIdx === undefined
+          ? (existing[0] as any).startHourIdx
+          : input.startHourIdx;
 
       const [updated] = await db
         .update(productionEntries)
@@ -380,6 +380,7 @@ export const storage = {
           openingReading: input.openingReading,
           openingAt: nextOpeningAt,
           closingAt: nextClosingAt,
+          startHourIdx: nextStartHourIdx,
           entries: input.entries,
           operatorName: input.operatorName,
           operatorName2: input.operatorName2,
@@ -402,15 +403,13 @@ export const storage = {
         ...input,
         openingAt: input.openingAt ?? null,
         closingAt: input.closingAt ?? null,
+        startHourIdx: input.startHourIdx ?? null,
         hourSavedAt: input.hourSavedAt ?? {},
       })
       .returning();
     return created;
   },
 
-  // Unlock a specific hour across all entries matching (date, shift) for an org.
-  // Returns the count of entries affected, and the earliest hour-save timestamp
-  // found across them so the caller can enforce the 10-minute operator window.
   async unlockHour(
     orgId: number,
     date: string,
@@ -562,7 +561,6 @@ export const storage = {
       );
   },
 
-  // Seed common reasons for a fresh org. Idempotent — caller checks first.
   async seedBreakdownReasons(orgId: number): Promise<void> {
     const defaults = [
       "No Operator", "Tea Break", "Meeting", "No Electricity", "No Air",
@@ -582,9 +580,6 @@ export const storage = {
   },
 
   // ===== MACHINE-SHIFT ASSIGNMENTS =====
-  // Get all assignments for an org. Client uses this to compute which
-  // machines are valid for which shifts. If no rows exist for a machine,
-  // it's treated as "runs in all shifts" (back-compat default).
   async getMachineShifts(orgId: number): Promise<MachineShift[]> {
     return db
       .select()
@@ -592,14 +587,11 @@ export const storage = {
       .where(eq(machineShifts.organizationId, orgId));
   },
 
-  // Replace the entire shift-list for a single machine atomically.
-  // Pass shiftIds=[] to remove all assignments (machine reverts to "all shifts").
   async setMachineShifts(
     machineId: number,
     orgId: number,
     shiftIds: number[]
   ): Promise<MachineShift[]> {
-    // Delete all current rows for this machine
     await db
       .delete(machineShifts)
       .where(
@@ -618,8 +610,6 @@ export const storage = {
   },
 
   // ===== BULK DELETE =====
-  // Each returns { deleted, softDeleted } counts. Soft-delete only applies
-  // to resources with FK-dependent entries (machines, items).
   async bulkDeleteMachines(
     ids: number[],
     orgId: number
