@@ -347,16 +347,26 @@ export default function ProductionEntryPage() {
       }
     }
     if (missing.length > 0) {
+      const sample = missing.slice(0, 3).join(", ");
+      const message = `Pick a reason for ${missing.length} hour cell${
+        missing.length === 1 ? "" : "s"
+      } below ${REASON_THRESHOLD_PCT}% efficiency: ${sample}${
+        missing.length > 3 ? "..." : ""
+      }`;
       if (!opts.silent) {
-        const sample = missing.slice(0, 3).join(", ");
-        toast.error(
-          `Pick a reason for ${missing.length} hour cell${
-            missing.length === 1 ? "" : "s"
-          } below ${REASON_THRESHOLD_PCT}% efficiency: ${sample}${
-            missing.length > 3 ? "..." : ""
-          }`,
-          { duration: 6000 }
-        );
+        toast.error(message, { duration: 6000 });
+      } else {
+        // Silent auto-save was blocked. Throttle to once per 30s so we
+        // don't spam, but still tell the operator — otherwise they think
+        // their data was saved when it wasn't.
+        const now = Date.now();
+        if (now - lastSilentReasonWarnRef.current > 30_000) {
+          lastSilentReasonWarnRef.current = now;
+          toast.warning(
+            `Auto-save paused — ${message}`,
+            { duration: 6000 }
+          );
+        }
       }
       return { ok: 0, failed: 0, blocked: true };
     }
@@ -371,11 +381,15 @@ export default function ProductionEntryPage() {
       }
     }
     if (handoverIssues.length > 0) {
+      const message = `Fill BOTH operator-2 name AND change time (or leave both blank): ${handoverIssues.join(", ")}`;
       if (!opts.silent) {
-        toast.error(
-          `Fill BOTH operator-2 name AND change time (or leave both blank): ${handoverIssues.join(", ")}`,
-          { duration: 6000 }
-        );
+        toast.error(message, { duration: 6000 });
+      } else {
+        const now = Date.now();
+        if (now - lastSilentReasonWarnRef.current > 30_000) {
+          lastSilentReasonWarnRef.current = now;
+          toast.warning(`Auto-save paused — ${message}`, { duration: 6000 });
+        }
       }
       return { ok: 0, failed: 0, blocked: true };
     }
@@ -413,6 +427,11 @@ export default function ProductionEntryPage() {
 
   // Debounced auto-save (1.5s after last change)
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Last time we showed a "save blocked by missing reason" warning in silent
+  // (auto-save) mode. Throttles to ~once per 30 seconds so we inform the
+  // operator without spamming. Without this, silent-mode saves could fail
+  // forever with no visible feedback when reasons are missing.
+  const lastSilentReasonWarnRef = useRef<number>(0);
   useEffect(() => {
     const anyDirty = rows.some((r) => r.dirty);
     if (!anyDirty) return;
