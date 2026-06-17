@@ -512,8 +512,15 @@ export default function EntryGrid({
                             />
                           )}
                           {!noItem && (
-                            <span className="text-[9px] text-muted-foreground font-mono leading-none">
+                            <span
+                              className={`text-[9px] font-mono leading-none ${
+                                missingReason
+                                  ? "text-red-700 font-bold"
+                                  : "text-muted-foreground"
+                              }`}
+                            >
                               {entry.actual}/{entry.expected}
+                              {missingReason && " ⚠"}
                             </span>
                           )}
                           {!noItem &&
@@ -556,18 +563,18 @@ export default function EntryGrid({
                                   : null;
                                 onReasonChange(rowIdx, hourIdx, v);
                               }}
-                              className={`mt-1 w-full max-w-[110px] px-1 py-0.5 border rounded text-[10px] font-semibold ${
+                              className={`mt-1 w-full max-w-[110px] px-1 py-0.5 border rounded text-[10px] font-bold ${
                                 missingReason
-                                  ? "border-red-400 bg-white text-red-700"
+                                  ? "border-red-500 bg-red-100 text-red-800 ring-1 ring-red-400"
                                   : "border-input bg-white"
                               }`}
                               title={
                                 missingReason
-                                  ? "A reason is required for this hour"
+                                  ? "A reason is REQUIRED for this hour — save is blocked until you pick one"
                                   : "Reason"
                               }
                             >
-                              <option value="">— pick reason —</option>
+                              <option value="">⚠ pick reason</option>
                               {reasons
                                 .filter((r) => r.status === "active")
                                 .map((r) => (
