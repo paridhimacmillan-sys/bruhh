@@ -190,6 +190,14 @@ export const productionEntries = pgTable("production_entries", {
   // target calculation. Null for hourly-mode entries (timestamp irrelevant).
   openingAt: timestamp("opening_at"),
   closingAt: timestamp("closing_at"),
+  // Index into the shift's hour list at which this row STARTED running.
+  //   null / 0 → ran from start of shift (default for the first/only row)
+  //   N        → ran from hours[N] onward; cells before are greyed
+  // When a machine has multiple rows in the same shift (operator clicked
+  // "+ Split" because of a setting change), each row carries its own
+  // startHourIdx. The implicit END of one row is the startHourIdx of the
+  // next row for the same machine, so we don't need a separate endHourIdx.
+  startHourIdx: integer("start_hour_idx"),
   // entries: [{ hour: 'HH:MM', closingReading: number|null, actual: number, expected: number }]
   entries: jsonb("entries").notNull(),
   operatorName: text("operator_name"),
