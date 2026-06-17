@@ -181,6 +181,38 @@ export default function EntryGrid({
           </thead>
           <tbody>
             {rows.map((row, rowIdx) => {
+              // For split rows: find the index of the LAST hour with a
+              // closing reading on this row. Cells strictly AFTER this index
+              // get greyed out (row stopped running). If the row has no
+              // readings yet, lastReadingIdx is -1 and no greying happens.
+              const counts = new Map<number, number>();
+              for (const r of rows) {
+                counts.set(r.machineId, (counts.get(r.machineId) ?? 0) + 1);
+              }
+              const isSplitMachine = (counts.get(row.machineId) ?? 0) > 1;
+              let lastReadingIdx = -1;
+              if (isSplitMachine) {
+                for (let i = row.entries.length - 1; i >= 0; i--) {
+                  if (row.entries[i].closingReading != null) {
+                    lastReadingIdx = i;
+                    break;
+                  }
+                }
+              }
+              // Greying activates only if BOTH conditions hold: machine is
+              // split AND this row has at least one reading (so we know
+              // where it "ended"). A split row with NO data yet stays open
+              // — that's the just-started second row case.
+              const greyAfter = isSplitMachine && lastReadingIdx >= 0
+                ? lastReadingIdx
+                : -1; // -1 means "don't grey anything"
+
+              // Unassigned operator → whole row is idle. Hour cells get
+              // greyed (input still works for admin override but the
+              // visual signals "not running today"). Targets are zeroed
+              // in the page-level KPI sum (handled in ProductionEntry).
+              const isUnassigned = (row.operatorName ?? "").trim() === "";
+
               const totalActual = row.entries.reduce((s, e) => s + e.actual, 0);
               const totalExpected = row.entries.reduce((s, e) => s + e.expected, 0);
               const variance = totalActual - totalExpected;
@@ -473,8 +505,16 @@ export default function EntryGrid({
                     const noItem = row.itemId == null;
                     const pct =
                       entry.expected > 0 ? (entry.actual / entry.expected) * 100 : 0;
+                    // After-split greying: this row stopped running after
+                    // `greyAfter`. Cells beyond it get visually dimmed and
+                    // their input disabled.
+                    const isAfterSplit = greyAfter >= 0 && hourIdx > greyAfter;
+                    // Unassigned operator → whole row's hour cells dimmed.
+                    const greyedOut = isAfterSplit || isUnassigned;
                     const cellBg =
-                      entry.actual === 0
+                      greyedOut
+                        ? "bg-muted/30 opacity-50"
+                        : entry.actual === 0
                         ? ""
                         : pct >= 95
                         ? "bg-green-50"
@@ -484,7 +524,9 @@ export default function EntryGrid({
                     // A reason is needed when:
                     //   1. Operator entered a closing reading (so the hour was attempted)
                     //   2. Efficiency for that hour fell below threshold
+                    //   3. Row is active (operator assigned, didn't stop running)
                     const reasonNeeded =
+                      !greyedOut &&
                       entry.closingReading != null &&
                       entry.expected > 0 &&
                       pct < REASON_THRESHOLD_PCT;
@@ -495,11 +537,18 @@ export default function EntryGrid({
                         className={`px-0.5 py-0.5 text-center align-top min-w-[80px] ${cellBg} ${
                           missingReason ? "ring-1 ring-inset ring-red-300" : ""
                         }`}
+                        title={
+                          isAfterSplit
+                            ? `${row.item?.itemName ?? "Item"} stopped running after ${row.entries[greyAfter]?.hour}`
+                            : isUnassigned
+                            ? "No operator assigned for this shift"
+                            : undefined
+                        }
                       >
                         <div className="flex flex-col items-center gap-0.5">
-                          {noItem ? (
+                          {noItem || greyedOut ? (
                             <span className="w-14 text-center text-[10px] text-muted-foreground italic">
-                              —
+                              {isUnassigned ? "off" : "—"}
                             </span>
                           ) : isLocked ? (
                             <span className="w-14 text-center text-[10px] font-mono font-semibold text-muted-foreground">
@@ -511,7 +560,7 @@ export default function EntryGrid({
                               onCommit={(v) => onClosingChange(rowIdx, hourIdx, v)}
                             />
                           )}
-                          {!noItem && (
+                          {!noItem && !greyedOut && (
                             <span
                               className={`text-[9px] font-mono leading-none ${
                                 missingReason
@@ -523,7 +572,7 @@ export default function EntryGrid({
                               {missingReason && " ⚠"}
                             </span>
                           )}
-                          {!noItem &&
+                          {!noItem && !greyedOut &&
                             (() => {
                               const worked = workedMinutesForHour(entry.hour, hours);
                               if (worked >= 60) return null;
@@ -594,25 +643,33 @@ export default function EntryGrid({
 
                   <td className="px-2 py-0.5 text-right">
                     <span className="font-mono font-bold text-[11px]">
-                      {totalActual > 0 ? totalActual : "—"}
+                      {isUnassigned ? "off" : totalActual > 0 ? totalActual : "—"}
                     </span>
                   </td>
                   <td className="px-2 py-0.5 text-right">
-                    <span
-                      className={`font-mono text-[11px] font-semibold ${
-                        variance > 0
-                          ? "text-green-600"
-                          : variance < 0
-                          ? "text-red-600"
-                          : "text-muted-foreground"
-                      }`}
-                    >
-                      {totalActual === 0 ? "—" : variance >= 0 ? `+${variance}` : variance}
-                    </span>
-                    {totalActual > 0 && (
-                      <p className="text-[10px] font-mono text-muted-foreground leading-none mt-0.5">
-                        {Math.round(eff)}%
-                      </p>
+                    {isUnassigned ? (
+                      <span className="text-[10px] text-muted-foreground italic">
+                        idle
+                      </span>
+                    ) : (
+                      <>
+                        <span
+                          className={`font-mono text-[11px] font-semibold ${
+                            variance > 0
+                              ? "text-green-600"
+                              : variance < 0
+                              ? "text-red-600"
+                              : "text-muted-foreground"
+                          }`}
+                        >
+                          {totalActual === 0 ? "—" : variance >= 0 ? `+${variance}` : variance}
+                        </span>
+                        {totalActual > 0 && (
+                          <p className="text-[10px] font-mono text-muted-foreground leading-none mt-0.5">
+                            {Math.round(eff)}%
+                          </p>
+                        )}
+                      </>
                     )}
                   </td>
                 </tr>
@@ -793,7 +850,7 @@ function ClosingReadingInput({
         if (e.key === "Enter") (e.target as HTMLInputElement).blur();
       }}
       className="w-14 px-0.5 py-0.5 border rounded text-[10px] text-center font-mono"
-      placeholder="Close"
+      placeholder=""
       min={0}
     />
   );
