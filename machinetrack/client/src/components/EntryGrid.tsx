@@ -7,12 +7,10 @@ import { getItemsForMachine, workedMinutesForHour } from "@/lib/productionGrid";
 // Below this efficiency, the cell shows a (required) reason dropdown.
 export const REASON_THRESHOLD_PCT = 90;
 
-// Format a Date as HH:MM in local time
 function formatHHMM(d: Date): string {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
-// Round a Date to the nearest whole hour (for shift-total target estimate)
 function roundHr(d: Date): Date {
   const r = new Date(d);
   if (r.getMinutes() >= 30) r.setHours(r.getHours() + 1);
@@ -42,6 +40,8 @@ interface Props {
   onUnlockHour: (hourIdx: number) => Promise<void>;
   onSaveOpening: (rowIdx: number) => Promise<void>;
   onSaveClosing: (rowIdx: number) => Promise<void>;
+  // Open the start-time picker for a row (admin click on the chip).
+  onEditStartHour: (rowIdx: number) => void;
 }
 
 export default function EntryGrid({
@@ -66,19 +66,14 @@ export default function EntryGrid({
   onUnlockHour,
   onSaveOpening,
   onSaveClosing,
+  onEditStartHour,
 }: Props) {
-  // Two horizontal scroll bars — one mirrored at the top of the grid,
-  // one at the natural bottom — synced so you can scroll from either.
-  // Useful for tall grids where the bottom bar is off-screen.
   const topScrollRef = useRef<HTMLDivElement>(null);
   const tableScrollRef = useRef<HTMLDivElement>(null);
   const tableInnerRef = useRef<HTMLTableElement>(null);
   const syncingRef = useRef(false);
   const [tableWidth, setTableWidth] = useState(0);
 
-  // Tracks which rows have the handover (2nd operator + change time) UI
-  // expanded. A row is also implicitly expanded if it already has any
-  // handover data saved — the check is `expanded || hasData`.
   const [handoverExpanded, setHandoverExpanded] = useState<Set<string>>(
     new Set()
   );
@@ -91,9 +86,6 @@ export default function EntryGrid({
     });
   };
 
-  // Mirror the table's actual rendered width into the top scrollbar's inner
-  // div so the proxy scrollbar matches the real scroll range. Recalculate on
-  // resize / row count changes.
   useEffect(() => {
     if (!tableInnerRef.current) return;
     const update = () => {
@@ -105,8 +97,6 @@ export default function EntryGrid({
     return () => ro.disconnect();
   }, [rows.length, hours.length]);
 
-  // Bidirectional scroll sync. The syncingRef latch prevents an infinite
-  // loop where each scroll event triggers the other.
   const onTopScroll = () => {
     if (syncingRef.current) return;
     syncingRef.current = true;
@@ -136,16 +126,35 @@ export default function EntryGrid({
     );
   }
 
+  // Precompute each row's active window [from, to] based on its startHourIdx
+  // AND the NEXT row's startHourIdx for the same machine. Single-row machines
+  // have window [0, hours.length-1] (no greying). This mirrors buildRows but
+  // uses live state so unsaved edits to startHourIdx are reflected immediately.
+  const rowWindows = rows.map((row, idx) => {
+    const sameMachine = rows
+      .map((r, i) => ({ r, i }))
+      .filter(({ r }) => r.machineId === row.machineId);
+    if (sameMachine.length < 2) {
+      return { from: 0, to: hours.length - 1 };
+    }
+    const sorted = [...sameMachine].sort(
+      (a, b) => (a.r.startHourIdx ?? 0) - (b.r.startHourIdx ?? 0)
+    );
+    const position = sorted.findIndex((x) => x.i === idx);
+    const from = sorted[position].r.startHourIdx ?? 0;
+    const nextFrom =
+      position + 1 < sorted.length
+        ? sorted[position + 1].r.startHourIdx ?? hours.length
+        : hours.length;
+    return { from, to: nextFrom - 1 };
+  });
+
   return (
     <div className="bg-card border rounded-lg overflow-hidden">
       <div className="px-3 py-1 border-b bg-muted/40 text-[10px] font-semibold uppercase text-muted-foreground">
         Hourly Production Grid — Shift {shift}
       </div>
 
-      {/* Top scrollbar — mirrors the real grid scroll so users don't have to
-          drag down to the bottom to scroll horizontally. The inner div's
-          width is kept in sync with the real table's scrollWidth via the
-          ResizeObserver in the effect above. */}
       <div
         ref={topScrollRef}
         onScroll={onTopScroll}
@@ -181,36 +190,16 @@ export default function EntryGrid({
           </thead>
           <tbody>
             {rows.map((row, rowIdx) => {
-              // For split rows: find the index of the LAST hour with a
-              // closing reading on this row. Cells strictly AFTER this index
-              // get greyed out (row stopped running). If the row has no
-              // readings yet, lastReadingIdx is -1 and no greying happens.
-              const counts = new Map<number, number>();
-              for (const r of rows) {
-                counts.set(r.machineId, (counts.get(r.machineId) ?? 0) + 1);
-              }
-              const isSplitMachine = (counts.get(row.machineId) ?? 0) > 1;
-              let lastReadingIdx = -1;
-              if (isSplitMachine) {
-                for (let i = row.entries.length - 1; i >= 0; i--) {
-                  if (row.entries[i].closingReading != null) {
-                    lastReadingIdx = i;
-                    break;
-                  }
-                }
-              }
-              // Greying activates only if BOTH conditions hold: machine is
-              // split AND this row has at least one reading (so we know
-              // where it "ended"). A split row with NO data yet stays open
-              // — that's the just-started second row case.
-              const greyAfter = isSplitMachine && lastReadingIdx >= 0
-                ? lastReadingIdx
-                : -1; // -1 means "don't grey anything"
+              const win = rowWindows[rowIdx];
 
-              // Unassigned operator → whole row is idle. Hour cells get
-              // greyed (input still works for admin override but the
-              // visual signals "not running today"). Targets are zeroed
-              // in the page-level KPI sum (handled in ProductionEntry).
+              // Show "from HH:MM" chip when this row is part of a split
+              // AND has a non-zero startHourIdx (otherwise the chip would
+              // just say "from <first hour of shift>" which is implicit).
+              const isSplitMachine =
+                rows.filter((r) => r.machineId === row.machineId).length > 1;
+              const showStartChip =
+                isSplitMachine && (row.startHourIdx ?? 0) > 0;
+
               const isUnassigned = (row.operatorName ?? "").trim() === "";
 
               const totalActual = row.entries.reduce((s, e) => s + e.actual, 0);
@@ -231,7 +220,7 @@ export default function EntryGrid({
                             type="button"
                             onClick={() => onSplitRow(row.machineId)}
                             className="text-[9px] text-primary hover:bg-primary/10 inline-flex items-center justify-center w-4 h-4 rounded"
-                            title="Add another row for this machine (different item)"
+                            title="Add another row for this machine (setting change)"
                           >
                             <Plus size={10} />
                           </button>
@@ -255,9 +244,6 @@ export default function EntryGrid({
                   </td>
 
                   <td className="px-2 py-0.5 sticky left-[88px] bg-card z-10 border-r min-w-[150px]">
-                    {/* Item picker: operator/admin chooses which item is running on this machine.
-                        Lists only items that have a rate defined for this machine.
-                        Rate appears inline in dropdown text — no separate target line needed. */}
                     <select
                       value={row.itemId ?? ""}
                       onChange={(e) => {
@@ -277,6 +263,27 @@ export default function EntryGrid({
                         </option>
                       ))}
                     </select>
+                    {/* Start-time chip on split rows. Admin clicks to reopen
+                        the picker; operator just sees it as a static label. */}
+                    {showStartChip && (
+                      <button
+                        type="button"
+                        disabled={!isAdmin}
+                        onClick={() => onEditStartHour(rowIdx)}
+                        className={`mt-0.5 text-[9px] inline-flex items-center px-1 py-0 rounded font-mono ${
+                          isAdmin
+                            ? "text-primary hover:bg-primary/10 cursor-pointer"
+                            : "text-muted-foreground cursor-default"
+                        }`}
+                        title={
+                          isAdmin
+                            ? "Click to change the start time"
+                            : `Started running at ${hours[row.startHourIdx ?? 0]}`
+                        }
+                      >
+                        from {hours[row.startHourIdx ?? 0] ?? "?"}
+                      </button>
+                    )}
                   </td>
 
                   <td className="px-2 py-0.5 min-w-[110px]">
@@ -292,15 +299,9 @@ export default function EntryGrid({
                         </option>
                       ))}
                     </select>
-                    {/* Second operator + change time. Collapsed to a small
-                        link when unused; expanded to dual inputs when active.
-                        Server enforces "both or neither" — amber outline if
-                        only one is filled. */}
                     {(() => {
                       const op2 = row.operatorName2 ?? "";
                       const chg = row.operatorChangeTime ?? "";
-                      // Expanded if user clicked "+ handover" OR there's
-                      // existing saved data.
                       const hasData = !!op2.trim() || !!chg.trim();
                       const isExpanded =
                         handoverExpanded.has(row.rowKey) || hasData;
@@ -395,9 +396,6 @@ export default function EntryGrid({
                   </td>
 
                   {row.trackingMode === "shift_total" ? (
-                    /* SHIFT-TOTAL: single big cell spanning all the hour columns
-                       with one closing reading + Save Closing button. The target
-                       is computed by the server from elapsed time. */
                     <td
                       colSpan={hours.length}
                       className="px-3 py-2 text-center bg-blue-50/40"
@@ -457,8 +455,6 @@ export default function EntryGrid({
                             const last = row.entries[row.entries.length - 1];
                             if (!last || last.closingReading == null) return null;
                             const actual = last.actual;
-                            // Target only known after server save; show last
-                            // saved expected if any, otherwise live estimate.
                             const target =
                               row.entries.reduce(
                                 (s, e) => s + (e.expected || 0),
@@ -476,21 +472,21 @@ export default function EntryGrid({
                                       60
                                   )
                                 : 0);
-                            const eff =
+                            const effLocal =
                               target > 0
                                 ? Math.round((actual / target) * 100)
                                 : 0;
                             const effColor =
-                              eff >= 95
+                              effLocal >= 95
                                 ? "text-green-700"
-                                : eff >= 80
+                                : effLocal >= 80
                                 ? "text-amber-700"
                                 : "text-red-600";
                             return (
                               <span
                                 className={`text-xs font-semibold font-mono ${effColor}`}
                               >
-                                {actual} / {target} ({eff}%)
+                                {actual} / {target} ({effLocal}%)
                               </span>
                             );
                           })()}
@@ -505,12 +501,13 @@ export default function EntryGrid({
                     const noItem = row.itemId == null;
                     const pct =
                       entry.expected > 0 ? (entry.actual / entry.expected) * 100 : 0;
-                    // After-split greying: this row stopped running after
-                    // `greyAfter`. Cells beyond it get visually dimmed and
-                    // their input disabled.
-                    const isAfterSplit = greyAfter >= 0 && hourIdx > greyAfter;
-                    // Unassigned operator → whole row's hour cells dimmed.
-                    const greyedOut = isAfterSplit || isUnassigned;
+                    // Window-based greying:
+                    //   outsideWindow → this hour is outside the row's active
+                    //     [from, to] window — the row wasn't running then.
+                    //   isUnassigned  → no operator picked = whole row idle.
+                    const outsideWindow =
+                      hourIdx < win.from || hourIdx > win.to;
+                    const greyedOut = outsideWindow || isUnassigned;
                     const cellBg =
                       greyedOut
                         ? "bg-muted/30 opacity-50"
@@ -521,10 +518,6 @@ export default function EntryGrid({
                         : pct >= 80
                         ? "bg-yellow-50"
                         : "bg-red-50";
-                    // A reason is needed when:
-                    //   1. Operator entered a closing reading (so the hour was attempted)
-                    //   2. Efficiency for that hour fell below threshold
-                    //   3. Row is active (operator assigned, didn't stop running)
                     const reasonNeeded =
                       !greyedOut &&
                       entry.closingReading != null &&
@@ -538,8 +531,8 @@ export default function EntryGrid({
                           missingReason ? "ring-1 ring-inset ring-red-300" : ""
                         }`}
                         title={
-                          isAfterSplit
-                            ? `${row.item?.itemName ?? "Item"} stopped running after ${row.entries[greyAfter]?.hour}`
+                          outsideWindow
+                            ? `${row.item?.itemName ?? "Item"} was not running at ${entry.hour}`
                             : isUnassigned
                             ? "No operator assigned for this shift"
                             : undefined
@@ -576,8 +569,6 @@ export default function EntryGrid({
                             (() => {
                               const worked = workedMinutesForHour(entry.hour, hours);
                               if (worked >= 60) return null;
-                              // Build a human label explaining WHICH allowance(s)
-                              // are deducting from this hour.
                               const isLunch = entry.hour === "14:00";
                               const isFirst = entry.hour === hours[0];
                               const isLast = entry.hour === hours[hours.length - 1];
@@ -598,11 +589,6 @@ export default function EntryGrid({
                                 </span>
                               );
                             })()}
-                          {/* % efficiency text removed to save vertical space.
-                              The cell background color (green/yellow/red) already
-                              conveys the same info at a glance. */}
-                          {/* Reason dropdown only appears for sub-threshold cells.
-                              Stays hidden when on-target so the grid doesn't bloat. */}
                           {reasonNeeded && !isLocked && (
                             <select
                               value={entry.reasonId ?? ""}
@@ -633,9 +619,6 @@ export default function EntryGrid({
                                 ))}
                             </select>
                           )}
-                          {/* Reason name caption removed to save vertical space.
-                              The reason is still saved with the entry — see the
-                              Recent Entries page or Reports for the reason audit. */}
                         </div>
                       </td>
                     );
@@ -677,9 +660,6 @@ export default function EntryGrid({
             })}
           </tbody>
 
-          {/* Per-hour save buttons row. Hidden entirely when all rows are
-              shift-total (those save via inline "Save Closing"). When mixed,
-              only counts hourly rows for the "all locked" check. */}
           {rows.some((r) => r.trackingMode !== "shift_total") && (
           <tfoot>
             <tr className="border-t bg-muted/20">
@@ -690,8 +670,6 @@ export default function EntryGrid({
               <td />
               <td />
               {hours.map((h, i) => {
-                // Only count rows in HOURLY mode — shift-total rows don't
-                // participate in per-hour locking.
                 const hourlyRows = rows.filter(
                   (r) => r.trackingMode !== "shift_total"
                 );
@@ -702,9 +680,6 @@ export default function EntryGrid({
                   );
                 const isSaving = savingHour === i;
 
-                // For the undo button, compute the earliest savedAt across rows
-                // — used to show how long ago this hour was saved (operator
-                // window is 10 min). Admin can undo any time.
                 let earliestMs: number | null = null;
                 if (allLocked) {
                   for (const r of rows) {
@@ -763,13 +738,6 @@ export default function EntryGrid({
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Local-state input helpers. CRITICAL: commit on blur only, never per-keystroke.
-// On commit, snap visible draft back to whatever the parent's value prop became.
-// (If validation rejected the new value, the parent's value won't have changed,
-// so resetting the draft to it effectively reverts the visible input.)
-// ─────────────────────────────────────────────────────────────────────────────
-
 function OpeningReadingInput({
   value,
   onCommit,
@@ -791,7 +759,6 @@ function OpeningReadingInput({
     }
     const v = parseInt(draft, 10);
     onCommit(isNaN(v) ? 0 : Math.max(0, v));
-    // If parent rejected the change, value prop won't change, so we revert to it.
     setTimeout(() => setDraft(valueRef.current === 0 ? "" : String(valueRef.current)), 0);
   };
 
@@ -826,8 +793,6 @@ function ClosingReadingInput({
   }, [value]);
 
   const commit = () => {
-    // Empty input means "no reading entered for this hour" (gap). Send null
-    // so the validator treats it as skipped, not as "produced -1940 pcs".
     if (draft === "") {
       onCommit(null);
       return;
