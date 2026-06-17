@@ -20,6 +20,7 @@ import {
   computeShiftHours,
   recomputeActuals,
   expectedForHour,
+  maxAllowedForHour,
   type GridRow,
 } from "@/lib/productionGrid";
 import EntryGrid, { REASON_THRESHOLD_PCT } from "@/components/EntryGrid";
@@ -504,12 +505,17 @@ export default function ProductionEntryPage() {
         return prev;
       }
 
-      // Validate: must not exceed target for THIS hour (lunch-adjusted)
+      // Validate: must not exceed PHYSICAL max for this hour (allowing the
+      // operator to work through tea/shift-edge breaks, but not through
+      // lunch since that's a real clock gap). For most hours this equals
+      // expected; for allowance hours it's the full-hour rate.
       const wouldBeActual = value - prevReading;
-      if (expected > 0 && wouldBeActual > expected) {
-        const maxClosing = prevReading + expected;
+      const rowRate = row.expected; // row.expected is the hourly rate
+      const physicalMax = maxAllowedForHour(rowRate, row.entries[hourIdx].hour, hours);
+      if (physicalMax > 0 && wouldBeActual > physicalMax) {
+        const maxClosing = prevReading + physicalMax;
         toast.error(
-          `Output ${wouldBeActual} exceeds target ${expected}. Max closing: ${maxClosing}`
+          `Output ${wouldBeActual} exceeds physical max ${physicalMax} for ${row.entries[hourIdx].hour}. Max closing: ${maxClosing}`
         );
         return prev;
       }
