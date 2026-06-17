@@ -88,6 +88,35 @@ export default function ProductionEntryPage() {
     enabled: !!shiftName,
   });
 
+  // ALL entries for the selected date across ALL shifts. Used to figure out
+  // which shifts already have data — so we can hide the other shift buttons
+  // and prevent the operator from accidentally logging into a second shift
+  // for the same date.
+  const dateOnlyUrl = `/api/entries?dateFrom=${encodeURIComponent(
+    date
+  )}&dateTo=${encodeURIComponent(date)}`;
+  const { data: allDateEntries = [] } = useQuery<ProductionEntry[]>({
+    queryKey: [dateOnlyUrl],
+    enabled: !!date,
+  });
+
+  // Set of shift names that have AT LEAST ONE saved entry for the date.
+  const shiftsWithData = useMemo(() => {
+    const set = new Set<string>();
+    for (const e of allDateEntries) {
+      // Only count entries with actual data — an empty placeholder (no
+      // readings + no item) shouldn't lock the shift.
+      const hasReading = Array.isArray(e.entries)
+        ? (e.entries as Array<{ closingReading: number | null }>).some(
+            (h) => h && h.closingReading != null
+          )
+        : false;
+      const hasOpening = (e.openingReading ?? 0) > 0;
+      if (hasReading || hasOpening) set.add(e.shift);
+    }
+    return set;
+  }, [allDateEntries]);
+
   // Previous-day entries for the SAME shift, used for carry-forward prompt
   function prevDateYMD(d: string): string {
     const [y, m, day] = d.split("-").map(Number);
@@ -539,7 +568,7 @@ export default function ProductionEntryPage() {
         expected: rate,
         entries: row.entries.map((e) => ({
           ...e,
-          expected: expectedForHour(rate, e.hour),
+          expected: expectedForHour(rate, e.hour, hours),
         })),
         dirty: true,
       };
@@ -898,6 +927,86 @@ export default function ProductionEntryPage() {
     setDate(d);
   };
 
+  // Auto-save an hour when it's been ≥ 15 minutes since the slot ended AND
+  // every row with an item picked has a closing reading for that hour AND
+  // it's not already locked. Only runs when we're looking at today's date
+  // (yesterday's grid shouldn't trigger from today's clock).
+  // Polls every 60 seconds.
+  const handleSaveHourRef = useRef(handleSaveHour);
+  useEffect(() => {
+    handleSaveHourRef.current = handleSaveHour;
+  }, [handleSaveHour]);
+
+  useEffect(() => {
+    if (date !== todayYMD()) return;
+    if (rows.length === 0) return;
+    const AUTO_SAVE_DELAY_MIN = 15;
+
+    const tick = () => {
+      const now = new Date();
+      for (let hourIdx = 0; hourIdx < hours.length; hourIdx++) {
+        const label = hours[hourIdx];
+        const [h, m] = label.split(":").map(Number);
+        // Hour cell at "10:00" should auto-save at wall-clock 10:15.
+        // Build a Date for the label, then check minutes since.
+        const slotEnd = new Date(now);
+        slotEnd.setHours(h, m, 0, 0);
+        const minSince = (now.getTime() - slotEnd.getTime()) / 60000;
+        if (minSince < AUTO_SAVE_DELAY_MIN) continue;
+
+        // Already locked on every row that has data? Skip.
+        const alreadyLocked = rows.every(
+          (r) =>
+            r.itemId == null ||
+            (Array.isArray(r.lockedHours) && r.lockedHours.includes(hourIdx))
+        );
+        if (alreadyLocked) continue;
+
+        // Every active row must have a closing reading for this hour
+        // before we auto-save. Otherwise warn (don't silently commit).
+        const activeRows = rows.filter((r) => r.itemId != null);
+        if (activeRows.length === 0) continue;
+        const missingData = activeRows.filter(
+          (r) => r.entries[hourIdx]?.closingReading == null
+        );
+        if (missingData.length > 0) {
+          // Warn once per slot — gate behind a session-level Set so we
+          // don't spam the operator. Detail in `autoSaveWarned` ref below.
+          if (!autoSaveWarnedRef.current.has(hourIdx)) {
+            toast.warning(
+              `Auto-save skipped for ${label}: ${missingData
+                .map((r) => r.machine.machineNumber)
+                .slice(0, 4)
+                .join(", ")}${missingData.length > 4 ? "…" : ""} missing readings`,
+              { duration: 6000 }
+            );
+            autoSaveWarnedRef.current.add(hourIdx);
+          }
+          continue;
+        }
+
+        // Trigger the same save flow as a manual click. Fire-and-forget;
+        // handleSaveHour's own validations will catch any reason-required
+        // issues and toast them.
+        handleSaveHourRef.current(hourIdx);
+        // Save one slot per tick to avoid hammering the server
+        return;
+      }
+    };
+
+    // Run once immediately, then every 60s
+    tick();
+    const id = window.setInterval(tick, 60_000);
+    return () => window.clearInterval(id);
+  }, [date, rows, hours]);
+
+  // Tracks which auto-save warnings have already been shown this session.
+  const autoSaveWarnedRef = useRef(new Set<number>());
+  // Reset warning memory when shift/date changes
+  useEffect(() => {
+    autoSaveWarnedRef.current = new Set();
+  }, [date, shiftName]);
+
   // KPIs
   const totalActual = rows.reduce(
     (s, r) => s + r.entries.reduce((ss, e) => ss + e.actual, 0),
@@ -972,9 +1081,24 @@ export default function ProductionEntryPage() {
             </button>
           </div>
           <div className="md:col-span-2">
-            <label className="block text-xs font-medium mb-1">Shift</label>
+            <label className="block text-xs font-medium mb-1">
+              Shift
+              {shiftsWithData.size > 0 && (
+                <span className="ml-2 text-[10px] text-muted-foreground font-normal">
+                  (other shifts hidden — already saved data for {Array.from(shiftsWithData).join(", ")})
+                </span>
+              )}
+            </label>
             <div className="flex flex-wrap gap-1">
-              {shifts.map((s) => (
+              {shifts
+                .filter((s) => {
+                  // If no shift has data yet, show all. Otherwise, show only
+                  // the shift(s) that already have data — operators can't
+                  // accidentally start a second shift on the same date.
+                  if (shiftsWithData.size === 0) return true;
+                  return shiftsWithData.has(s.name);
+                })
+                .map((s) => (
                 <button
                   key={s.id}
                   onClick={() => handleShiftChange(s.name)}
