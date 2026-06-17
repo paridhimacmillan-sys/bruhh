@@ -133,6 +133,7 @@ async function runMigrations() {
       "opening_reading" integer DEFAULT 0,
       "opening_at" timestamp,
       "closing_at" timestamp,
+      "start_hour_idx" integer,
       "entries" jsonb NOT NULL,
       "operator_name" text,
       "operator_name_2" text,
@@ -146,7 +147,7 @@ async function runMigrations() {
       "updated_at" timestamp NOT NULL DEFAULT now()
     );
 
-    -- Idempotent column add for existing databases
+    -- Idempotent column adds for existing databases
     ALTER TABLE "production_entries"
       ADD COLUMN IF NOT EXISTS "hour_saved_at" jsonb DEFAULT '{}'::jsonb;
     ALTER TABLE "production_entries"
@@ -157,6 +158,9 @@ async function runMigrations() {
       ADD COLUMN IF NOT EXISTS "opening_at" timestamp;
     ALTER TABLE "production_entries"
       ADD COLUMN IF NOT EXISTS "closing_at" timestamp;
+    -- New: stores which hour the operator declared this split-row started at.
+    ALTER TABLE "production_entries"
+      ADD COLUMN IF NOT EXISTS "start_hour_idx" integer;
 
     CREATE UNIQUE INDEX IF NOT EXISTS "IDX_production_unique"
       ON "production_entries" ("organization_id", "date", "machine_id", "item_id", "shift");
