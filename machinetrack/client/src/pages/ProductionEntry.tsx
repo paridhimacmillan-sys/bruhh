@@ -48,6 +48,15 @@ export default function ProductionEntryPage() {
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
   // Whether the carry-forward "what to copy" picker is open
   const [carryPickerOpen, setCarryPickerOpen] = useState(false);
+  // Split-row "from what hour" picker. Null = closed. Otherwise carries the
+  // machineId we're splitting AND optionally a rowIdx if we're EDITING the
+  // start hour of an existing row (admin click on chip).
+  const [splitPicker, setSplitPicker] = useState<{
+    mode: "new" | "edit";
+    machineId: number;
+    rowIdx?: number;
+    currentHourIdx?: number;
+  } | null>(null);
 
   // Refs to avoid stale closures in the debounced auto-save effect
   const rowsRef = useRef(rows);
@@ -316,6 +325,9 @@ export default function ProductionEntryPage() {
       // Server uses these to compute target. Send as ISO strings; null clears.
       openingAt: row.openingAt ? row.openingAt.toISOString() : null,
       closingAt: row.closingAt ? row.closingAt.toISOString() : null,
+      // Hour at which this row started (split-row feature). null = ran from
+      // shift start.
+      startHourIdx: row.startHourIdx,
       entries: row.entries,
       operatorName: row.operatorName || null,
       operatorName2: row.operatorName2 || null,
@@ -609,20 +621,62 @@ export default function ProductionEntryPage() {
     });
   };
 
-  // Split: add a new empty row for the given machine so the operator can log
-  // a second item run later in the shift. The new row goes right after the
-  // last existing row for that machine.
+  // Split: open the "from what hour" picker so the operator can declare when
+  // the new setting/item started running. The actual row creation happens
+  // in confirmSplitWithStartHour once they pick an hour.
   const handleSplitRow = (machineId: number) => {
+    // Reject early if the machine already has a row with no item picked —
+    // they should fill that one first instead of stacking blanks.
+    const hasBlank = rowsRef.current.some(
+      (r) => r.machineId === machineId && r.itemId == null
+    );
+    if (hasBlank) {
+      toast.error("Pick an item for the existing row first");
+      return;
+    }
+    setSplitPicker({ mode: "new", machineId });
+  };
+
+  // Admin clicked the "from HH:MM" chip on a split row — reopen the picker
+  // to edit. Does NOT create a new row; updates the existing row's
+  // startHourIdx on confirm.
+  const handleEditStartHour = (rowIdx: number) => {
+    if (!isAdmin) return;
+    const row = rowsRef.current[rowIdx];
+    if (!row) return;
+    setSplitPicker({
+      mode: "edit",
+      machineId: row.machineId,
+      rowIdx,
+      currentHourIdx: row.startHourIdx ?? 0,
+    });
+  };
+
+  // Confirm the split picker. In "new" mode this creates the row with the
+  // chosen startHourIdx. In "edit" mode it updates the existing row's
+  // startHourIdx (admin only).
+  const confirmSplitWithStartHour = (hourIdx: number) => {
+    if (!splitPicker) return;
+
+    if (splitPicker.mode === "edit" && splitPicker.rowIdx != null) {
+      const rowIdx = splitPicker.rowIdx;
+      setRows((prev) => {
+        const next = [...prev];
+        next[rowIdx] = {
+          ...next[rowIdx],
+          startHourIdx: hourIdx,
+          dirty: true,
+        };
+        return next;
+      });
+      toast.success(`Start time updated to ${hours[hourIdx]}`);
+      setSplitPicker(null);
+      return;
+    }
+
+    // "new" mode: create the split row with the picked startHourIdx
+    const machineId = splitPicker.machineId;
     setRows((prev) => {
-      // Reject if the machine already has a row with no item picked — they
-      // should fill that one first instead of stacking blanks.
-      const hasBlank = prev.some(
-        (r) => r.machineId === machineId && r.itemId == null
-      );
-      if (hasBlank) {
-        toast.error("Pick an item for the existing row first");
-        return prev;
-      }
       const lastIdx = prev
         .map((r, i) => ({ r, i }))
         .filter(({ r }) => r.machineId === machineId)
@@ -630,8 +684,6 @@ export default function ProductionEntryPage() {
         .pop();
       const machine = prev.find((r) => r.machineId === machineId)?.machine;
       if (!machine) return prev;
-      // Use a unique synthetic key so React doesn't reuse fiber state.
-      // Inherit trackingMode from the existing row for this machine.
       const existingForMachine = prev.find((r) => r.machineId === machineId);
       const newRow: GridRow = {
         rowKey: `split-${machineId}-${Date.now()}`,
@@ -656,6 +708,7 @@ export default function ProductionEntryPage() {
         trackingMode: existingForMachine?.trackingMode ?? "hourly",
         openingAt: null,
         closingAt: null,
+        startHourIdx: hourIdx,
         dirty: false,
       };
       const insertAt = (lastIdx ?? prev.length - 1) + 1;
@@ -663,6 +716,8 @@ export default function ProductionEntryPage() {
       next.splice(insertAt, 0, newRow);
       return next;
     });
+    toast.success(`New row added starting at ${hours[hourIdx]}`);
+    setSplitPicker(null);
   };
 
   // Delete a row from the grid. For unsaved rows (rowKey starts with "new-"
@@ -1204,6 +1259,7 @@ export default function ProductionEntryPage() {
         onUnlockHour={handleUnlockHour}
         onSaveOpening={handleSaveOpening}
         onSaveClosing={handleSaveClosing}
+        onEditStartHour={handleEditStartHour}
       />
 
       {/* Carry-forward picker. Modal-style overlay with three options.
@@ -1261,6 +1317,58 @@ export default function ProductionEntryPage() {
             <div className="flex justify-end mt-4">
               <button
                 onClick={() => setCarryPickerOpen(false)}
+                className="px-3 py-1 text-xs border rounded hover:bg-muted/40"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Split-row "from what hour" picker. Opens on "+ Split" click
+          (mode=new, creates a row) OR on admin chip-click (mode=edit,
+          updates existing row's startHourIdx). 3-column grid of the
+          shift's hour labels — picking one fires confirmSplitWithStartHour. */}
+      {splitPicker && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+          onClick={() => setSplitPicker(null)}
+        >
+          <div
+            className="bg-card border rounded-lg shadow-lg p-5 w-[360px] max-w-[90vw]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="font-bold text-base mb-1">
+              {splitPicker.mode === "edit" ? "Edit start hour" : "New setting started at"}
+            </h2>
+            <p className="text-xs text-muted-foreground mb-4">
+              {splitPicker.mode === "edit"
+                ? "Change the hour this row started running. Cells outside the new window will be greyed."
+                : "Pick the hour the new item/setting started. Cells before it will be greyed on this new row, and cells from this hour onwards will be greyed on the previous row."}
+            </p>
+            <div className="grid grid-cols-3 gap-2 max-h-[280px] overflow-y-auto">
+              {hours.map((h, idx) => {
+                const isCurrent =
+                  splitPicker.mode === "edit" &&
+                  splitPicker.currentHourIdx === idx;
+                return (
+                  <button
+                    key={`pick-${idx}`}
+                    onClick={() => confirmSplitWithStartHour(idx)}
+                    className={`px-2 py-1.5 border rounded font-mono text-xs ${
+                      isCurrent
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "hover:bg-muted/40"
+                    }`}
+                  >
+                    {h}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="flex justify-end mt-4">
+              <button
+                onClick={() => setSplitPicker(null)}
                 className="px-3 py-1 text-xs border rounded hover:bg-muted/40"
               >
                 Cancel
