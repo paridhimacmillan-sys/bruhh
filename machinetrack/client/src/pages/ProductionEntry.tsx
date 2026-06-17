@@ -335,8 +335,11 @@ export default function ProductionEntryPage() {
   ): Promise<{ ok: number; failed: number; blocked?: boolean }> => {
     // Validate: any row with a sub-threshold cell that has a closing reading
     // MUST have a reason picked. Blocks save with a descriptive toast.
+    // Unassigned-operator rows are EXCLUDED from this check — they're
+    // considered idle and won't be saved anyway.
     const missing: string[] = [];
     for (const row of rowsRef.current) {
+      if ((row.operatorName ?? "").trim() === "") continue;
       for (let i = 0; i < row.entries.length; i++) {
         const e = row.entries[i];
         if (e.closingReading == null || e.expected <= 0) continue;
@@ -725,8 +728,10 @@ export default function ProductionEntryPage() {
   const handleSaveHour = async (hourIdx: number) => {
     // Validate: every row that has data for THIS hour and is sub-threshold
     // must have a reason picked before locking the hour.
+    // Unassigned-operator rows are skipped.
     const missing: string[] = [];
     for (const row of rows) {
+      if ((row.operatorName ?? "").trim() === "") continue;
       const e = row.entries[hourIdx];
       if (!e || e.closingReading == null || e.expected <= 0) continue;
       const pct = (e.actual / e.expected) * 100;
@@ -957,6 +962,7 @@ export default function ProductionEntryPage() {
   // it's not already locked. Only runs when we're looking at today's date
   // (yesterday's grid shouldn't trigger from today's clock).
   // Polls every 60 seconds.
+  // Unassigned-operator rows are NOT considered "active" — they're idle.
   const handleSaveHourRef = useRef(handleSaveHour);
   useEffect(() => {
     handleSaveHourRef.current = handleSaveHour;
@@ -983,13 +989,16 @@ export default function ProductionEntryPage() {
         const alreadyLocked = rows.every(
           (r) =>
             r.itemId == null ||
+            (r.operatorName ?? "").trim() === "" ||
             (Array.isArray(r.lockedHours) && r.lockedHours.includes(hourIdx))
         );
         if (alreadyLocked) continue;
 
         // Every active row must have a closing reading for this hour
         // before we auto-save. Otherwise warn (don't silently commit).
-        const activeRows = rows.filter((r) => r.itemId != null);
+        const activeRows = rows.filter(
+          (r) => r.itemId != null && (r.operatorName ?? "").trim() !== ""
+        );
         if (activeRows.length === 0) continue;
         const missingData = activeRows.filter(
           (r) => r.entries[hourIdx]?.closingReading == null
@@ -1032,12 +1041,16 @@ export default function ProductionEntryPage() {
     autoSaveWarnedRef.current = new Set();
   }, [date, shiftName]);
 
-  // KPIs
-  const totalActual = rows.reduce(
+  // KPIs. An "unassigned" operator (empty operatorName) means the machine
+  // wasn't running that day, so we skip those rows entirely from page totals
+  // and efficiency — counting them would always show 0% and drag the average
+  // down for no reason.
+  const activeRows = rows.filter((r) => (r.operatorName ?? "").trim() !== "");
+  const totalActual = activeRows.reduce(
     (s, r) => s + r.entries.reduce((ss, e) => ss + e.actual, 0),
     0
   );
-  const totalExpected = rows.reduce(
+  const totalExpected = activeRows.reduce(
     (s, r) => s + r.entries.reduce((ss, e) => ss + e.expected, 0),
     0
   );
