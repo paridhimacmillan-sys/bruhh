@@ -19,6 +19,26 @@ import {
 } from "@shared/schema";
 import type { HourlyEntry, User } from "@shared/schema";
 
+// Physical maximum production for an hour cell. Used as the validation cap
+// when the operator enters a closing reading. Deducts lunch overlap (real
+// half-hour clock gap) but ALLOWS the operator to record full-hour
+// production through tea / shift-edge allowances (discretionary).
+// This mirrors `maxAllowedForHour` in client/src/lib/productionGrid.ts —
+// keep both in sync.
+function physicalMaxForHour(hourLabel: string, rate: number): number {
+  if (rate <= 0 || !hourLabel) return 0;
+  const [h, m] = hourLabel.split(":").map(Number);
+  if (isNaN(h) || isNaN(m)) return 0;
+  const endMin = h * 60 + m;
+  const startMin = endMin - 60;
+  const lunchOverlap = Math.max(
+    0,
+    Math.min(endMin, 13 * 60 + 30) - Math.max(startMin, 13 * 60)
+  );
+  const physicalMinutes = 60 - lunchOverlap;
+  return Math.round((rate * physicalMinutes) / 60);
+}
+
 export function registerRoutes(app: Express) {
   // ===================================================
   // AUTH
@@ -640,6 +660,16 @@ export function registerRoutes(app: Express) {
         serverComputedExpected = Math.round((rate * workedMin) / 60);
       }
 
+      // Look up the machine's rate for this item, used as the physical-max
+      // cap for hourly mode. For shift-total mode the rate was already
+      // computed above.
+      let machineRate = 0;
+      if (item) {
+        const itemRates = (item.rates as Array<{ machineId: number; rate: number }>) ?? [];
+        machineRate =
+          itemRates.find((r) => r?.machineId === input.machineId)?.rate ?? 0;
+      }
+
       const validated: HourlyEntry[] = [];
       let prev = input.openingReading;
       for (const [idx, e] of input.entries.entries()) {
@@ -658,9 +688,18 @@ export function registerRoutes(app: Express) {
           isShiftTotal && serverComputedExpected != null
             ? serverComputedExpected
             : e.expected;
-        if (effectiveExpected > 0 && actual > effectiveExpected) {
+
+        // Physical cap. Lunch (a real clock gap) is still deducted; tea +
+        // shift-edge allowances are allowed back so operator can record
+        // full-hour production when they worked through a break.
+        const cap =
+          isShiftTotal && serverComputedExpected != null
+            ? effectiveExpected
+            : physicalMaxForHour(e.hour ?? "", machineRate);
+
+        if (cap > 0 && actual > cap) {
           return res.status(400).json({
-            message: `Hour ${e.hour}: produced ${actual} exceeds target of ${effectiveExpected}. Max allowed closing = ${prev + effectiveExpected}`,
+            message: `Hour ${e.hour}: produced ${actual} exceeds physical max of ${cap}. Max allowed closing = ${prev + cap}`,
           });
         }
         validated.push({ ...e, actual, expected: effectiveExpected });
