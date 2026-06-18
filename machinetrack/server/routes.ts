@@ -680,6 +680,7 @@ export function registerRoutes(app: Express) {
   app.post("/api/entries/unlock-hour", isAuthenticated, async (req, res, next) => {
     try {
       const orgId = getOrgId(req);
+      const user = req.user as User;
       const input = z
         .object({
           date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -688,9 +689,42 @@ export function registerRoutes(app: Express) {
         })
         .parse(req.body);
 
-      // Both admins and operators can now undo a saved hour at any time.
-      // The previous 10-minute operator window was removed — operators
-      // need full undo access to correct mistakes whenever they're noticed.
+      const isAdminUser = user.role === "admin";
+
+      // Operator window: the operator can edit/undo a saved hour up until
+      // 5 minutes before the next hour's end. Equivalent to "hour label
+      // time + 55 minutes". Computed from the shift's startTime + hourIdx
+      // so it's correct for any shift (including ones that wrap midnight,
+      // since we walk from shift_start + (i+1)*60 minutes).
+      //
+      // Example: hour 14:00 (i=5 in a 09:00–20:00 shift starting from
+      // 08:00) → cutoff = 08:00 + 6*60min + 55min = 14:55.
+      //
+      // Admin is unrestricted.
+      if (!isAdminUser) {
+        const allShifts = await storage.getShifts(orgId);
+        const shiftRow = allShifts.find((s) => s.name === input.shift);
+        if (!shiftRow) {
+          return res.status(400).json({
+            message: `Shift "${input.shift}" not found — cannot validate edit window.`,
+          });
+        }
+        const [sH, sM] = shiftRow.startTime.split(":").map(Number);
+        const base = new Date(input.date + "T00:00:00");
+        base.setHours(sH, sM, 0, 0);
+        const startMs = base.getTime();
+        // cutoff = shift_start + (hourIdx + 1) * 60 min + 55 min
+        const cutoffMs =
+          startMs + ((input.hourIdx + 1) * 60 + 55) * 60 * 1000;
+        const now = Date.now();
+        if (now >= cutoffMs) {
+          const overMin = Math.round((now - cutoffMs) / 60000);
+          return res.status(403).json({
+            message: `Operator edit window for this hour closed ${overMin} min ago — only admin can undo now.`,
+          });
+        }
+      }
+
       const result = await storage.unlockHour(
         orgId,
         input.date,
