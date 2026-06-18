@@ -47,6 +47,10 @@ interface Props {
   // HH:00" button (operators can't close an hour that hasn't happened).
   // For past dates this is hours.length - 1; for future dates it's -1.
   maxSavableHourIdx: number;
+  // For each hour index, whether an operator (non-admin) is still allowed
+  // to undo a save for that hour. Cutoff is 5 min before the next hour's
+  // end, i.e. hour-label + 55 min. Admins can undo any time regardless.
+  operatorCanUndoByHour: boolean[];
 }
 
 export default function EntryGrid({
@@ -73,6 +77,7 @@ export default function EntryGrid({
   onSaveClosing,
   onEditStartHour,
   maxSavableHourIdx,
+  operatorCanUndoByHour,
 }: Props) {
   const topScrollRef = useRef<HTMLDivElement>(null);
   const tableScrollRef = useRef<HTMLDivElement>(null);
@@ -559,18 +564,11 @@ export default function EntryGrid({
                               onCommit={(v) => onClosingChange(rowIdx, hourIdx, v)}
                             />
                           )}
-                          {!noItem && !greyedOut && (
-                            <span
-                              className={`text-[9px] font-mono leading-none ${
-                                missingReason
-                                  ? "text-red-700 font-bold"
-                                  : "text-muted-foreground"
-                              }`}
-                            >
-                              {entry.actual}/{entry.expected}
-                              {missingReason && " ⚠"}
-                            </span>
-                          )}
+                          {/* The actual/expected numeric line (e.g. "65/70")
+                              used to live here. Removed to clean up the grid
+                              — the cell background already conveys efficiency
+                              (green/yellow/red), and the red ring + reason
+                              dropdown signal sub-threshold + missing-reason. */}
                           {!noItem && !greyedOut &&
                             (() => {
                               const worked = workedMinutesForHour(entry.hour, hours);
@@ -700,10 +698,11 @@ export default function EntryGrid({
                   earliestMs != null
                     ? Math.round((Date.now() - earliestMs) / 60000)
                     : null;
-                // Operators and admins can always undo a saved hour. (The
-                // older 10-minute operator window was removed — operators
-                // need full undo to fix mis-entries any time.)
-                const canUndo = true;
+                // Admin can undo any saved hour any time. Operator can only
+                // undo until 5 min before the next hour ends (= hour label
+                // + 55 min). Past that cutoff, only admin can undo.
+                const operatorAllowed = operatorCanUndoByHour[i] ?? false;
+                const canUndo = isAdmin || operatorAllowed;
 
                 return (
                   <td key={`save-${i}`} className="px-1 py-2 text-center">
@@ -717,9 +716,9 @@ export default function EntryGrid({
                             : "text-green-600 bg-green-50 border border-green-200 cursor-not-allowed opacity-60"
                         }`}
                         title={
-                          ageMin != null
-                            ? `Click to undo (saved ${ageMin} min ago)`
-                            : "Click to undo"
+                          canUndo
+                            ? `Click to undo${ageMin != null ? ` (saved ${ageMin} min ago)` : ""}`
+                            : `Edit window closed — only admin can undo now`
                         }
                       >
                         <CheckCircle2 size={10} /> Saved
