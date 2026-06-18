@@ -680,7 +680,6 @@ export function registerRoutes(app: Express) {
   app.post("/api/entries/unlock-hour", isAuthenticated, async (req, res, next) => {
     try {
       const orgId = getOrgId(req);
-      const user = req.user as User;
       const input = z
         .object({
           date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -689,35 +688,9 @@ export function registerRoutes(app: Express) {
         })
         .parse(req.body);
 
-      const isAdmin = user.role === "admin";
-
-      if (!isAdmin) {
-        const matches = await storage.getEntries(orgId, {
-          dateFrom: input.date,
-          dateTo: input.date,
-          shift: input.shift,
-        });
-        let earliest: string | null = null;
-        for (const m of matches) {
-          const savedAt = (m.hourSavedAt as Record<string, string>) ?? {};
-          const t = savedAt[String(input.hourIdx)];
-          if (t && (earliest == null || t < earliest)) earliest = t;
-        }
-        if (earliest == null) {
-          return res.status(400).json({
-            message: "This hour has no recorded save time. Admin must unlock it.",
-          });
-        }
-        const ageMs = Date.now() - new Date(earliest).getTime();
-        const TEN_MIN = 10 * 60 * 1000;
-        if (ageMs > TEN_MIN) {
-          const minutesAgo = Math.round(ageMs / 60000);
-          return res.status(403).json({
-            message: "Saved " + minutesAgo + " min ago — only admin can undo after 10 minutes.",
-          });
-        }
-      }
-
+      // Both admins and operators can now undo a saved hour at any time.
+      // The previous 10-minute operator window was removed — operators
+      // need full undo access to correct mistakes whenever they're noticed.
       const result = await storage.unlockHour(
         orgId,
         input.date,
