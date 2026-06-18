@@ -89,6 +89,50 @@ export default function ProductionEntryPage() {
     [currentShift]
   );
 
+  // Ticks every minute so time-gated UI (the "Save HH:00" buttons) refreshes
+  // without having to wait for unrelated state changes to trigger a render.
+  const [nowTick, setNowTick] = useState(0);
+  useEffect(() => {
+    const id = window.setInterval(() => setNowTick((t) => t + 1), 60_000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  // Highest hour-index that is "savable now": its end-time has been reached
+  // on the wall clock. Operators can't save the closing for an hour that
+  // hasn't happened yet (e.g. clicking "Save 16:00" at 15:00). Buttons for
+  // future hours are hidden by EntryGrid.
+  //
+  // For past dates, every hour is savable (filling historical data). For
+  // future dates, no hour is savable. For today, compare each hour's
+  // absolute timestamp to `now`.
+  const maxSavableHourIdx = useMemo(() => {
+    if (!currentShift || hours.length === 0) return -1;
+    // Past or future date checks first — short-circuit without time math.
+    const today = todayYMD();
+    if (date < today) return hours.length - 1; // all hours elapsed
+    if (date > today) return -1; // nothing saveable yet
+    // Today: build absolute timestamps for each hour-end. The shift's hour
+    // list already wraps midnight correctly (computeShiftHours produces
+    // labels in chronological order), so we walk from shift start and add
+    // 60 min per hour. We rebuild the chain from shift start to avoid
+    // ambiguity when a label like "01:00" appears in a 21:00→08:00 shift.
+    const [sH, sM] = currentShift.startTime.split(":").map(Number);
+    const base = new Date(date + "T00:00:00");
+    base.setHours(sH, sM, 0, 0);
+    const startMs = base.getTime();
+    const now = Date.now();
+    let lastElapsed = -1;
+    for (let i = 0; i < hours.length; i++) {
+      // hour[i] ends at shift_start + (i+1) hours
+      const hourEndMs = startMs + (i + 1) * 60 * 60 * 1000;
+      if (now >= hourEndMs) lastElapsed = i;
+      else break;
+    }
+    return lastElapsed;
+    // nowTick included so this recomputes every minute as time passes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentShift, hours, date, nowTick]);
+
   // Server-side entries for the current date+shift
   const entriesUrl = `/api/entries?dateFrom=${encodeURIComponent(
     date
@@ -1260,6 +1304,7 @@ export default function ProductionEntryPage() {
         onSaveOpening={handleSaveOpening}
         onSaveClosing={handleSaveClosing}
         onEditStartHour={handleEditStartHour}
+        maxSavableHourIdx={maxSavableHourIdx}
       />
 
       {/* Carry-forward picker. Modal-style overlay with three options.
