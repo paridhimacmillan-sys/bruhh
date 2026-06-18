@@ -42,6 +42,11 @@ interface Props {
   onSaveClosing: (rowIdx: number) => Promise<void>;
   // Open the start-time picker for a row (admin click on the chip).
   onEditStartHour: (rowIdx: number) => void;
+  // Highest hour index whose wall-clock end has been reached. Hours with a
+  // greater index are still in the future and should NOT show their "Save
+  // HH:00" button (operators can't close an hour that hasn't happened).
+  // For past dates this is hours.length - 1; for future dates it's -1.
+  maxSavableHourIdx: number;
 }
 
 export default function EntryGrid({
@@ -67,6 +72,7 @@ export default function EntryGrid({
   onSaveOpening,
   onSaveClosing,
   onEditStartHour,
+  maxSavableHourIdx,
 }: Props) {
   const topScrollRef = useRef<HTMLDivElement>(null);
   const tableScrollRef = useRef<HTMLDivElement>(null);
@@ -694,8 +700,10 @@ export default function EntryGrid({
                   earliestMs != null
                     ? Math.round((Date.now() - earliestMs) / 60000)
                     : null;
-                const canOperatorUndo = ageMin != null && ageMin <= 10;
-                const canUndo = isAdmin || canOperatorUndo;
+                // Operators and admins can always undo a saved hour. (The
+                // older 10-minute operator window was removed — operators
+                // need full undo to fix mis-entries any time.)
+                const canUndo = true;
 
                 return (
                   <td key={`save-${i}`} className="px-1 py-2 text-center">
@@ -709,13 +717,20 @@ export default function EntryGrid({
                             : "text-green-600 bg-green-50 border border-green-200 cursor-not-allowed opacity-60"
                         }`}
                         title={
-                          canUndo
-                            ? `Click to undo${ageMin != null ? ` (saved ${ageMin} min ago)` : ""}`
-                            : `Saved ${ageMin} min ago — only admin can undo after 10 minutes`
+                          ageMin != null
+                            ? `Click to undo (saved ${ageMin} min ago)`
+                            : "Click to undo"
                         }
                       >
                         <CheckCircle2 size={10} /> Saved
                       </button>
+                    ) : i > maxSavableHourIdx ? (
+                      // Hour hasn't happened yet (or selected date is in the
+                      // future). Hide the save button — operators shouldn't
+                      // save a closing reading for an hour that hasn't ended.
+                      <span className="text-[9px] text-muted-foreground italic">
+                        —
+                      </span>
                     ) : (
                       <button
                         onClick={() => onSaveHour(i)}
