@@ -133,6 +133,35 @@ export default function ProductionEntryPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentShift, hours, date, nowTick]);
 
+  // For each hour index, whether an operator is still inside their edit
+  // window. Operator window closes 5 min BEFORE the next hour ends —
+  // equivalent to "hour label + 55 minutes". Past the cutoff, only admin
+  // can undo. Admin is gated separately at the call site.
+  //
+  // Example: hour 14:00 (worked hour 13:00–14:00) — cutoff is 14:55.
+  // If 14:00 was auto-saved at 14:15, operator can still edit/undo
+  // until 14:55, giving them ~40 min to fix mistakes.
+  //
+  // For past dates (yesterday), every cutoff is in the past → operator
+  // can't undo (admin only).
+  // For future dates (shouldn't be entering data, but defensive), every
+  // cutoff is in the future → operator allowed.
+  const operatorCanUndoByHour = useMemo(() => {
+    if (!currentShift || hours.length === 0) return [];
+    const [sH, sM] = currentShift.startTime.split(":").map(Number);
+    const base = new Date(date + "T00:00:00");
+    base.setHours(sH, sM, 0, 0);
+    const startMs = base.getTime();
+    const now = Date.now();
+    return hours.map((_, i) => {
+      // cutoff = hour label time + 55 min
+      //        = shift_start + (i+1)*60 min + 55 min
+      const cutoffMs = startMs + ((i + 1) * 60 + 55) * 60 * 1000;
+      return now < cutoffMs;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentShift, hours, date, nowTick]);
+
   // Server-side entries for the current date+shift
   const entriesUrl = `/api/entries?dateFrom=${encodeURIComponent(
     date
@@ -1093,24 +1122,46 @@ export default function ProductionEntryPage() {
         );
         if (alreadyLocked) continue;
 
-        // Every active row must have a closing reading for this hour
-        // before we auto-save. Otherwise warn (don't silently commit).
+        // Only auto-save if at least one row is active (has an item picked
+        // AND an operator assigned). If every row is idle there's nothing
+        // worth saving for this hour.
+        //
+        // Gaps in closing readings are NO LONGER a blocker. The server
+        // treats null closing readings as "skipped" (meter doesn't
+        // advance), and operators can fill them in later if needed.
+        // Previously we warned and refused to auto-save in that case;
+        // now we just commit whatever's there.
         const activeRows = rows.filter(
           (r) => r.itemId != null && (r.operatorName ?? "").trim() !== ""
         );
         if (activeRows.length === 0) continue;
-        const missingData = activeRows.filter(
-          (r) => r.entries[hourIdx]?.closingReading == null
-        );
-        if (missingData.length > 0) {
-          // Warn once per slot — gate behind a session-level Set so we
-          // don't spam the operator. Detail in `autoSaveWarned` ref below.
+
+        // Silent pre-check for handleSaveHour's reason-required rule. If any
+        // active row has a closing reading at this hour below threshold AND
+        // no reason picked, handleSaveHour will toast.error and return —
+        // which would spam every 60s. So we detect the same condition here
+        // and skip auto-save for this slot, warning the operator once.
+        const needsReason = activeRows.some((row) => {
+          const e = row.entries[hourIdx];
+          if (!e || e.closingReading == null || e.expected <= 0) return false;
+          const pct = (e.actual / e.expected) * 100;
+          return pct < REASON_THRESHOLD_PCT && e.reasonId == null;
+        });
+        if (needsReason) {
           if (!autoSaveWarnedRef.current.has(hourIdx)) {
+            const machines = activeRows
+              .filter((row) => {
+                const e = row.entries[hourIdx];
+                if (!e || e.closingReading == null || e.expected <= 0)
+                  return false;
+                const pct = (e.actual / e.expected) * 100;
+                return pct < REASON_THRESHOLD_PCT && e.reasonId == null;
+              })
+              .map((r) => r.machine.machineNumber);
             toast.warning(
-              `Auto-save skipped for ${label}: ${missingData
-                .map((r) => r.machine.machineNumber)
+              `Auto-save waiting for reasons at ${label}: ${machines
                 .slice(0, 4)
-                .join(", ")}${missingData.length > 4 ? "…" : ""} missing readings`,
+                .join(", ")}${machines.length > 4 ? "…" : ""}`,
               { duration: 6000 }
             );
             autoSaveWarnedRef.current.add(hourIdx);
@@ -1118,9 +1169,7 @@ export default function ProductionEntryPage() {
           continue;
         }
 
-        // Trigger the same save flow as a manual click. Fire-and-forget;
-        // handleSaveHour's own validations will catch any reason-required
-        // issues and toast them.
+        // Trigger the same save flow as a manual click. Fire-and-forget.
         handleSaveHourRef.current(hourIdx);
         // Save one slot per tick to avoid hammering the server
         return;
@@ -1305,6 +1354,7 @@ export default function ProductionEntryPage() {
         onSaveClosing={handleSaveClosing}
         onEditStartHour={handleEditStartHour}
         maxSavableHourIdx={maxSavableHourIdx}
+        operatorCanUndoByHour={operatorCanUndoByHour}
       />
 
       {/* Carry-forward picker. Modal-style overlay with three options.
