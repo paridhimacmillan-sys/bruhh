@@ -1,0 +1,893 @@
+<!-- CNC Production Mapper -->
+<div id="app">
+  <div id="loading" class="loading">Connecting to Google Sheet…</div>
+</div>
+
+<style>
+  #app, #app * { box-sizing: border-box; }
+  #app {
+    --bg:#e9edf1; --panel:#ffffff; --panel-2:#f5f7fa;
+    --ink:#16202c; --ink-soft:#5b6b7b; --ink-faint:#8b99a8;
+    --line:#d3dbe3; --line-2:#e4e9ee;
+    --steel:#1f5fa8; --steel-d:#164a85;
+    --ok:#1a7f4b; --ok-bg:#e3f4ea;
+    --warn:#b4690e; --warn-bg:#fbf0dd;
+    --bad:#c0362c; --bad-bg:#fbe6e3;
+    --hazard:#e8a317;
+    --mono:'SF Mono','Roboto Mono',Menlo,Consolas,monospace;
+    --sans:'Inter','Helvetica Neue',Arial,system-ui,sans-serif;
+    font-family:var(--sans); color:var(--ink); background:var(--bg);
+    min-height:100%; line-height:1.45; font-size:14px;
+    -webkit-font-smoothing:antialiased;
+  }
+  .loading{ padding:60px 20px; text-align:center; color:var(--ink-soft); font-family:var(--mono); letter-spacing:.04em; }
+
+  /* Header */
+  .hdr{ background:linear-gradient(180deg,#1b2733,#16202c); color:#fff; padding:16px 22px 0; position:relative; }
+  .hdr::after{ content:""; position:absolute; left:0; right:0; bottom:0; height:3px;
+    background:linear-gradient(90deg,var(--steel),var(--hazard)); }
+  .hdr-top{ display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; }
+  .hdr-eyebrow{ font-family:var(--mono); font-size:10px; letter-spacing:.28em; text-transform:uppercase; color:#7fa8d4; }
+  .hdr h1{ margin:2px 0 0; font-size:22px; font-weight:800; letter-spacing:-.01em; }
+  .hdr-sub{ color:#9fb2c4; font-size:12px; margin-left:auto; font-family:var(--mono); }
+  .tabs{ display:flex; gap:2px; margin-top:14px; overflow-x:auto; }
+  .tab{ appearance:none; border:0; background:transparent; color:#9fb2c4; padding:10px 15px;
+    font-size:12px; font-weight:600; letter-spacing:.02em; cursor:pointer; white-space:nowrap;
+    border-bottom:3px solid transparent; transition:.15s; font-family:var(--sans); }
+  .tab:hover{ color:#dce6f0; }
+  .tab.active{ color:#fff; border-bottom-color:var(--hazard); }
+
+  /* Layout */
+  .wrap{ padding:20px 22px 60px; max-width:1280px; margin:0 auto; }
+  .view{ display:none; } .view.active{ display:block; }
+
+  .panel{ background:var(--panel); border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+  .panel + .panel{ margin-top:16px; }
+  .panel-hd{ padding:13px 16px; border-bottom:1px solid var(--line-2); display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .panel-hd h2{ margin:0; font-size:13px; font-weight:700; letter-spacing:.02em; }
+  .panel-hd .eyebrow{ font-family:var(--mono); font-size:10px; letter-spacing:.18em; text-transform:uppercase; color:var(--ink-faint); }
+  .panel-bd{ padding:16px; }
+
+  /* Forms */
+  .field{ display:flex; flex-direction:column; gap:5px; }
+  .field label{ font-size:11px; font-weight:600; letter-spacing:.03em; text-transform:uppercase; color:var(--ink-soft); }
+  input, select{ font-family:var(--sans); font-size:14px; color:var(--ink); background:var(--panel-2);
+    border:1px solid var(--line); border-radius:7px; padding:9px 10px; width:100%; outline:none; transition:.12s; }
+  input:focus, select:focus{ border-color:var(--steel); background:#fff; box-shadow:0 0 0 3px rgba(31,95,168,.12); }
+  input[type=number]{ font-family:var(--mono); }
+  .form-row{ display:grid; gap:12px; align-items:end; }
+
+  .btn{ appearance:none; border:1px solid var(--line); background:#fff; color:var(--ink);
+    padding:9px 14px; border-radius:7px; font-size:13px; font-weight:600; cursor:pointer; transition:.12s; font-family:var(--sans); }
+  .btn:hover{ border-color:var(--ink-soft); }
+  .btn-primary{ background:var(--steel); border-color:var(--steel); color:#fff; }
+  .btn-primary:hover{ background:var(--steel-d); border-color:var(--steel-d); }
+  .btn-ghost{ background:transparent; }
+  .btn-sm{ padding:6px 10px; font-size:12px; }
+  .btn-danger{ color:var(--bad); border-color:var(--bad-bg); background:var(--bad-bg); }
+  .btn-danger:hover{ border-color:var(--bad); }
+  .btn:disabled{ opacity:.5; cursor:not-allowed; }
+
+  /* Tables */
+  table{ width:100%; border-collapse:collapse; font-size:13px; }
+  th{ text-align:left; font-size:10px; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-faint);
+    font-weight:700; padding:9px 12px; border-bottom:1px solid var(--line); }
+  td{ padding:10px 12px; border-bottom:1px solid var(--line-2); vertical-align:middle; }
+  tr:last-child td{ border-bottom:0; }
+  td.num, th.num{ font-family:var(--mono); text-align:right; }
+  .row-actions{ display:flex; gap:6px; justify-content:flex-end; }
+  .muted{ color:var(--ink-faint); }
+  .empty{ padding:26px; text-align:center; color:var(--ink-faint); font-size:13px; }
+  .empty b{ color:var(--ink-soft); display:block; margin-bottom:3px; }
+
+  .chip{ display:inline-flex; align-items:center; gap:5px; font-family:var(--mono); font-size:11px;
+    padding:3px 8px; border-radius:20px; background:var(--panel-2); border:1px solid var(--line); }
+  .chip.ok{ background:var(--ok-bg); color:var(--ok); border-color:transparent; }
+  .chip.warn{ background:var(--warn-bg); color:var(--warn); border-color:transparent; }
+  .chip.bad{ background:var(--bad-bg); color:var(--bad); border-color:transparent; }
+
+  /* Daily sheet controls */
+  .sheet-ctrls{ display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; align-items:end; }
+  .kpis{ display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:12px; }
+  .kpi{ background:var(--panel-2); border:1px solid var(--line-2); border-radius:9px; padding:12px 14px; }
+  .kpi .k-label{ font-size:10px; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-faint); font-weight:700; }
+  .kpi .k-val{ font-family:var(--mono); font-size:22px; font-weight:700; margin-top:3px; }
+  .kpi .k-sub{ font-size:11px; color:var(--ink-soft); font-family:var(--mono); }
+  .kpi.good .k-val{ color:var(--ok);} .kpi.bad .k-val{ color:var(--bad);}
+
+  /* Machine line card */
+  .line-card{ border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+  .line-card + .line-card{ margin-top:14px; }
+  .line-hd{ display:flex; align-items:center; gap:14px; padding:12px 14px; background:var(--panel-2);
+    border-bottom:1px solid var(--line-2); flex-wrap:wrap; }
+  .line-tag{ font-family:var(--mono); font-weight:700; font-size:13px; background:var(--ink); color:#fff;
+    padding:4px 9px; border-radius:6px; letter-spacing:.02em; }
+  .line-meta{ display:flex; gap:18px; flex-wrap:wrap; }
+  .line-meta .lm{ display:flex; flex-direction:column; }
+  .lm .lm-k{ font-size:9px; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-faint); font-weight:700; }
+  .lm .lm-v{ font-size:13px; font-weight:600; }
+  .lm .lm-v.mono{ font-family:var(--mono); }
+  .line-hd .spacer{ margin-left:auto; }
+
+  /* Hour grid */
+  .hours{ display:flex; gap:8px; padding:14px; overflow-x:auto; }
+  .hcell{ flex:0 0 118px; border:1px solid var(--line); border-radius:9px; padding:9px 9px 10px; cursor:pointer;
+    background:#fff; transition:.12s; position:relative; }
+  .hcell:hover{ border-color:var(--steel); box-shadow:0 2px 8px rgba(22,32,44,.08); }
+  .hcell .h-time{ font-family:var(--mono); font-size:10px; color:var(--ink-soft); letter-spacing:.02em; }
+  .hcell .h-val{ font-family:var(--mono); font-size:19px; font-weight:700; margin-top:5px; line-height:1; }
+  .hcell .h-tgt{ font-family:var(--mono); font-size:10px; color:var(--ink-faint); margin-top:2px; }
+  .hcell .h-track{ height:4px; border-radius:3px; background:var(--line-2); margin-top:8px; overflow:hidden; }
+  .hcell .h-fill{ height:100%; border-radius:3px; }
+  .hcell.empty-cell .h-val{ color:var(--ink-faint); }
+  .hcell.ok{ border-color:#bfe3cd; } .hcell.ok .h-fill{ background:var(--ok); }
+  .hcell.warn{ border-color:#eccfa0; } .hcell.warn .h-fill{ background:var(--warn); }
+  .hcell.bad{ border-color:#e9b6af; background:#fdf4f3; } .hcell.bad .h-fill{ background:var(--bad); }
+  .hcell.ok .h-val{ color:var(--ok);} .hcell.warn .h-val{ color:var(--warn);} .hcell.bad .h-val{ color:var(--bad);}
+  .h-reason{ margin-top:7px; font-size:10px; color:var(--bad); display:flex; align-items:center; gap:4px; line-height:1.3; }
+  .h-badges{ position:absolute; top:7px; right:7px; display:flex; gap:3px; }
+  .h-badge{ font-family:var(--mono); font-size:8px; font-weight:700; letter-spacing:.05em; padding:2px 4px;
+    border-radius:4px; background:var(--hazard); color:#3a2a00; }
+  .h-badge.op{ background:var(--steel); color:#fff; }
+  .hcell.lunch{ background:repeating-linear-gradient(45deg,#fbfbf7,#fbfbf7 6px,#f3f1e8 6px,#f3f1e8 12px); }
+  .h-lunch{ font-size:9px; color:var(--warn); font-weight:700; letter-spacing:.04em; margin-top:6px; }
+
+  /* Modal */
+  .modal-bg{ position:fixed; inset:0; background:rgba(16,24,33,.55); display:flex; align-items:flex-start;
+    justify-content:center; padding:40px 16px; z-index:50; overflow-y:auto; }
+  .modal{ background:#fff; border-radius:12px; width:100%; max-width:480px; box-shadow:0 20px 60px rgba(0,0,0,.3); }
+  .modal-hd{ padding:16px 18px; border-bottom:1px solid var(--line-2); display:flex; align-items:center; }
+  .modal-hd h3{ margin:0; font-size:15px; font-weight:700; }
+  .modal-hd .x{ margin-left:auto; cursor:pointer; color:var(--ink-faint); font-size:20px; line-height:1; background:none; border:0; }
+  .modal-bd{ padding:18px; display:flex; flex-direction:column; gap:14px; }
+  .modal-ft{ padding:14px 18px; border-top:1px solid var(--line-2); display:flex; gap:10px; justify-content:flex-end; }
+  .ctx{ background:var(--panel-2); border:1px solid var(--line-2); border-radius:8px; padding:11px 13px;
+    display:flex; gap:18px; flex-wrap:wrap; }
+  .ctx .c-k{ font-size:9px; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-faint); font-weight:700; }
+  .ctx .c-v{ font-size:14px; font-weight:600; font-family:var(--mono); }
+  .toggle-row{ display:flex; align-items:center; gap:9px; padding:9px 11px; border:1px solid var(--line);
+    border-radius:8px; cursor:pointer; }
+  .toggle-row input{ width:auto; }
+  .toggle-row .tr-txt{ font-size:13px; font-weight:600; }
+  .toggle-row .tr-sub{ font-size:11px; color:var(--ink-soft); }
+  .reason-need{ border-color:var(--bad)!important; box-shadow:0 0 0 3px var(--bad-bg); }
+  .warn-banner{ background:var(--bad-bg); color:var(--bad); border-radius:7px; padding:9px 12px; font-size:12px; font-weight:600;
+    display:flex; align-items:center; gap:7px; }
+
+  /* Toast */
+  .toast{ position:fixed; bottom:22px; left:50%; transform:translateX(-50%); background:var(--ink); color:#fff;
+    padding:11px 18px; border-radius:8px; font-size:13px; font-weight:600; z-index:90; box-shadow:0 8px 24px rgba(0,0,0,.25);
+    opacity:0; transition:.2s; pointer-events:none; }
+  .toast.show{ opacity:1; }
+  .toast.err{ background:var(--bad); }
+
+  .hint{ font-size:12px; color:var(--ink-soft); margin:0 0 14px; }
+  .inline-add{ display:flex; gap:8px; }
+  .inline-add input{ flex:1; }
+  .seg{ display:inline-flex; border:1px solid var(--line); border-radius:7px; overflow:hidden; }
+  .seg button{ border:0; background:#fff; padding:7px 12px; font-size:12px; font-weight:600; cursor:pointer; color:var(--ink-soft); }
+  .seg button.on{ background:var(--steel); color:#fff; }
+
+  @media (max-width:560px){
+    .wrap{ padding:14px; } .hdr{ padding:14px 14px 0; } .hdr-sub{ display:none; }
+  }
+</style>
+
+<script>
+(function(){
+  const $ = (s,r=document)=>r.querySelector(s);
+  const app = document.getElementById('app');
+
+  // ---------- State ----------
+  let M = { machines:[], items:[], operators:[], shifts:[], reasons:[], targets:[] };
+  let sheetIndex = [];          // list of date strings that have sheets
+  let sheet = null;             // current loaded sheet
+  let activeTab = 'daily';
+  let masterEdit = {};          // {type:id} currently editing
+
+  const uid = ()=> Math.random().toString(36).slice(2,9);
+  const todayStr = ()=>{ const d=new Date(); return d.toISOString().slice(0,10); };
+  const fmt = n => (n===null||n===undefined||n==='')?'—':(+n).toLocaleString();
+
+  // ---------- Storage ----------
+  // ===== Backend: Google Sheets via Apps Script Web App =====
+  // Paste the /exec URL you get after deploying Code.gs (see setup guide).
+  const API_URL = "https://script.google.com/macros/s/AKfycbxnK_FCbWhapS5zuRuIGSTVlw2nmqkRjIZrc79B42Cf736zRGDTVErVm1Vwc08GgMLL/exec";
+  function apiConfigured(){ return API_URL.indexOf('PASTE_YOUR')<0 && API_URL.indexOf('script.google.com')>=0; }
+  async function api(req){
+    // text/plain avoids the CORS preflight that Apps Script can't answer
+    const res = await fetch(API_URL, { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'}, body:JSON.stringify(req) });
+    return res.json();
+  }
+  async function sGet(key){ try{ const r=await api({action:'get',key}); return r.ok? r.value : null; }catch(e){ return null; } }
+  async function sSet(key,val){ try{ const r=await api({action:'set',key,value:val}); if(!r.ok) throw 0; return true; }catch(e){ toast('Could not save — check connection / API URL',true); return false; } }
+  async function sDel(key){ try{ await api({action:'delete',key}); }catch(e){} }
+
+  async function saveMasters(){ await sSet('pm_masters', M); }
+  async function saveSheet(){
+    if(!sheet) return;
+    const ok = await sSet('pm_sheet_'+sheet.date, sheet);
+    if(ok && !sheetIndex.includes(sheet.date)){ sheetIndex.push(sheet.date); sheetIndex.sort(); await sSet('pm_sheet_index', sheetIndex); }
+    return ok;
+  }
+
+  // ---------- Toast ----------
+  let toastT;
+  function toast(msg, err){
+    let t=$('.toast'); if(!t){ t=document.createElement('div'); t.className='toast'; document.body.appendChild(t); }
+    t.textContent=msg; t.classList.toggle('err',!!err); t.classList.add('show');
+    clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('show'),2200);
+  }
+
+  // ---------- Lookups ----------
+  const byId = (arr,id)=> arr.find(x=>x.id===id);
+  const mName = id => (byId(M.machines,id)||{}).name || '—';
+  const iName = id => (byId(M.items,id)||{}).name || '—';
+  const oName = id => (byId(M.operators,id)||{}).name || '—';
+  const rText = id => (byId(M.reasons,id)||{}).text || '';
+  const targetFor = (itemId,machineId)=>{ const t=M.targets.find(x=>x.itemId===itemId && x.machineId===machineId); return t?+t.qtyPerHour:0; };
+
+  // ---------- Shift hour slots ----------
+  function parseT(t){ const [h,m]=t.split(':').map(Number); return h*60+m; }
+  function fmtT(min){ const h=Math.floor(min/60), m=min%60; return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0'); }
+  function shiftSlots(shift){
+    if(!shift) return [];
+    const start=parseT(shift.openTime), end=parseT(shift.closeTime);
+    const ls = shift.lunchStart?parseT(shift.lunchStart):null;
+    const le = shift.lunchEnd?parseT(shift.lunchEnd):null;
+    const slots=[]; let t=start;
+    let guard=0;
+    while(t<end && guard<48){ guard++;
+      const next=Math.min(t+60,end);
+      const lunch = (ls!==null && le!==null) ? (t<le && next>ls) : false;
+      slots.push({ slot:fmtT(t)+'-'+fmtT(next), start:t, end:next, lunch });
+      t=next;
+    }
+    return slots;
+  }
+
+  // effective item/operator for a line at hour index i (walking setting/operator changes)
+  function effItem(line,i){ let cur=line.itemId; for(let k=0;k<=i;k++){ const h=line.hours[k]; if(h&&h.settingChange&&h.settingChange.itemId) cur=h.settingChange.itemId; } return cur; }
+  function effOp(line,i){ let cur=line.operatorId; for(let k=0;k<=i;k++){ const h=line.hours[k]; if(h&&h.operatorChange&&h.operatorChange.operatorId) cur=h.operatorChange.operatorId; } return cur; }
+  function lineClosing(line){ const sum=(line.hours||[]).reduce((a,h)=>a+(h&&h.produced!=null?+h.produced:0),0); return (+line.openingQty||0)+sum; }
+
+  // =========================================================
+  //  RENDER ROOT
+  // =========================================================
+  function render(){
+    app.innerHTML = `
+      <div class="hdr">
+        <div class="hdr-top">
+          <div>
+            <div class="hdr-eyebrow">Shop Floor · Production Control</div>
+            <h1>CNC Production Mapper</h1>
+          </div>
+          <div class="hdr-sub" id="clock"></div>
+        </div>
+        <div class="tabs">
+          ${tabBtn('daily','Daily Sheet')}
+          ${tabBtn('machines','Machines')}
+          ${tabBtn('items','Items')}
+          ${tabBtn('operators','Operators')}
+          ${tabBtn('shifts','Shifts')}
+          ${tabBtn('reasons','Reasons')}
+          ${tabBtn('targets','Targets')}
+        </div>
+      </div>
+      <div class="wrap">
+        <div class="view ${activeTab==='daily'?'active':''}" id="view-daily">${renderDaily()}</div>
+        <div class="view ${activeTab==='machines'?'active':''}" id="view-machines">${renderSimpleMaster('machines')}</div>
+        <div class="view ${activeTab==='items'?'active':''}" id="view-items">${renderSimpleMaster('items')}</div>
+        <div class="view ${activeTab==='operators'?'active':''}" id="view-operators">${renderSimpleMaster('operators')}</div>
+        <div class="view ${activeTab==='shifts'?'active':''}" id="view-shifts">${renderShifts()}</div>
+        <div class="view ${activeTab==='reasons'?'active':''}" id="view-reasons">${renderReasons()}</div>
+        <div class="view ${activeTab==='targets'?'active':''}" id="view-targets">${renderTargets()}</div>
+      </div>`;
+    $('#clock').textContent = new Date().toLocaleString([], {dateStyle:'medium', timeStyle:'short'});
+  }
+  function tabBtn(id,label){ return `<button class="tab ${activeTab===id?'active':''}" data-tab="${id}">${label}</button>`; }
+
+  // =========================================================
+  //  SIMPLE MASTERS (machine / item / operator)
+  // =========================================================
+  const masterLabels = { machines:['Machine','Machines'], items:['Item','Items'], operators:['Operator','Operators'] };
+  function renderSimpleMaster(type){
+    const [sing,plur]=masterLabels[type];
+    const list=M[type]; const ed=masterEdit[type];
+    const editing = ed ? byId(list,ed) : null;
+    return `
+      <div class="panel">
+        <div class="panel-hd"><span class="eyebrow">Master</span><h2>${plur}</h2></div>
+        <div class="panel-bd">
+          <div class="form-row" style="grid-template-columns:160px 1fr auto">
+            <div class="field"><label>${sing} Code</label><input id="${type}-code" placeholder="e.g. ${type==='machines'?'CNC-01':type==='items'?'ITM-101':'OP-07'}" value="${editing?esc(editing.code):''}"></div>
+            <div class="field"><label>${sing} Name</label><input id="${type}-name" placeholder="${sing} name" value="${editing?esc(editing.name):''}"></div>
+            <div class="field"><label>&nbsp;</label>
+              <div style="display:flex;gap:8px">
+                <button class="btn btn-primary" data-act="save-master" data-type="${type}">${editing?'Update':'Add'} ${sing}</button>
+                ${editing?`<button class="btn btn-ghost" data-act="cancel-master" data-type="${type}">Cancel</button>`:''}
+              </div>
+            </div>
+          </div>
+        </div>
+        <table>
+          <thead><tr><th style="width:160px">Code</th><th>Name</th><th style="width:120px"></th></tr></thead>
+          <tbody>
+            ${list.length? list.map(x=>`
+              <tr><td class="mono" style="font-family:var(--mono)">${esc(x.code||'—')}</td><td>${esc(x.name)}</td>
+              <td><div class="row-actions">
+                <button class="btn btn-sm btn-ghost" data-act="edit-master" data-type="${type}" data-id="${x.id}">Edit</button>
+                <button class="btn btn-sm btn-danger" data-act="del-master" data-type="${type}" data-id="${x.id}">Delete</button>
+              </div></td></tr>`).join('')
+            : `<tr><td colspan="3" class="empty"><b>No ${plur.toLowerCase()} yet</b>Add your first ${sing.toLowerCase()} above.</td></tr>`}
+          </tbody>
+        </table>
+      </div>`;
+  }
+
+  // =========================================================
+  //  SHIFTS
+  // =========================================================
+  function renderShifts(){
+    const ed=masterEdit.shifts; const e=ed?byId(M.shifts,ed):null;
+    return `
+      <div class="panel">
+        <div class="panel-hd"><span class="eyebrow">Master</span><h2>Shifts</h2></div>
+        <div class="panel-bd">
+          <p class="hint">Define opening, closing and lunch timings. Hourly slots on the daily sheet are generated from these times.</p>
+          <div class="form-row" style="grid-template-columns:repeat(5,1fr) auto">
+            <div class="field"><label>Shift Name</label><input id="sh-name" placeholder="General Shift" value="${e?esc(e.name):''}"></div>
+            <div class="field"><label>Opening</label><input id="sh-open" type="time" value="${e?e.openTime:'09:00'}"></div>
+            <div class="field"><label>Closing</label><input id="sh-close" type="time" value="${e?e.closeTime:'17:30'}"></div>
+            <div class="field"><label>Lunch Start</label><input id="sh-ls" type="time" value="${e?e.lunchStart||'':'13:00'}"></div>
+            <div class="field"><label>Lunch End</label><input id="sh-le" type="time" value="${e?e.lunchEnd||'':'13:30'}"></div>
+            <div class="field"><label>&nbsp;</label>
+              <div style="display:flex;gap:8px">
+                <button class="btn btn-primary" data-act="save-shift">${e?'Update':'Add'}</button>
+                ${e?`<button class="btn btn-ghost" data-act="cancel-master" data-type="shifts">Cancel</button>`:''}
+              </div>
+            </div>
+          </div>
+        </div>
+        <table>
+          <thead><tr><th>Name</th><th>Opening</th><th>Closing</th><th>Lunch</th><th>Hours</th><th style="width:120px"></th></tr></thead>
+          <tbody>
+            ${M.shifts.length? M.shifts.map(s=>`
+              <tr><td><b>${esc(s.name)}</b></td><td class="mono" style="font-family:var(--mono)">${s.openTime}</td>
+              <td class="mono" style="font-family:var(--mono)">${s.closeTime}</td>
+              <td class="mono" style="font-family:var(--mono)">${s.lunchStart&&s.lunchEnd?s.lunchStart+'–'+s.lunchEnd:'—'}</td>
+              <td><span class="chip">${shiftSlots(s).length} hrs</span></td>
+              <td><div class="row-actions">
+                <button class="btn btn-sm btn-ghost" data-act="edit-master" data-type="shifts" data-id="${s.id}">Edit</button>
+                <button class="btn btn-sm btn-danger" data-act="del-master" data-type="shifts" data-id="${s.id}">Delete</button>
+              </div></td></tr>`).join('')
+            : `<tr><td colspan="6" class="empty"><b>No shifts yet</b>Add a shift to generate hourly slots.</td></tr>`}
+          </tbody>
+        </table>
+      </div>`;
+  }
+
+  // =========================================================
+  //  REASONS
+  // =========================================================
+  function renderReasons(){
+    return `
+      <div class="panel">
+        <div class="panel-hd"><span class="eyebrow">Master</span><h2>Reasons for Less Production</h2></div>
+        <div class="panel-bd">
+          <p class="hint">These appear in the dropdown whenever an hour's output falls below target.</p>
+          <div class="inline-add">
+            <input id="reason-text" placeholder="e.g. Tool change, Material shortage…">
+            <button class="btn btn-primary" data-act="add-reason">Add reason</button>
+          </div>
+        </div>
+        <table>
+          <thead><tr><th>Reason</th><th style="width:100px"></th></tr></thead>
+          <tbody>
+            ${M.reasons.length? M.reasons.map(r=>`
+              <tr><td>${esc(r.text)}</td>
+              <td><div class="row-actions"><button class="btn btn-sm btn-danger" data-act="del-master" data-type="reasons" data-id="${r.id}">Delete</button></div></td></tr>`).join('')
+            : `<tr><td colspan="2" class="empty"><b>No reasons yet</b>Add the downtime reasons used on your floor.</td></tr>`}
+          </tbody>
+        </table>
+      </div>`;
+  }
+
+  // =========================================================
+  //  TARGETS (item × machine → qty/hour)
+  // =========================================================
+  function renderTargets(){
+    const canAdd = M.items.length && M.machines.length;
+    return `
+      <div class="panel">
+        <div class="panel-hd"><span class="eyebrow">Master</span><h2>Production Targets</h2></div>
+        <div class="panel-bd">
+          <p class="hint">Define the hourly target for one item on each machine. The same item can have a different target per machine.</p>
+          ${canAdd? `
+          <div class="form-row" style="grid-template-columns:1fr 1fr 160px auto">
+            <div class="field"><label>Item</label><select id="tg-item">${optList(M.items)}</select></div>
+            <div class="field"><label>Machine</label><select id="tg-machine">${optList(M.machines)}</select></div>
+            <div class="field"><label>Target / hour</label><input id="tg-qty" type="number" min="0" placeholder="qty"></div>
+            <div class="field"><label>&nbsp;</label><button class="btn btn-primary" data-act="save-target">Set target</button></div>
+          </div>` : `<div class="warn-banner">⚠ Add at least one Item and one Machine first.</div>`}
+        </div>
+        <table>
+          <thead><tr><th>Item</th><th>Machine</th><th class="num">Target / hour</th><th style="width:100px"></th></tr></thead>
+          <tbody>
+            ${M.targets.length? M.targets.map(t=>`
+              <tr><td>${esc(iName(t.itemId))}</td><td>${esc(mName(t.machineId))}</td>
+              <td class="num">${fmt(t.qtyPerHour)}</td>
+              <td><div class="row-actions"><button class="btn btn-sm btn-danger" data-act="del-target" data-id="${t.id}">Delete</button></div></td></tr>`).join('')
+            : `<tr><td colspan="4" class="empty"><b>No targets defined</b>Map an hourly target for each item/machine pair.</td></tr>`}
+          </tbody>
+        </table>
+      </div>`;
+  }
+
+  // =========================================================
+  //  DAILY PRODUCTION SHEET
+  // =========================================================
+  function renderDaily(){
+    const shiftOpts = M.shifts.length? optList(M.shifts) : '';
+    const haveSheet = !!sheet;
+    let body='';
+    if(!haveSheet){
+      body = `<div class="panel"><div class="empty" style="padding:40px"><b>No sheet loaded</b>
+        Pick a date and shift above, then create the sheet for that day.</div></div>`;
+    } else {
+      body = renderSheetBody();
+    }
+    return `
+      <div class="panel">
+        <div class="panel-hd"><span class="eyebrow">Operate</span><h2>Daily Production Sheet</h2>
+          ${haveSheet?`<div class="spacer" style="margin-left:auto"></div>
+            <button class="btn btn-sm btn-ghost" data-act="reset-data" title="Clear all stored data">Reset all data</button>`:''}
+        </div>
+        <div class="panel-bd">
+          <div class="sheet-ctrls">
+            <div class="field"><label>Date</label><input id="d-date" type="date" value="${sheet?sheet.date:todayStr()}"></div>
+            <div class="field"><label>Shift</label>
+              ${M.shifts.length? `<select id="d-shift">${shiftOpts}</select>` : `<input disabled value="Add a shift first">`}
+            </div>
+            <div class="field"><label>&nbsp;</label><button class="btn btn-primary" data-act="load-sheet" ${M.shifts.length?'':'disabled'}>Open / create sheet</button></div>
+            ${haveSheet?`<div class="field"><label>&nbsp;</label><button class="btn" data-act="copy-opening" title="Carry yesterday's closing into today's opening">↥ Copy opening from previous day</button></div>`:''}
+          </div>
+        </div>
+      </div>
+      ${body}`;
+  }
+
+  function renderSheetBody(){
+    const shift = byId(M.shifts, sheet.shiftId);
+    const slots = shiftSlots(shift);
+    // KPIs
+    let totProd=0, totTarget=0, lowHours=0, missingReason=0;
+    sheet.lines.forEach(line=>{
+      slots.forEach((sl,i)=>{
+        if(sl.lunch) return;
+        const tgt=targetFor(effItem(line,i), line.machineId);
+        const h=line.hours[i];
+        if(h && h.produced!=null){ totProd+=+h.produced; if(tgt>0){ totTarget+=tgt; if(+h.produced<tgt){ lowHours++; if(!h.reasonId) missingReason++; } } }
+      });
+    });
+    const ach = totTarget>0? Math.round(totProd/totTarget*100) : null;
+
+    const linesHtml = sheet.lines.length? sheet.lines.map((line,li)=>renderLineCard(line,li,slots)).join('')
+      : `<div class="empty" style="padding:34px"><b>No machine running yet</b>Add a machine line below to start mapping hourly production.</div>`;
+
+    return `
+      <div class="panel">
+        <div class="panel-hd"><span class="eyebrow">${sheet.date} · ${esc(shift?shift.name:'')}</span><h2>Live Summary</h2></div>
+        <div class="panel-bd">
+          <div class="kpis">
+            <div class="kpi"><div class="k-label">Total produced</div><div class="k-val">${fmt(totProd)}</div><div class="k-sub">qty today</div></div>
+            <div class="kpi"><div class="k-label">Target (so far)</div><div class="k-val">${fmt(totTarget)}</div><div class="k-sub">entered hours</div></div>
+            <div class="kpi ${ach!==null?(ach>=100?'good':ach>=85?'':'bad'):''}"><div class="k-label">Achievement</div><div class="k-val">${ach!==null?ach+'%':'—'}</div><div class="k-sub">prod ÷ target</div></div>
+            <div class="kpi ${lowHours?'bad':''}"><div class="k-label">Below-target hrs</div><div class="k-val">${lowHours}</div><div class="k-sub">${missingReason?missingReason+' need reason':'all explained'}</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-hd"><span class="eyebrow">Setup</span><h2>Machine Lines</h2>
+          <div class="spacer" style="margin-left:auto"></div>
+          <button class="btn btn-sm btn-primary" data-act="add-line" ${M.machines.length&&M.items.length&&M.operators.length?'':'disabled'}>+ Add machine line</button>
+        </div>
+        <div class="panel-bd">
+          ${(!M.machines.length||!M.items.length||!M.operators.length)?`<div class="warn-banner" style="margin-bottom:14px">⚠ Add at least one Machine, Item and Operator in the masters first.</div>`:''}
+          ${linesHtml}
+        </div>
+      </div>
+
+      <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn btn-primary" data-act="add-hour" ${sheet.lines.length?'':'disabled'}>+ Add hourly production</button>
+        <button class="btn" data-act="save-sheet">Save sheet</button>
+      </div>`;
+  }
+
+  function renderLineCard(line,li,slots){
+    const closing = lineClosing(line);
+    const curItem = effItem(line, slots.length-1);
+    const curOp = effOp(line, slots.length-1);
+    const hours = slots.map((sl,i)=>{
+      const h=line.hours[i];
+      const tgt=targetFor(effItem(line,i), line.machineId);
+      if(sl.lunch && (!h || h.produced==null)){
+        return `<div class="hcell lunch" data-act="open-hour" data-line="${li}" data-hour="${i}">
+          <div class="h-time">${sl.slot}</div><div class="h-val" style="font-size:14px;color:var(--warn)">LUNCH</div>
+          <div class="h-lunch">tap to log</div></div>`;
+      }
+      if(!h || h.produced==null){
+        return `<div class="hcell empty-cell" data-act="open-hour" data-line="${li}" data-hour="${i}">
+          <div class="h-time">${sl.slot}</div><div class="h-val">—</div>
+          <div class="h-tgt">tgt ${tgt||'–'}</div></div>`;
+      }
+      const p=+h.produced; const pct = tgt>0? Math.min(100,Math.round(p/tgt*100)) : 100;
+      const cls = tgt<=0? 'ok' : p>=tgt? 'ok' : p>=tgt*0.85? 'warn':'bad';
+      const badges = [];
+      if(h.settingChange&&h.settingChange.itemId) badges.push(`<span class="h-badge" title="Setting change → ${esc(iName(h.settingChange.itemId))}">SET</span>`);
+      if(h.operatorChange&&h.operatorChange.operatorId) badges.push(`<span class="h-badge op" title="Operator change → ${esc(oName(h.operatorChange.operatorId))}">OPR</span>`);
+      const low = tgt>0 && p<tgt;
+      return `<div class="hcell ${cls}" data-act="open-hour" data-line="${li}" data-hour="${i}">
+        ${badges.length?`<div class="h-badges">${badges.join('')}</div>`:''}
+        <div class="h-time">${sl.slot}</div>
+        <div class="h-val">${fmt(p)}</div>
+        <div class="h-tgt">/ ${tgt||'–'} tgt</div>
+        <div class="h-track"><div class="h-fill" style="width:${pct}%"></div></div>
+        ${low?`<div class="h-reason">▲ ${h.reasonId?esc(rText(h.reasonId)):'<b style="color:var(--bad)">reason needed</b>'}</div>`:''}
+      </div>`;
+    }).join('');
+
+    return `
+      <div class="line-card">
+        <div class="line-hd">
+          <span class="line-tag">${esc((byId(M.machines,line.machineId)||{}).code || mName(line.machineId))}</span>
+          <div class="line-meta">
+            <div class="lm"><span class="lm-k">Machine</span><span class="lm-v">${esc(mName(line.machineId))}</span></div>
+            <div class="lm"><span class="lm-k">Item (current)</span><span class="lm-v">${esc(iName(curItem))}</span></div>
+            <div class="lm"><span class="lm-k">Operator (current)</span><span class="lm-v">${esc(oName(curOp))}</span></div>
+            <div class="lm"><span class="lm-k">Opening</span><span class="lm-v mono">${fmt(line.openingQty)}</span></div>
+            <div class="lm"><span class="lm-k">Closing</span><span class="lm-v mono">${fmt(closing)}</span></div>
+          </div>
+          <div class="spacer" style="margin-left:auto;display:flex;gap:6px">
+            <button class="btn btn-sm btn-ghost" data-act="edit-opening" data-line="${li}">Opening qty</button>
+            <button class="btn btn-sm btn-danger" data-act="del-line" data-line="${li}">Remove</button>
+          </div>
+        </div>
+        <div class="hours">${hours}</div>
+      </div>`;
+  }
+
+  // ---------- helpers ----------
+  function optList(arr, sel){ return arr.map(x=>`<option value="${x.id}" ${sel===x.id?'selected':''}>${esc(x.name)}${x.code?' ('+esc(x.code)+')':''}</option>`).join(''); }
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+  // =========================================================
+  //  HOURLY ENTRY MODAL
+  // =========================================================
+  function openHourModal(lineIdx, hourIdx){
+    const shift=byId(M.shifts,sheet.shiftId); const slots=shiftSlots(shift);
+    if(lineIdx==null) lineIdx=0;
+    // pick first empty hour if not specified
+    if(hourIdx==null){
+      const line=sheet.lines[lineIdx];
+      hourIdx = slots.findIndex((s,i)=> !line.hours[i] || line.hours[i].produced==null);
+      if(hourIdx<0) hourIdx=0;
+    }
+    drawHourModal(lineIdx, hourIdx, slots);
+  }
+
+  function drawHourModal(lineIdx, hourIdx, slots){
+    const line=sheet.lines[lineIdx];
+    const h=line.hours[hourIdx]||{};
+    const effI = effItem(line, hourIdx);
+    const effO = effOp(line, hourIdx);
+    const tgt = targetFor(effI, line.machineId);
+    const sl=slots[hourIdx];
+
+    const bg=document.createElement('div'); bg.className='modal-bg';
+    bg.innerHTML = `
+      <div class="modal">
+        <div class="modal-hd"><h3>Log hourly production</h3><button class="x" data-mclose>×</button></div>
+        <div class="modal-bd">
+          <div class="field"><label>Machine line</label>
+            <select id="hm-line">${sheet.lines.map((l,i)=>`<option value="${i}" ${i===lineIdx?'selected':''}>${esc((byId(M.machines,l.machineId)||{}).code||'')} · ${esc(mName(l.machineId))}</option>`).join('')}</select>
+          </div>
+          <div class="field"><label>Hour</label>
+            <select id="hm-hour">${slots.map((s,i)=>`<option value="${i}" ${i===hourIdx?'selected':''}>${s.slot}${s.lunch?' (lunch)':''}</option>`).join('')}</select>
+          </div>
+          <div class="ctx">
+            <div><div class="c-k">Item</div><div class="c-v">${esc(iName(effI))}</div></div>
+            <div><div class="c-k">Operator</div><div class="c-v">${esc(oName(effO))}</div></div>
+            <div><div class="c-k">Target / hr</div><div class="c-v" id="hm-tgt">${tgt||'—'}</div></div>
+          </div>
+          <div class="field"><label>Produced quantity</label><input id="hm-prod" type="number" min="0" value="${h.produced!=null?h.produced:''}" placeholder="0"></div>
+          <div id="hm-reasonwrap" class="field" style="display:none">
+            <label style="color:var(--bad)">Reason for less production (required)</label>
+            <select id="hm-reason">${M.reasons.length?('<option value="">— select reason —</option>'+M.reasons.map(r=>`<option value="${r.id}" ${h.reasonId===r.id?'selected':''}>${esc(r.text)}</option>`).join('')):'<option value="">Add reasons in master first</option>'}</select>
+          </div>
+
+          <label class="toggle-row"><input type="checkbox" id="hm-setchk" ${h.settingChange&&h.settingChange.itemId?'checked':''}>
+            <span><span class="tr-txt">Setting change on this machine</span><br><span class="tr-sub">New item runs from this hour onward</span></span></label>
+          <div class="field" id="hm-setwrap" style="display:${h.settingChange&&h.settingChange.itemId?'flex':'none'}">
+            <label>New item (setting)</label><select id="hm-setitem">${optList(M.items, h.settingChange&&h.settingChange.itemId)}</select>
+          </div>
+
+          <label class="toggle-row"><input type="checkbox" id="hm-opchk" ${h.operatorChange&&h.operatorChange.operatorId?'checked':''}>
+            <span><span class="tr-txt">Operator change</span><br><span class="tr-sub">New operator from this hour onward</span></span></label>
+          <div class="field" id="hm-opwrap" style="display:${h.operatorChange&&h.operatorChange.operatorId?'flex':'none'}">
+            <label>New operator</label><select id="hm-opsel">${optList(M.operators, h.operatorChange&&h.operatorChange.operatorId)}</select>
+          </div>
+
+          <div class="field"><label>Note (optional)</label><input id="hm-note" value="${h.note?esc(h.note):''}" placeholder="Anything to record"></div>
+          <div id="hm-warn" class="warn-banner" style="display:none">▲ Output is below target — please select a reason.</div>
+        </div>
+        <div class="modal-ft">
+          <button class="btn btn-ghost" data-mclose>Cancel</button>
+          <button class="btn btn-primary" id="hm-save">Save this hour</button>
+        </div>
+      </div>`;
+    document.body.appendChild(bg);
+
+    const close=()=>bg.remove();
+    bg.addEventListener('click',e=>{ if(e.target===bg||e.target.hasAttribute('data-mclose')) close(); });
+
+    const prod=$('#hm-prod',bg), rWrap=$('#hm-reasonwrap',bg), rSel=$('#hm-reason',bg), warn=$('#hm-warn',bg), tgtEl=$('#hm-tgt',bg);
+    const lineSel=$('#hm-line',bg), hourSel=$('#hm-hour',bg);
+    let curTgt = tgt;
+
+    function recalcCtx(){
+      const li=+lineSel.value, hi=+hourSel.value;
+      const l=sheet.lines[li]; const ei=effItem(l,hi); const eo=effOp(l,hi);
+      curTgt = targetFor(ei, l.machineId);
+      tgtEl.textContent = curTgt||'—';
+      $('.ctx .c-v',bg).textContent = iName(ei);
+      bg.querySelectorAll('.ctx .c-v')[1].textContent = oName(eo);
+      checkLow();
+    }
+    function checkLow(){
+      const v=prod.value; const low = v!=='' && curTgt>0 && (+v)<curTgt;
+      rWrap.style.display = low? 'flex':'none';
+      if(low){ rSel.classList.add('reason-need'); } else { rSel.classList.remove('reason-need'); warn.style.display='none'; }
+    }
+    prod.addEventListener('input',checkLow);
+    lineSel.addEventListener('change',recalcCtx);
+    hourSel.addEventListener('change',recalcCtx);
+    rSel.addEventListener('change',()=>{ if(rSel.value){ rSel.classList.remove('reason-need'); warn.style.display='none'; } });
+
+    $('#hm-setchk',bg).addEventListener('change',e=>{ $('#hm-setwrap',bg).style.display=e.target.checked?'flex':'none'; });
+    $('#hm-opchk',bg).addEventListener('change',e=>{ $('#hm-opwrap',bg).style.display=e.target.checked?'flex':'none'; });
+    checkLow();
+
+    $('#hm-save',bg).addEventListener('click', async ()=>{
+      const li=+lineSel.value, hi=+hourSel.value;
+      const l=sheet.lines[li];
+      const setChk=$('#hm-setchk',bg).checked, opChk=$('#hm-opchk',bg).checked;
+      const setItem=setChk?$('#hm-setitem',bg).value:null;
+      const opSel=opChk?$('#hm-opsel',bg).value:null;
+      // ensure hours array slot exists
+      const slotsN=shiftSlots(byId(M.shifts,sheet.shiftId));
+      while(l.hours.length<slotsN.length) l.hours.push(null);
+      // apply changes first so target reflects new setting
+      const entry = l.hours[hi] || {};
+      entry.settingChange = setChk&&setItem? {itemId:setItem} : null;
+      entry.operatorChange = opChk&&opSel? {operatorId:opSel} : null;
+      // recompute target with applied setting
+      const effItemNow = effItemWithEntry(l, hi, entry);
+      const tgtNow = targetFor(effItemNow, l.machineId);
+      const pv = prod.value===''? null : Math.max(0,+prod.value);
+      if(pv===null){ toast('Enter a produced quantity',true); return; }
+      const low = tgtNow>0 && pv<tgtNow;
+      if(low && M.reasons.length && !rSel.value){ warn.style.display='flex'; rSel.classList.add('reason-need'); toast('Select a reason for the shortfall',true); return; }
+      entry.produced = pv;
+      entry.reasonId = low? (rSel.value||null) : null;
+      entry.note = $('#hm-note',bg).value.trim();
+      l.hours[hi]=entry;
+      const ok = await saveSheet();
+      if(ok){ toast('Hour saved'); close(); render(); }
+    });
+  }
+
+  // target helper that respects an in-progress entry's setting change
+  function effItemWithEntry(line, i, entry){
+    let cur=line.itemId;
+    for(let k=0;k<i;k++){ const h=line.hours[k]; if(h&&h.settingChange&&h.settingChange.itemId) cur=h.settingChange.itemId; }
+    if(entry&&entry.settingChange&&entry.settingChange.itemId) cur=entry.settingChange.itemId;
+    return cur;
+  }
+
+  // =========================================================
+  //  ADD MACHINE LINE MODAL
+  // =========================================================
+  function openLineModal(){
+    const bg=document.createElement('div'); bg.className='modal-bg';
+    bg.innerHTML=`
+      <div class="modal">
+        <div class="modal-hd"><h3>Add machine line</h3><button class="x" data-mclose>×</button></div>
+        <div class="modal-bd">
+          <div class="field"><label>Machine</label><select id="ln-machine">${optList(M.machines)}</select></div>
+          <div class="field"><label>Item (initial setting)</label><select id="ln-item">${optList(M.items)}</select></div>
+          <div class="field"><label>Operator (start of shift)</label><select id="ln-op">${optList(M.operators)}</select></div>
+          <div class="field"><label>Opening quantity</label><input id="ln-open" type="number" min="0" value="0" placeholder="Carried from previous day or 0"></div>
+        </div>
+        <div class="modal-ft">
+          <button class="btn btn-ghost" data-mclose>Cancel</button>
+          <button class="btn btn-primary" id="ln-save">Add line</button>
+        </div>
+      </div>`;
+    document.body.appendChild(bg);
+    const close=()=>bg.remove();
+    bg.addEventListener('click',e=>{ if(e.target===bg||e.target.hasAttribute('data-mclose')) close(); });
+    $('#ln-save',bg).addEventListener('click', async ()=>{
+      const machineId=$('#ln-machine',bg).value;
+      if(sheet.lines.some(l=>l.machineId===machineId)){ toast('That machine is already on this sheet',true); return; }
+      sheet.lines.push({ lineId:uid(), machineId, itemId:$('#ln-item',bg).value, operatorId:$('#ln-op',bg).value,
+        openingQty:Math.max(0,+$('#ln-open',bg).value||0), hours:[] });
+      if(await saveSheet()){ toast('Machine line added'); close(); render(); }
+    });
+  }
+
+  function openOpeningModal(lineIdx){
+    const line=sheet.lines[lineIdx];
+    const bg=document.createElement('div'); bg.className='modal-bg';
+    bg.innerHTML=`
+      <div class="modal">
+        <div class="modal-hd"><h3>Opening quantity · ${esc(mName(line.machineId))}</h3><button class="x" data-mclose>×</button></div>
+        <div class="modal-bd">
+          <p class="hint" style="margin:0">For the first day enter this manually. On later days use “Copy opening from previous day”, then override here if needed.</p>
+          <div class="field"><label>Opening quantity</label><input id="op-qty" type="number" min="0" value="${line.openingQty||0}"></div>
+        </div>
+        <div class="modal-ft"><button class="btn btn-ghost" data-mclose>Cancel</button><button class="btn btn-primary" id="op-save">Save opening</button></div>
+      </div>`;
+    document.body.appendChild(bg);
+    const close=()=>bg.remove();
+    bg.addEventListener('click',e=>{ if(e.target===bg||e.target.hasAttribute('data-mclose')) close(); });
+    $('#op-save',bg).addEventListener('click', async ()=>{
+      line.openingQty=Math.max(0,+$('#op-qty',bg).value||0);
+      if(await saveSheet()){ toast('Opening updated'); close(); render(); }
+    });
+  }
+
+  // =========================================================
+  //  SHEET LOAD / CREATE
+  // =========================================================
+  async function loadSheet(date, shiftId){
+    let s = await sGet('pm_sheet_'+date);
+    if(!s){ s = { date, shiftId, lines:[] }; }
+    else if(shiftId && s.shiftId!==shiftId){ s.shiftId=shiftId; } // allow changing shift
+    sheet=s;
+    await saveSheet();
+    render();
+  }
+
+  async function copyOpeningFromPrev(){
+    const d=new Date(sheet.date+'T00:00:00'); d.setDate(d.getDate()-1);
+    const prevDate=d.toISOString().slice(0,10);
+    const prev=await sGet('pm_sheet_'+prevDate);
+    if(!prev){ toast('No sheet found for '+prevDate, true); return; }
+    let n=0;
+    sheet.lines.forEach(line=>{
+      const pl=prev.lines.find(x=>x.machineId===line.machineId);
+      if(pl){ line.openingQty=lineClosing(pl); n++; }
+    });
+    if(n){ await saveSheet(); toast(`Carried opening for ${n} machine(s) from ${prevDate}`); render(); }
+    else toast('No matching machines on previous day', true);
+  }
+
+  // =========================================================
+  //  EVENTS
+  // =========================================================
+  function readMaster(type){ return { code:$('#'+type+'-code').value.trim(), name:$('#'+type+'-name').value.trim() }; }
+
+  app.addEventListener('click', async (e)=>{
+    const tab=e.target.closest('[data-tab]');
+    if(tab){ activeTab=tab.dataset.tab; render(); return; }
+    const el=e.target.closest('[data-act]'); if(!el) return;
+    const act=el.dataset.act, type=el.dataset.type, id=el.dataset.id;
+
+    // ----- simple masters -----
+    if(act==='save-master'){
+      const v=readMaster(type);
+      if(!v.name){ toast('Enter a name',true); return; }
+      if(masterEdit[type]){ const x=byId(M[type],masterEdit[type]); x.code=v.code; x.name=v.name; masterEdit[type]=null; }
+      else M[type].push({id:uid(),...v});
+      await saveMasters(); render(); toast('Saved');
+    }
+    if(act==='edit-master'){ masterEdit[type]=id; render(); }
+    if(act==='cancel-master'){ masterEdit[type]=null; render(); }
+    if(act==='del-master'){
+      if(!confirm('Delete this entry?')) return;
+      M[type]=M[type].filter(x=>x.id!==id);
+      if(type==='items'||type==='machines') M.targets=M.targets.filter(t=>t.itemId!==id&&t.machineId!==id);
+      await saveMasters(); render(); toast('Deleted');
+    }
+    // ----- shifts -----
+    if(act==='save-shift'){
+      const v={ name:$('#sh-name').value.trim(), openTime:$('#sh-open').value, closeTime:$('#sh-close').value,
+        lunchStart:$('#sh-ls').value||'', lunchEnd:$('#sh-le').value||'' };
+      if(!v.name||!v.openTime||!v.closeTime){ toast('Name, opening and closing are required',true); return; }
+      if(parseT(v.closeTime)<=parseT(v.openTime)){ toast('Closing must be after opening',true); return; }
+      if(masterEdit.shifts){ Object.assign(byId(M.shifts,masterEdit.shifts),v); masterEdit.shifts=null; }
+      else M.shifts.push({id:uid(),...v});
+      await saveMasters(); render(); toast('Shift saved');
+    }
+    // ----- reasons -----
+    if(act==='add-reason'){
+      const t=$('#reason-text').value.trim(); if(!t){ toast('Enter a reason',true); return; }
+      M.reasons.push({id:uid(),text:t}); await saveMasters(); render(); toast('Reason added');
+    }
+    // ----- targets -----
+    if(act==='save-target'){
+      const itemId=$('#tg-item').value, machineId=$('#tg-machine').value, q=+$('#tg-qty').value;
+      if(!q||q<0){ toast('Enter a valid target',true); return; }
+      const ex=M.targets.find(t=>t.itemId===itemId&&t.machineId===machineId);
+      if(ex) ex.qtyPerHour=q; else M.targets.push({id:uid(),itemId,machineId,qtyPerHour:q});
+      await saveMasters(); render(); toast('Target set');
+    }
+    if(act==='del-target'){ M.targets=M.targets.filter(t=>t.id!==id); await saveMasters(); render(); toast('Deleted'); }
+
+    // ----- daily sheet -----
+    if(act==='load-sheet'){ await loadSheet($('#d-date').value, $('#d-shift').value); }
+    if(act==='copy-opening'){ await copyOpeningFromPrev(); }
+    if(act==='add-line'){ openLineModal(); }
+    if(act==='del-line'){ if(confirm('Remove this machine line and its entries?')){ sheet.lines.splice(+el.dataset.line,1); await saveSheet(); render(); } }
+    if(act==='edit-opening'){ openOpeningModal(+el.dataset.line); }
+    if(act==='open-hour'){ openHourModal(+el.dataset.line, +el.dataset.hour); }
+    if(act==='add-hour'){ openHourModal(null,null); }
+    if(act==='save-sheet'){ if(await saveSheet()) toast('Sheet saved'); }
+    if(act==='reset-data'){
+      if(!confirm('This permanently clears ALL masters and daily sheets. Continue?')) return;
+      const keys=['pm_masters','pm_sheet_index',...sheetIndex.map(d=>'pm_sheet_'+d)];
+      for(const k of keys) await sDel(k);
+      M={machines:[],items:[],operators:[],shifts:[],reasons:[],targets:[]}; sheetIndex=[]; sheet=null;
+      await seedReasons(); render(); toast('All data cleared');
+    }
+  });
+
+  // submit-on-enter for inline reason / quick fields handled via buttons; keep simple.
+
+  // =========================================================
+  //  INIT
+  // =========================================================
+  async function seedReasons(){
+    if(M.reasons.length) return;
+    ['Tool change','Tool breakage','Machine breakdown','Material shortage','Power failure',
+     'Quality / setting issue','Maintenance','No operator','Program edit','Lunch break']
+      .forEach(t=>M.reasons.push({id:uid(),text:t}));
+    if(!M.shifts.length) M.shifts.push({id:uid(),name:'General Shift',openTime:'09:00',closeTime:'17:30',lunchStart:'13:00',lunchEnd:'13:30'});
+    await saveMasters();
+  }
+
+  function renderSetup(){
+    app.innerHTML = `
+      <div class="hdr">
+        <div class="hdr-top"><div>
+          <div class="hdr-eyebrow">Shop Floor · Production Control</div>
+          <h1>CNC Production Mapper</h1></div></div>
+      </div>
+      <div class="wrap">
+        <div class="panel"><div class="panel-hd"><span class="eyebrow">Setup</span><h2>Connect your Google Sheet</h2></div>
+        <div class="panel-bd">
+          <div class="warn-banner" style="margin-bottom:14px">⚠ Backend not connected yet — data has nowhere to save.</div>
+          <p class="hint" style="margin-top:0">Open this HTML file, find the line near the top of the script that says
+          <code>const API_URL = "https://script.google.com/macros/s/AKfycbxnK_FCbWhapS5zuRuIGSTVlw2nmqkRjIZrc79B42Cf736zRGDTVErVm1Vwc08GgMLL/exec";</code> and replace it with the Web App URL from your
+          Apps Script deployment (it ends in <code>/exec</code>). Save, redeploy, and reload. Full steps are in the setup guide.</p>
+        </div></div>
+      </div>`;
+  }
+
+  async function init(){
+    if(!apiConfigured()){ renderSetup(); return; }
+    const m = await sGet('pm_masters');
+    if(m) M = Object.assign({machines:[],items:[],operators:[],shifts:[],reasons:[],targets:[]}, m);
+    sheetIndex = (await sGet('pm_sheet_index')) || [];
+    if(!m) await seedReasons();           // first run: seed reasons + a default shift
+    // auto-load today's sheet if it exists
+    if(sheetIndex.includes(todayStr())) sheet = await sGet('pm_sheet_'+todayStr());
+    render();
+    setInterval(()=>{ const c=$('#clock'); if(c) c.textContent=new Date().toLocaleString([],{dateStyle:'medium',timeStyle:'short'}); },30000);
+  }
+
+  init();
+})();
+</script>
