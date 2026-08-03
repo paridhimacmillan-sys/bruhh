@@ -1,0 +1,54 @@
+STUBBLEX — CLEAN GITHUB PACKAGE
+================================
+
+This package contains the complete current project.
+Do not merge it with an older local copy file-by-file.
+
+Recommended upload method: GitHub Desktop
+
+1. Extract this ZIP.
+2. In GitHub Desktop, clone paridhimacmillan-sys/bruhh.
+3. Open the cloned repository folder on your computer.
+4. Replace its existing "stubblex" folder with the "stubblex" folder from this ZIP.
+5. In GitHub Desktop, enter the summary: "Upload complete StubbleX application".
+6. Click Commit to main, then Push origin.
+7. In Render, use Manual Deploy > Deploy latest commit if deployment does not begin automatically.
+
+Render settings
+---------------
+Root Directory:
+stubblex
+
+Build Command:
+npx --yes pnpm@10.28.2 install --frozen-lockfile && npx --yes pnpm@10.28.2 --filter @workspace/db run push-force && npx --yes pnpm@10.28.2 --filter @workspace/db run seed && npx --yes pnpm@10.28.2 --filter @workspace/stubblex run build && npx --yes pnpm@10.28.2 --filter @workspace/api-server run build
+
+Start Command:
+node artifacts/api-server/dist/index.mjs
+
+Required Render environment variables
+-------------------------------------
+DATABASE_URL=<your PostgreSQL connection string>
+SESSION_SECRET=<a long random secret>
+PUBLIC_BASE_URL=https://bruhh-nppz.onrender.com
+
+MSG91 variables can remain empty for development/demo mode.
+
+Included functionality
+----------------------
+- Landing page and lead form
+- English, Punjabi, and Hindi language selection
+- Public marketplace and purchase requests
+- Operator OTP login and dispatch dashboard
+- Digital Product Passports
+- Farmer receipt pages and SMS preview
+- Database schema and demo seed data
+- Pickup-date policy and possible INR 15,000 penalty notice
+
+Excluded intentionally
+----------------------
+- node_modules
+- build output / dist
+- .git history
+- Replit caches
+- old mockup sandbox
+- original uploaded ZIP and reference screenshots
