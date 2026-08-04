@@ -9,7 +9,7 @@
   },
   "scripts": {
     "push": "drizzle-kit push --config ./drizzle.config.ts",
-    "push-force": "drizzle-kit push --force --config ./drizzle.config.ts",
+    "push-force": "tsx ./src/prepare-google-auth.ts && drizzle-kit push --force --config ./drizzle.config.ts",
     "seed": "tsx ./src/seed.ts"
   },
   "dependencies": {
