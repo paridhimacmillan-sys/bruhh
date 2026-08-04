@@ -426,7 +426,12 @@ router.post("/onboarding-applications/:applicationId/approve", requireAuth, asyn
       const [application] = await tx.select().from(onboardingApplicationsTable)
         .where(eq(onboardingApplicationsTable.id, params.data.applicationId)).limit(1);
       if (!application) return { status: 404 as const, message: "Application not found" };
-      if (application.status === "approved") return { status: 200 as const, application };
+      const wasAlreadyApproved = application.status === "approved";
+      const isStaffPartner = application.applicantType === "machine_partner" || application.applicantType === "logistics_operator";
+      // Older applications may have been approved before Google Sign-In existed.
+      // Re-running approval must reconcile their email into users instead of
+      // returning early and leaving the approved partner unable to sign in.
+      if (wasAlreadyApproved && !isStaffPartner) return { status: 200 as const, application, reconciled: false };
       if (application.status === "rejected") return { status: 409 as const, message: "Rejected applications must be resubmitted before approval" };
 
       const data = application.applicationData;
@@ -491,6 +496,10 @@ router.post("/onboarding-applications/:applicationId/approve", requireAuth, asyn
         else await tx.insert(machinesTable).values(machine);
       }
 
+      if (wasAlreadyApproved) {
+        return { status: 200 as const, application, reconciled: true };
+      }
+
       const [approved] = await tx.update(onboardingApplicationsTable).set({
         status: "approved",
         assignedCoordinatorId: reviewer.id,
@@ -500,7 +509,7 @@ router.post("/onboarding-applications/:applicationId/approve", requireAuth, asyn
       }).where(eq(onboardingApplicationsTable.id, application.id)).returning();
       if (!approved) throw new Error("Application approval returned no record");
       await tx.insert(onboardingEventsTable).values({ applicationId: application.id, action: "application_approved", fromStatus: application.status, toStatus: "approved", actorUserId: reviewer.id, note: body.data.reviewNotes ?? null });
-      return { status: 200 as const, application: approved };
+      return { status: 200 as const, application: approved, reconciled: false };
     });
 
     if (!("application" in result) || !result.application) return void res.status(result.status).json({ message: result.message });
@@ -513,7 +522,7 @@ router.post("/onboarding-applications/:applicationId/approve", requireAuth, asyn
       if (farmer && operator) {
         await sendFarmerEnrollmentSms({ phone: farmer.phone, name: farmer.name, reference: approvedApplication.reference, operatorName: operator.name, operatorPhone: operator.phone, listedTonnes: farmer.listedTonnes });
       }
-    } else if (approvedApplication.applicantType === "machine_partner" || approvedApplication.applicantType === "logistics_operator") {
+    } else if ((approvedApplication.applicantType === "machine_partner" || approvedApplication.applicantType === "logistics_operator") && !result.reconciled) {
       console.info(`[onboarding] Partner approved for ${approvedApplication.phone}; Google Sign-In is enabled for the approved email.`);
       await sendOnboardingDecisionSms({ phone: approvedApplication.phone, name: approvedApplication.name, reference: approvedApplication.reference, status: "approved" });
     } else {
