@@ -201,6 +201,7 @@ function ReviewApplication({ application, canDecide, documents, history, cluster
   pending: boolean;
 }) {
   const decided = application.status === "approved" || application.status === "rejected";
+  const staffPartner = application.applicantType === "machine_partner" || application.applicantType === "logistics_operator";
   return <div>
     <div className="flex items-start justify-between gap-3"><div><p className="eyebrow">Application #{application.id}</p><h3 className="mt-2 font-display text-2xl">{application.name}</h3><p className="mt-1 text-sm text-muted-foreground">{applicantLabels[application.applicantType]} · {application.phone}</p></div><StatusChip status={application.status} /></div>
     <dl className="mt-5 divide-y divide-border border-y border-border text-sm"><div className="flex justify-between gap-4 py-3"><dt className="text-muted-foreground">Reference</dt><dd className="font-mono">{application.reference}</dd></div><div className="flex justify-between gap-4 py-3"><dt className="text-muted-foreground">Phone verification</dt><dd className="text-primary">Verified</dd></div><div className="flex justify-between gap-4 py-3"><dt className="text-muted-foreground">District</dt><dd>{application.district}</dd></div>{Object.entries(application.applicationData).map(([key, value]) => <div key={key} className="flex justify-between gap-4 py-3"><dt className="text-muted-foreground">{labelForKey(key)}</dt><dd className="text-right capitalize">{displayValue(key, value)}</dd></div>)}</dl>
@@ -216,6 +217,7 @@ function ReviewApplication({ application, canDecide, documents, history, cluster
     </>}
     <InspectionWorkspace applicationId={application.id} />
     {decided && <div className="mt-5 rounded-md border border-border bg-secondary/50 p-4"><p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">Decision record</p><p className="mt-2 text-sm">{application.reviewNotes || "No review note recorded."}</p>{application.reviewedAt && <p className="mt-2 text-xs text-muted-foreground">Reviewed {formatDate(application.reviewedAt)}</p>}</div>}
+    {canDecide && application.status === "approved" && staffPartner && <Button className="mt-3 w-full" variant="outline" disabled={pending} onClick={onApprove}>Repair Google access</Button>}
     <div className="mt-5 border-t border-border pt-5"><p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">Audit history</p>{history.length === 0 ? <p className="mt-2 text-sm text-muted-foreground">No recorded activity.</p> : <ol className="mt-3 space-y-3">{history.map((event) => <li key={event.id} className="border-l-2 border-primary/25 pl-3"><p className="text-sm font-medium capitalize">{event.action.replaceAll("_", " ")}</p><p className="text-xs text-muted-foreground">{event.actorName || "Public applicant"} · {formatDate(event.createdAt)}</p>{event.note && <p className="mt-1 text-xs">{event.note}</p>}</li>)}</ol>}</div>
   </div>;
 }
