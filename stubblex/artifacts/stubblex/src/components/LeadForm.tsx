@@ -67,6 +67,8 @@ export function LeadForm() {
   const [otpSent, setOtpSent] = useState(false);
   const [otp, setOtp] = useState("");
   const [documents, setDocuments] = useState<OnboardingDocumentUpload[]>([]);
+  const [demoReference, setDemoReference] = useState<string | null>(null);
+  const localPreview = import.meta.env.DEV && ["localhost", "127.0.0.1"].includes(window.location.hostname);
 
   async function readDocuments(files: FileList | null) {
     const selected = Array.from(files ?? []).slice(0, 3);
@@ -105,6 +107,14 @@ export function LeadForm() {
       form.setError("root", { message: "Send and enter the 6-digit phone verification OTP" });
       return;
     }
+    if (localPreview) {
+      if (otp !== "123456") {
+        form.setError("root", { message: "For this preview, enter OTP 123456" });
+        return;
+      }
+      setDemoReference(`UNP-DEMO-${Date.now().toString().slice(-6)}`);
+      return;
+    }
     const verification = await verifyOtp.mutateAsync({ data: { phone: values.phone.replace(/\D/g, "").replace(/^91(?=[6-9][0-9]{9}$)/, ""), code: otp } });
     createApplication.mutate({
       data: {
@@ -119,7 +129,8 @@ export function LeadForm() {
     });
   }
 
-  if (createApplication.isSuccess) {
+  if (createApplication.isSuccess || demoReference) {
+    const applicationReference = demoReference ?? createApplication.data?.reference ?? "UNP-DEMO";
     return (
       <div className="rounded-lg border border-border bg-card p-8 text-center sm:p-12">
         <CheckCircle2 className="mx-auto h-12 w-12 text-primary" />
@@ -133,10 +144,10 @@ export function LeadForm() {
         </p>
         <div className="mx-auto mt-5 max-w-sm rounded-md border border-border bg-secondary/60 p-4">
           <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Application reference</p>
-          <p className="mt-1 font-mono text-lg font-semibold">{createApplication.data.reference}</p>
-          <a className="mt-3 inline-block text-sm font-medium text-primary underline-offset-4 hover:underline" href={`/application-status?reference=${encodeURIComponent(createApplication.data.reference)}`}>Check application status →</a>
+          <p className="mt-1 font-mono text-lg font-semibold">{applicationReference}</p>
+          <a className="mt-3 inline-block text-sm font-medium text-primary underline-offset-4 hover:underline" href={`/application-status?reference=${encodeURIComponent(applicationReference)}`}>Check application status →</a>
         </div>
-        <Button variant="outline" className="mt-8" onClick={() => { createApplication.reset(); form.reset(); setOtpSent(false); setOtp(""); setDocuments([]); }}>
+        <Button variant="outline" className="mt-8" onClick={() => { createApplication.reset(); form.reset(); setOtpSent(false); setOtp(""); setDocuments([]); setDemoReference(null); }}>
           {text("Submit another application", "ਹੋਰ ਅਰਜ਼ੀ ਭੇਜੋ", "दूसरा आवेदन भेजें")}
         </Button>
       </div>
@@ -202,13 +213,22 @@ export function LeadForm() {
           <div className="rounded-md border border-border bg-secondary/35 p-4">
             <p className="text-sm font-medium">Phone verification</p>
             <p className="mt-1 text-xs text-muted-foreground">We verify the applicant’s mobile before accepting the application.</p>
-            <div className="mt-3 flex gap-2">
+            <div className="mt-3 grid gap-3 sm:grid-cols-[auto_1fr]">
               <Button type="button" variant="outline" disabled={requestOtp.isPending} onClick={async () => {
                 const phone = form.getValues("phone").replace(/\D/g, "").replace(/^91(?=[6-9][0-9]{9}$)/, "");
+                if (localPreview) {
+                  if (!/^[6-9]\d{9}$/.test(phone)) {
+                    form.setError("phone", { message: "Enter a valid 10-digit Indian mobile number first" });
+                    return;
+                  }
+                  setOtpSent(true);
+                  return;
+                }
                 await requestOtp.mutateAsync({ data: { phone } }); setOtpSent(true);
               }}>{otpSent ? "Resend OTP" : "Send OTP"}</Button>
-              {otpSent && <Input aria-label="Verification OTP" inputMode="numeric" maxLength={6} value={otp} onChange={(event) => setOtp(event.target.value.replace(/\D/g, ""))} placeholder="6-digit OTP" />}
+              <Input className="h-11 text-center font-mono text-lg tracking-[0.35em]" aria-label="Verification OTP" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={otp} onChange={(event) => setOtp(event.target.value.replace(/\D/g, ""))} placeholder="123456" />
             </div>
+            <p className="mt-2 text-xs text-primary">Temporary demo OTP: <span className="font-mono font-semibold tracking-wider">123456</span>. Press Send OTP first, then enter this code.</p>
           </div>
           <label className="block rounded-md border border-dashed border-border p-4 text-sm">
             <span className="font-medium">Verification documents (optional)</span>
