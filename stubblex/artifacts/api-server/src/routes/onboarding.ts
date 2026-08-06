@@ -1,4 +1,4 @@
-import { randomBytes, randomInt } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { Router, type IRouter, type Response } from "express";
 import { and, desc, eq, gte, sql } from "drizzle-orm";
 import {
@@ -190,7 +190,12 @@ router.post("/onboarding/request-otp", async (req, res, next) => {
       .where(and(eq(otpCodesTable.phone, otpPhone), gte(otpCodesTable.createdAt, windowStart)));
     if ((rate?.requests ?? 0) >= 3) return void res.status(429).json({ message: "Too many OTP requests. Try again in 15 minutes." });
     await db.update(otpCodesTable).set({ consumed: true }).where(and(eq(otpCodesTable.phone, otpPhone), eq(otpCodesTable.consumed, false)));
-    const code = String(randomInt(100_000, 1_000_000));
+    // Temporary pilot/demo OTP. Set DEMO_OTP_CODE to change it without editing code.
+    // Replace this fallback with a random code once production SMS is enabled.
+    const configuredDemoCode = process.env.DEMO_OTP_CODE?.trim();
+    const code = configuredDemoCode && /^\d{6}$/.test(configuredDemoCode)
+      ? configuredDemoCode
+      : "123456";
     await db.insert(otpCodesTable).values({ phone: otpPhone, code: hashOtp(otpPhone, code), expiresAt: new Date(Date.now() + OTP_TTL_MS) });
     await sendOtpSms(phone, code);
     res.status(202).json({ message: "Verification OTP sent" });
