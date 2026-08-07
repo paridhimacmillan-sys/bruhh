@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
+import { ActionQueue } from "@/components/DashboardBlocks";
 
 const inr = (value: number) => new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(value);
 const number = (value: number) => new Intl.NumberFormat("en-IN", { maximumFractionDigits: 1 }).format(value);
@@ -84,6 +85,13 @@ export function AdminControlCentre() {
   const aggregators = data.staff.filter((item) => item.role === "aggregator" && item.active);
   const pendingApplications = data.applications.filter((item) => !["approved", "rejected"].includes(item.status));
   const pendingQuantities = data.quantityRequests.filter((item) => item.status === "pending");
+  const pendingPayments = data.payments.filter((item) => item.reviewStatus === "pending");
+  const adminActions = [
+    ...(pendingApplications.length ? [{ id: "approvals", title: `${pendingApplications.length} applications need a decision`, detail: "Review the inspector recommendation, documents and assignment before approval.", meta: "Onboarding approvals", urgency: "now" as const, href: "#admin-control-tabs", actionLabel: "Open approvals" }] : []),
+    ...(pendingPayments.length ? [{ id: "payments", title: `${pendingPayments.length} farmer payments need review`, detail: "Match final tonnes against the weighbridge record before reconciliation.", meta: "Financial control", urgency: "now" as const, href: "#admin-control-tabs", actionLabel: "Open payments" }] : []),
+    ...(pendingQuantities.length ? [{ id: "quantities", title: `${pendingQuantities.length} quantity increases are waiting`, detail: "The operator has verified extra stubble; admin approval updates the farmer listing.", meta: "Farmer updates", urgency: "today" as const, href: "/dispatch", actionLabel: "Review requests" }] : []),
+    ...data.alerts.filter((item) => item.severity === "high").slice(0, 2).map((item) => ({ id: `alert-${item.id}`, title: item.title, detail: item.detail, meta: "Operational exception", urgency: "now" as const, href: item.href || "#admin-control-tabs", actionLabel: "Investigate" })),
+  ];
 
   return <div className="mt-6">
     <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -93,7 +101,9 @@ export function AdminControlCentre() {
       <Stat label="Operational alerts" value={String(data.alerts.filter((item) => item.severity !== "low").length)} note="Exceptions needing attention" icon={BellRing} />
     </div>
 
-    <Tabs defaultValue="overview" className="rounded-lg border border-border bg-card p-2 sm:p-3">
+    <ActionQueue items={adminActions} title="Decisions waiting for UnpackOS" />
+
+    <Tabs id="admin-control-tabs" defaultValue="overview" className="mt-6 rounded-lg border border-border bg-card p-2 sm:p-3">
       <TabsList className="h-auto w-full flex-wrap justify-start gap-1 bg-secondary/70 p-1.5">
         {[
           ["overview", "Overview"], ["approvals", "Approvals"], ["schedule", "Pickups"], ["payments", "Payments"], ["orders", "Orders"], ["machines", "Machines"], ["alerts", "Alerts"], ["reports", "Reports"], ["audit", "Audit"], ["sms", "SMS"], ["settings", "Settings"],
