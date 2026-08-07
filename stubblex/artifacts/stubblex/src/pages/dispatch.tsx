@@ -29,6 +29,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { SmsPreviewPanel } from "@/components/SmsPreviewPanel";
 import { OnboardingPanel } from "@/components/OnboardingPanel";
 import { FarmerQuantityPanel } from "@/components/FarmerQuantityPanel";
+import { ActionQueue } from "@/components/DashboardBlocks";
 
 const SEASON_TARGET_TONNES = 3_400;
 
@@ -225,6 +226,11 @@ export function DispatchPage() {
     { icon: IndianRupee, label: "Paid to farmers", value: formatInr(totalPaid) },
     { icon: CheckCircle2, label: "Batches delivered", value: formatNumber(delivered, 0) },
   ];
+  const dispatchActions = [
+    ...batches.filter((batch) => batch.status === "registered").slice(0, 2).map((batch) => ({ id: `pickup-${batch.id}`, title: `Schedule batch #${batch.id}`, detail: "Assign an operator and machine partner before the field window closes.", meta: `${formatNumber(batch.weightTonnes, 1)} t · pickup coordination`, urgency: "now" as const, href: "#dispatch-workspace", actionLabel: "Open batches" })),
+    ...batches.filter((batch) => batch.status === "baled").slice(0, 2).map((batch) => ({ id: `payment-${batch.id}`, title: `Review payment for batch #${batch.id}`, detail: `Match ${batch.weighbridgeId} before marking the farmer paid.`, meta: formatInr(batch.farmerPaidInr), urgency: "now" as const, href: "#dispatch-workspace", actionLabel: "Review batch" })),
+    ...orders.filter((order) => order.status === "requested").slice(0, 2).map((order) => ({ id: `order-${order.id}`, title: `${order.company} requested ${formatNumber(order.tonnes)} t`, detail: "Check lot availability and confirm or reject the buyer request.", meta: `Order #${order.id}`, urgency: "today" as const, href: "#dispatch-workspace", actionLabel: "Open orders" })),
+  ];
 
   return (
     <div className="min-h-screen bg-background">
@@ -269,6 +275,8 @@ export function DispatchPage() {
           ))}
         </section>
 
+        <ActionQueue items={dispatchActions} title="Dispatch decisions for today" />
+
         <section className="mt-4 rounded-lg border border-border bg-card p-5 sm:p-6" aria-labelledby="season-progress-title">
           <div className="flex flex-wrap items-end justify-between gap-2">
             <div>
@@ -289,7 +297,7 @@ export function DispatchPage() {
           </div>
         </section>
 
-        <section className="mt-6 overflow-hidden rounded-lg border border-border bg-card" aria-labelledby="batch-ledger-title">
+        <section id="dispatch-workspace" className="mt-6 overflow-hidden rounded-lg border border-border bg-card" aria-labelledby="batch-ledger-title">
           <div className="flex items-center justify-between border-b border-border px-5 py-4">
             <div>
               <p className="eyebrow">Dispatch workspace</p>
