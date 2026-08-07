@@ -110,7 +110,25 @@ export function FarmerDashboardPage() {
         <div className="mt-4 flex items-center gap-2 rounded-lg bg-secondary px-3 py-3 text-base font-semibold"><Truck className="h-5 w-5 text-primary" />{currentBatch ? statusLabel(currentBatch.status, text) : text("Registration accepted", "ਰਜਿਸਟ੍ਰੇਸ਼ਨ ਮਨਜ਼ੂਰ", "पंजीकरण स्वीकृत")}</div>
       </section>
 
+      <section className="mt-4 rounded-2xl border border-border bg-card p-5" aria-labelledby="farmer-progress-title">
+        <div className="flex items-center justify-between gap-3"><div><p className="text-sm font-semibold uppercase tracking-[0.12em] text-muted-foreground">{text("Your progress", "ਤੁਹਾਡੀ ਪ੍ਰਗਤੀ", "आपकी प्रगति")}</p><h2 id="farmer-progress-title" className="mt-1 text-2xl font-bold">{nextStepLabel(currentBatch?.status ?? "registered", text)}</h2></div><span className="rounded-full bg-primary/10 px-3 py-1 text-sm font-bold text-primary">{Math.min(4, statusOrder[currentBatch?.status ?? "registered"] + 1)}/4</span></div>
+        <ol className="mt-5 grid gap-3">
+          {[
+            { key: "registered", label: text("Registration accepted", "ਰਜਿਸਟ੍ਰੇਸ਼ਨ ਮਨਜ਼ੂਰ", "पंजीकरण स्वीकार") },
+            { key: "baled", label: text("Collected and weighed", "ਇਕੱਠੀ ਕਰਕੇ ਤੋਲੀ ਗਈ", "एकत्रित और तोला गया") },
+            { key: "paid", label: text("Payment sent", "ਭੁਗਤਾਨ ਭੇਜਿਆ ਗਿਆ", "भुगतान भेजा गया") },
+            { key: "delivered", label: text("Delivered to buyer", "ਖਰੀਦਦਾਰ ਤੱਕ ਪਹੁੰਚੀ", "खरीदार तक पहुँचा") },
+          ].map((step, index) => {
+            const complete = statusOrder[currentBatch?.status ?? "registered"] >= index;
+            const current = statusOrder[currentBatch?.status ?? "registered"] === index;
+            return <li key={step.key} className={`flex min-h-12 items-center gap-3 rounded-xl border px-3 py-2 ${current ? "border-primary bg-primary/5" : complete ? "border-emerald-200 bg-emerald-50" : "border-border bg-secondary/25"}`}><span className={`grid h-7 w-7 shrink-0 place-items-center rounded-full text-sm font-bold ${complete ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground"}`}>{complete ? "✓" : index + 1}</span><span className="text-base font-semibold">{step.label}</span></li>;
+          })}
+        </ol>
+      </section>
+
       {data.operator && <section className="mt-4 rounded-2xl border border-border bg-card p-5"><p className="text-sm font-semibold uppercase tracking-[0.12em] text-muted-foreground">{text("Your field operator", "ਤੁਹਾਡਾ ਫ਼ੀਲਡ ਓਪਰੇਟਰ", "आपका फील्ड ऑपरेटर")}</p><p className="mt-2 text-2xl font-bold">{data.operator.name}</p><a href={`tel:+91${data.operator.phone}`} className="mt-4 flex min-h-14 items-center justify-center gap-3 rounded-xl bg-primary px-4 text-lg font-bold text-primary-foreground"><Phone className="h-6 w-6" />{text("Call operator", "ਓਪਰੇਟਰ ਨੂੰ ਫ਼ੋਨ ਕਰੋ", "ऑपरेटर को फ़ोन करें")}</a></section>}
+
+      <section className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-5 text-amber-950"><p className="text-sm font-semibold uppercase tracking-[0.12em]">{text("Important pickup information", "ਜ਼ਰੂਰੀ ਚੁੱਕਾਈ ਜਾਣਕਾਰੀ", "जरूरी उठान जानकारी")}</p><ul className="mt-3 space-y-2 text-base leading-relaxed"><li>• {text("Keep the field access clear on pickup day.", "ਚੁੱਕਾਈ ਵਾਲੇ ਦਿਨ ਖੇਤ ਦਾ ਰਸਤਾ ਖੁੱਲ੍ਹਾ ਰੱਖੋ।", "उठान वाले दिन खेत का रास्ता साफ रखें।")}</li><li>• {text("Call your operator if the quantity changes.", "ਮਾਤਰਾ ਬਦਲੇ ਤਾਂ ਆਪਣੇ ਓਪਰੇਟਰ ਨੂੰ ਫੋਨ ਕਰੋ।", "मात्रा बदले तो अपने ऑपरेटर को फोन करें।")}</li><li>• {text("Final payment uses the weighbridge weight.", "ਅੰਤਿਮ ਭੁਗਤਾਨ ਤੋਲ ਕੰਡੇ ਦੇ ਵਜ਼ਨ ਅਨੁਸਾਰ ਹੁੰਦਾ ਹੈ।", "अंतिम भुगतान धर्मकांटे के वजन पर होता है।")}</li></ul></section>
 
       <section className="mt-4 rounded-2xl border border-border bg-card p-5"><p className="text-sm font-semibold uppercase tracking-[0.12em] text-muted-foreground">{text("Your collections", "ਤੁਹਾਡੀਆਂ ਚੁੱਕਾਈਆਂ", "आपके संग्रह")}</p><div className="mt-3 space-y-3">{data.batches.length ? data.batches.map((batch) => <div key={batch.id} className="rounded-xl border border-border p-4"><div className="flex items-center justify-between gap-4"><p className="font-bold">#{batch.id} · {formatNumber(batch.weightTonnes, 2)} t</p><span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-bold text-primary">{statusLabel(batch.status, text)}</span></div><div className="mt-3 flex justify-between text-sm text-muted-foreground"><span>{batch.weighbridgeId}</span><span className="font-semibold text-foreground">{formatAmount(batch.farmerPaidInr)}</span></div>{batch.status === "paid" || batch.status === "delivered" ? <a href={`/r/${batch.id}?lang=${language ?? "pa"}`} className="mt-3 inline-flex text-sm font-bold text-primary underline">{text("Open receipt", "ਰਸੀਦ ਖੋਲ੍ਹੋ", "रसीद खोलें")}</a> : null}</div>) : <p className="py-4 text-lg text-muted-foreground">{text("No collection has been weighed yet.", "ਹਾਲੇ ਕੋਈ ਚੁੱਕਾਈ ਨਹੀਂ ਤੋਲੀ ਗਈ।", "अभी कोई संग्रह तौला नहीं गया है।")}</p>}</div></section>
 
@@ -129,4 +147,11 @@ function statusLabel(status: BatchStatus, text: (en: string, pa: string, hi: str
   if (status === "baled") return text("Baled and weighed", "ਗੱਠਾਂ ਬਣੀਆਂ ਅਤੇ ਤੋਲਿਆ", "गट्ठे बने और तौला गया");
   if (status === "paid") return text("Paid", "ਭੁਗਤਾਨ ਹੋਇਆ", "भुगतान हुआ");
   return text("Delivered", "ਪਹੁੰਚਾਇਆ", "पहुंचाया गया");
+}
+
+function nextStepLabel(status: BatchStatus, text: (en: string, pa: string, hi: string) => string) {
+  if (status === "registered") return text("Next: field pickup", "ਅਗਲਾ: ਖੇਤ ਤੋਂ ਚੁੱਕਾਈ", "अगला: खेत से उठान");
+  if (status === "baled") return text("Next: payment", "ਅਗਲਾ: ਭੁਗਤਾਨ", "अगला: भुगतान");
+  if (status === "paid") return text("Next: buyer delivery", "ਅਗਲਾ: ਖਰੀਦਦਾਰ ਤੱਕ ਪਹੁੰਚ", "अगला: खरीदार तक पहुँच");
+  return text("Collection complete", "ਚੁੱਕਾਈ ਪੂਰੀ ਹੋਈ", "संग्रह पूरा हुआ");
 }
