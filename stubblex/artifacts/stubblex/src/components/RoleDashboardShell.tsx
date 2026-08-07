@@ -2,7 +2,7 @@ import { useEffect, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { getAuthMeQueryKey, useAuthLogout, useAuthMe, type AuthUser, type UserRole } from "@workspace/api-client-react";
 import { Link, useLocation } from "wouter";
-import { ClipboardCheck, LayoutDashboard, LogOut, MapPin, Settings, Tractor, Truck, Users } from "lucide-react";
+import { CalendarDays, ClipboardCheck, LayoutDashboard, LogOut, MapPin, Settings, Tractor, Truck, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const homeByRole: Record<UserRole, string> = {
@@ -68,7 +68,7 @@ export function RoleDashboardShell({ allowedRoles, eyebrow, title, description, 
     <main className="min-w-0 px-5 py-7 md:px-8 lg:px-10 lg:py-10">
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div><p className="eyebrow">{eyebrow}</p><h1 className="mt-3 font-display text-4xl tracking-tight sm:text-5xl">{title}</h1><p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground">{description}</p></div>
-        <div className="flex items-center gap-2 rounded-full border border-border bg-card px-3 py-2 text-xs"><Users className="h-4 w-4 text-primary" />{activeUser.name}<Settings className="ml-1 h-3.5 w-3.5 text-muted-foreground" /></div>
+        <div className="flex flex-wrap items-center justify-end gap-2"><div className="flex items-center gap-2 rounded-full border border-border bg-card px-3 py-2 text-xs"><CalendarDays className="h-4 w-4 text-primary" />Today · Sangrur pilot</div><div className="flex items-center gap-2 rounded-full border border-border bg-card px-3 py-2 text-xs"><Users className="h-4 w-4 text-primary" />{activeUser.name}<Settings className="ml-1 h-3.5 w-3.5 text-muted-foreground" /></div><Button className="lg:hidden" variant="outline" size="sm" onClick={() => logout.mutate()} disabled={logout.isPending}><LogOut className="mr-2 h-4 w-4" />Logout</Button></div>
       </header>
       <div className="mt-8">{children(activeUser)}</div>
     </main>
