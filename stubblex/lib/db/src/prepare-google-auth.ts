@@ -8,26 +8,33 @@ const client = new Client({ connectionString });
 
 try {
   await client.connect();
-  await client.query("BEGIN");
-  await client.query(`
-    ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "email" text;
-    ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "google_subject" text;
-    ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "active" boolean NOT NULL DEFAULT true;
-  `);
-  await client.query(`
-    DO $$
-    BEGIN
-      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'users_email_unique') THEN
-        ALTER TABLE "users" ADD CONSTRAINT "users_email_unique" UNIQUE ("email");
-      END IF;
-      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'users_google_subject_unique') THEN
-        ALTER TABLE "users" ADD CONSTRAINT "users_google_subject_unique" UNIQUE ("google_subject");
-      END IF;
-    END
-    $$;
-  `);
-  await client.query("COMMIT");
-  console.info("Prepared Google authentication columns and unique constraints without deleting existing users.");
+  const { rows } = await client.query<{ exists: boolean }>(
+    "SELECT to_regclass('users') IS NOT NULL AS exists",
+  );
+  if (!rows[0]?.exists) {
+    console.info('No existing users table; Drizzle will create it with Google authentication columns.');
+  } else {
+    await client.query("BEGIN");
+    await client.query(`
+      ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "email" text;
+      ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "google_subject" text;
+      ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "active" boolean NOT NULL DEFAULT true;
+    `);
+    await client.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'users_email_unique') THEN
+          ALTER TABLE "users" ADD CONSTRAINT "users_email_unique" UNIQUE ("email");
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'users_google_subject_unique') THEN
+          ALTER TABLE "users" ADD CONSTRAINT "users_google_subject_unique" UNIQUE ("google_subject");
+        END IF;
+      END
+      $$;
+    `);
+    await client.query("COMMIT");
+    console.info("Prepared Google authentication columns and unique constraints without deleting existing users.");
+  }
 } catch (error) {
   await client.query("ROLLBACK").catch(() => undefined);
   throw error;
