@@ -15,12 +15,19 @@ type FarmerDashboard = {
   pendingCallback: { id: number; additionalTonnes: number; createdAt: string } | null;
 };
 
+function demoTimestamp(daysFromToday: number, hour: number) {
+  const date = new Date();
+  date.setDate(date.getDate() + daysFromToday);
+  date.setHours(hour, 0, 0, 0);
+  return date.toISOString();
+}
+
 const previewData: FarmerDashboard = {
   farmer: { name: "Gurpreet Singh", fpoName: "Sunam Kisan Producer Company", listedTonnes: 20, clusterName: "Sunam North", district: "Sangrur" },
   operator: { name: "Jagmeet Singh", phone: "9876500003" },
   batches: [
-    { id: 432, status: "registered", weightTonnes: 6, farmerPaidInr: 0, pickupScheduledAt: "2025-10-24T02:30:00.000Z", baledAt: "2025-10-24T02:30:00.000Z", weighbridgeId: "Pending" },
-    { id: 431, status: "delivered", weightTonnes: 4.2, farmerPaidInr: 1680, pickupScheduledAt: "2025-10-18T08:30:00.000Z", baledAt: "2025-10-18T08:30:00.000Z", weighbridgeId: "WB-SUN-114" },
+    { id: 432, status: "registered", weightTonnes: 6, farmerPaidInr: 0, pickupScheduledAt: demoTimestamp(3, 8), baledAt: demoTimestamp(3, 8), weighbridgeId: "Pending" },
+    { id: 431, status: "delivered", weightTonnes: 4.2, farmerPaidInr: 1680, pickupScheduledAt: demoTimestamp(-4, 8), baledAt: demoTimestamp(-4, 8), weighbridgeId: "WB-SUN-114" },
   ],
   totalCollectedTonnes: 4.2,
   totalPaidInr: 1680,
@@ -119,10 +126,10 @@ export function FarmerDashboardPage() {
   }
 
   if (loading) return <main className="min-h-screen animate-pulse bg-background px-5 py-8"><div className="mx-auto h-16 max-w-lg rounded-lg bg-secondary" /><div className="mx-auto mt-6 h-[34rem] max-w-lg rounded-lg bg-secondary" /></main>;
-  if (notFound || !data) return <main className="flex min-h-screen items-center justify-center bg-background px-6 text-center"><div><p className="font-display text-2xl">Unpack<span className="text-primary">OS</span></p><h1 className="mt-7 text-3xl font-bold">{text("Farmer dashboard not found", "ਕਿਸਾਨ ਡੈਸ਼ਬੋਰਡ ਨਹੀਂ ਮਿਲਿਆ", "किसान डैशबोर्ड नहीं मिला")}</h1><p className="mt-3 text-lg text-muted-foreground">{text("Check the private SMS link and try again.", "ਨਿੱਜੀ SMS ਲਿੰਕ ਜਾਂਚ ਕੇ ਮੁੜ ਕੋਸ਼ਿਸ਼ ਕਰੋ।", "निजी SMS लिंक जाँचकर फिर कोशिश करें।")}</p><LanguageToggle className="mt-6" /></div></main>;
+  if (notFound || !data) return <main className="flex min-h-screen items-center justify-center bg-background px-6 text-center"><div><p className="font-display text-2xl">Stubble<span className="text-primary">X</span></p><h1 className="mt-7 text-3xl font-bold">{text("Farmer dashboard not found", "ਕਿਸਾਨ ਡੈਸ਼ਬੋਰਡ ਨਹੀਂ ਮਿਲਿਆ", "किसान डैशबोर्ड नहीं मिला")}</h1><p className="mt-3 text-lg text-muted-foreground">{text("Check the private SMS link and try again.", "ਨਿੱਜੀ SMS ਲਿੰਕ ਜਾਂਚ ਕੇ ਮੁੜ ਕੋਸ਼ਿਸ਼ ਕਰੋ।", "निजी SMS लिंक जाँचकर फिर कोशिश करें।")}</p><LanguageToggle className="mt-6" /></div></main>;
 
   return <div className="min-h-screen bg-secondary/35 text-foreground">
-    <header className="border-b border-border bg-background"><div className="mx-auto flex min-h-16 max-w-lg items-center justify-between px-5"><p className="font-display text-2xl">Unpack<span className="text-primary">OS</span></p><LanguageToggle /></div></header>
+    <header className="border-b border-border bg-background"><div className="mx-auto flex min-h-16 max-w-lg items-center justify-between px-5"><p className="font-display text-2xl">Stubble<span className="text-primary">X</span></p><LanguageToggle /></div></header>
     <main className="mx-auto max-w-lg px-4 py-6 sm:px-5">
       <div className="flex items-start justify-between gap-4">
         <div><p className="text-sm font-semibold uppercase tracking-[0.16em] text-primary">{text("Farmer dashboard", "ਕਿਸਾਨ ਡੈਸ਼ਬੋਰਡ", "किसान डैशबोर्ड")}</p><h1 className="mt-2 font-display text-4xl leading-tight">{text("Sat Sri Akal", "ਸਤਿ ਸ੍ਰੀ ਅਕਾਲ", "नमस्ते")}, {data.farmer.name}</h1><p className="mt-2 text-lg text-muted-foreground">{data.farmer.clusterName}, {data.farmer.district}</p></div>
@@ -165,7 +172,7 @@ export function FarmerDashboardPage() {
 
       <section className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-5 text-emerald-950"><div className="flex gap-3"><ShieldCheck className="h-6 w-6 shrink-0 text-primary" /><div><p className="text-sm font-bold uppercase tracking-[0.12em]">{text("Field verification", "ਖੇਤ ਦੀ ਜਾਂਚ", "खेत का सत्यापन")}</p><ul className="mt-3 space-y-2 text-base font-semibold"><li>✓ {text("Field inspected", "ਖੇਤ ਦੀ ਜਾਂਚ ਹੋ ਗਈ", "खेत की जाँच हो गई")}</li><li>✓ {text("Quantity estimated", "ਮਾਤਰਾ ਦਾ ਅੰਦਾਜ਼ਾ ਲੱਗ ਗਿਆ", "मात्रा का अनुमान हो गया")}</li><li>✓ {text("Documents checked", "ਕਾਗਜ਼ ਜਾਂਚੇ ਗਏ", "दस्तावेज़ जाँचे गए")}</li></ul><p className="mt-3 text-sm font-medium">{text("The weighbridge weight decides the final payable quantity.", "ਅੰਤਿਮ ਭੁਗਤਾਨ ਤੋਲ ਕੰਡੇ ਦੇ ਵਜ਼ਨ ਅਨੁਸਾਰ ਹੋਵੇਗਾ।", "अंतिम भुगतान धर्मकांटे के वजन के अनुसार होगा।")}</p></div></div></section>
 
-      <section className="mt-4 rounded-2xl border border-amber-300 bg-amber-50 p-5 text-amber-950"><div className="flex gap-3"><AlertTriangle className="h-6 w-6 shrink-0" /><div><p className="text-sm font-bold uppercase tracking-[0.12em]">{text("Important pickup rule", "ਜ਼ਰੂਰੀ ਚੁੱਕਾਈ ਨਿਯਮ", "जरूरी उठान नियम")}</p><p className="mt-2 text-base font-semibold leading-relaxed">{text("Once confirmed, the pickup date cannot be changed online. If there is a problem, call your operator immediately. If the field is not ready on the confirmed date, a charge of up to ₹15,000 may apply.", "ਤਾਰੀਖ਼ ਪੱਕੀ ਹੋਣ ਤੋਂ ਬਾਅਦ ਇਹ ਆਨਲਾਈਨ ਨਹੀਂ ਬਦਲੀ ਜਾ ਸਕਦੀ। ਕੋਈ ਮੁਸ਼ਕਲ ਹੋਵੇ ਤਾਂ ਤੁਰੰਤ ਓਪਰੇਟਰ ਨੂੰ ਫ਼ੋਨ ਕਰੋ। ਪੱਕੀ ਤਾਰੀਖ਼ ਨੂੰ ਖੇਤ ਤਿਆਰ ਨਾ ਹੋਣ 'ਤੇ ₹15,000 ਤੱਕ ਚਾਰਜ ਲੱਗ ਸਕਦਾ ਹੈ।", "तारीख पक्की होने के बाद इसे ऑनलाइन नहीं बदला जा सकता। समस्या हो तो तुरंत ऑपरेटर को फ़ोन करें। पक्की तारीख पर खेत तैयार न होने पर ₹15,000 तक शुल्क लग सकता है।")}</p></div></div></section>
+      <section className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-5 text-amber-950"><div className="flex gap-3"><AlertTriangle className="h-6 w-6 shrink-0" /><div><p className="text-sm font-bold uppercase tracking-[0.12em]">{text("Important pickup rule", "ਜ਼ਰੂਰੀ ਚੁੱਕਾਈ ਨਿਯਮ", "जरूरी उठान नियम")}</p><p className="mt-2 text-base font-semibold leading-relaxed">{text("Once confirmed, the pickup date cannot be changed online. If there is a problem, call your operator immediately. If the field is not ready on the confirmed date, a charge of up to ₹15,000 may apply.", "ਤਾਰੀਖ਼ ਪੱਕੀ ਹੋਣ ਤੋਂ ਬਾਅਦ ਇਹ ਆਨਲਾਈਨ ਨਹੀਂ ਬਦਲੀ ਜਾ ਸਕਦੀ। ਕੋਈ ਮੁਸ਼ਕਲ ਹੋਵੇ ਤਾਂ ਤੁਰੰਤ ਓਪਰੇਟਰ ਨੂੰ ਫ਼ੋਨ ਕਰੋ। ਪੱਕੀ ਤਾਰੀਖ਼ ਨੂੰ ਖੇਤ ਤਿਆਰ ਨਾ ਹੋਣ 'ਤੇ ₹15,000 ਤੱਕ ਚਾਰਜ ਲੱਗ ਸਕਦਾ ਹੈ।", "तारीख पक्की होने के बाद इसे ऑनलाइन नहीं बदला जा सकता। समस्या हो तो तुरंत ऑपरेटर को फ़ोन करें। पक्की तारीख पर खेत तैयार न होने पर ₹15,000 तक शुल्क लग सकता है।")}</p></div></div></section>
 
       <section className="mt-4 rounded-2xl border border-border bg-card p-5"><p className="text-sm font-semibold uppercase tracking-[0.12em] text-muted-foreground">{text("Pickups and payments", "ਚੁੱਕਾਈਆਂ ਅਤੇ ਭੁਗਤਾਨ", "उठान और भुगतान")}</p><div className="mt-3 space-y-3">{data.batches.length ? data.batches.map((batch) => <div key={batch.id} className="rounded-xl border border-border p-4"><div className="flex items-center justify-between gap-4"><p className="font-bold">#{batch.id} · {formatNumber(batch.weightTonnes, 2)} {text("tonnes", "ਟਨ", "टन")}</p><span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-bold text-primary">{statusLabel(batch.status, text)}</span></div><p className="mt-2 text-sm text-muted-foreground">{batch.pickupScheduledAt ? formatDate(batch.pickupScheduledAt) : text("Date being scheduled", "ਤਾਰੀਖ਼ ਤੈਅ ਹੋ ਰਹੀ ਹੈ", "तारीख तय हो रही है")}</p>{batch.status === "paid" || batch.status === "delivered" ? <div className="mt-3 rounded-lg bg-secondary/70 p-3"><p className="text-base font-bold">{formatNumber(batch.weightTonnes, 2)} t × ₹400/t = {formatAmount(batch.farmerPaidInr)}</p><p className="mt-1 text-sm text-muted-foreground">{text("Paid to", "ਭੁਗਤਾਨ ਕੀਤਾ", "भुगतान किया")} {data.farmer.fpoName} · {batch.weighbridgeId}</p><a href={`/r/${batch.id}?lang=${language ?? "pa"}`} className="mt-3 inline-flex min-h-11 items-center text-sm font-bold text-primary underline">{text("View payment receipt", "ਭੁਗਤਾਨ ਦੀ ਰਸੀਦ ਵੇਖੋ", "भुगतान रसीद देखें")}</a></div> : <p className="mt-3 text-sm font-semibold text-primary">{text("Final weight and payment will appear after weighbridge entry.", "ਤੋਲ ਕੰਡੇ ਦੀ ਐਂਟਰੀ ਤੋਂ ਬਾਅਦ ਅੰਤਿਮ ਵਜ਼ਨ ਅਤੇ ਭੁਗਤਾਨ ਦਿਖੇਗਾ।", "धर्मकांटे की एंट्री के बाद अंतिम वजन और भुगतान दिखेगा।")}</p>}</div>) : <p className="py-4 text-lg text-muted-foreground">{text("No collection has been weighed yet.", "ਹਾਲੇ ਕੋਈ ਚੁੱਕਾਈ ਨਹੀਂ ਤੋਲੀ ਗਈ।", "अभी कोई संग्रह तौला नहीं गया है।")}</p>}</div></section>
 
