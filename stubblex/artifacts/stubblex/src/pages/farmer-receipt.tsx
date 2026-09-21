@@ -35,7 +35,7 @@ export function FarmerReceiptPage() {
   }
 
   if (!receipt) {
-    return <main className="flex min-h-screen items-center justify-center bg-background px-6 text-center"><div><div className="font-display text-2xl">Unpack<span className="text-primary">OS</span></div><h1 className="mt-8 text-3xl font-semibold">{copy("notFound")}</h1><p className="mt-3 text-lg text-muted-foreground">{copy("tryAgain")}</p><LanguageToggle className="mt-7" /></div></main>;
+    return <main className="flex min-h-screen items-center justify-center bg-background px-6 text-center"><div><div className="font-display text-2xl">Stubble<span className="text-primary">X</span></div><h1 className="mt-8 text-3xl font-semibold">{copy("notFound")}</h1><p className="mt-3 text-lg text-muted-foreground">{copy("tryAgain")}</p><LanguageToggle className="mt-7" /></div></main>;
   }
 
   const steps = [copy("baled"), copy("weighed"), copy("paid")];
@@ -45,7 +45,7 @@ export function FarmerReceiptPage() {
     <div className="min-h-screen bg-background text-foreground">
       <header className="border-b-2 border-foreground bg-card">
         <div className="mx-auto flex min-h-16 max-w-lg items-center justify-between px-5 py-3">
-          <div className="font-display text-2xl tracking-tight">Unpack<span className="text-primary">OS</span></div>
+          <div className="font-display text-2xl tracking-tight">Stubble<span className="text-primary">X</span></div>
           <LanguageToggle />
         </div>
       </header>
@@ -85,7 +85,7 @@ export function FarmerReceiptPage() {
 
       <footer className="mt-6 border-t-2 border-foreground bg-card px-5 py-7 text-center">
         <p className="text-2xl font-bold">{copy("footer")}</p>
-        <p className="mt-2 font-display text-xl">Unpack<span className="text-primary">OS</span></p>
+        <p className="mt-2 font-display text-xl">Stubble<span className="text-primary">X</span></p>
       </footer>
     </div>
   );
