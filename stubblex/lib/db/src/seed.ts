@@ -42,17 +42,17 @@ const farmers = [
 const bootstrapAdminEmail = process.env.BOOTSTRAP_ADMIN_EMAIL?.trim().toLowerCase() || null;
 const users = [
   { phone: "9876500001", email: bootstrapAdminEmail, name: "Amandeep Singh", role: "admin" as const },
-  { phone: "9876500002", email: "coordinator.demo@unpackos.in", name: "Mehar Kaur", role: "coordinator" as const },
-  { phone: "9876500003", email: "operator.one.demo@unpackos.in", name: "Jagmeet Singh", role: "operator" as const },
-  { phone: "9876500004", email: "operator.two.demo@unpackos.in", name: "Simran Kaur", role: "operator" as const },
-  { phone: "9876500005", email: "aggregator.demo@unpackos.in", name: "Gursharan Singh", role: "aggregator" as const },
-  { phone: "9876500006", email: "inspector.demo@unpackos.in", name: "Navjot Kaur", role: "inspector" as const },
+  { phone: "9876500002", email: "coordinator.demo@stubblex.in", name: "Mehar Kaur", role: "coordinator" as const },
+  { phone: "9876500003", email: "operator.one.demo@stubblex.in", name: "Jagmeet Singh", role: "operator" as const },
+  { phone: "9876500004", email: "operator.two.demo@stubblex.in", name: "Simran Kaur", role: "operator" as const },
+  { phone: "9876500005", email: "aggregator.demo@stubblex.in", name: "Gursharan Singh", role: "aggregator" as const },
+  { phone: "9876500006", email: "inspector.demo@stubblex.in", name: "Navjot Kaur", role: "inspector" as const },
 ] as const;
 
 const onboardingApplications = [
   { reference: "STX-DEMO-1001", applicantType: "farmer" as const, name: "Sukhwinder Singh", phone: "9814112201", district: "Sangrur", phoneVerifiedAt: new Date("2025-10-01T08:30:00Z"), applicationData: { village: "Gharachon", organizationName: "Bhawanigarh Farmers FPO", acres: 18, expectedTonnes: 27 } },
-  { reference: "STX-DEMO-1002", applicantType: "machine_partner" as const, name: "Manjit Agro Services", phone: "9814112202", district: "Sangrur", phoneVerifiedAt: new Date("2025-10-01T08:40:00Z"), applicationData: { email: "manjit.demo@unpackos.in", machineType: "baler", machineCount: 3, serviceRadiusKm: 55, availabilityWindow: "15 Oct – 30 Nov" } },
-  { reference: "STX-DEMO-1003", applicantType: "logistics_operator" as const, name: "Gill Rural Logistics", phone: "9814112203", district: "Sangrur", phoneVerifiedAt: new Date("2025-10-01T08:50:00Z"), applicationData: { email: "gill.demo@unpackos.in", machineType: "truck", machineCount: 5, serviceRadiusKm: 80, availabilityWindow: "October – February" } },
+  { reference: "STX-DEMO-1002", applicantType: "machine_partner" as const, name: "Manjit Agro Services", phone: "9814112202", district: "Sangrur", phoneVerifiedAt: new Date("2025-10-01T08:40:00Z"), applicationData: { email: "manjit.demo@stubblex.in", machineType: "baler", machineCount: 3, serviceRadiusKm: 55, availabilityWindow: "15 Oct – 30 Nov" } },
+  { reference: "STX-DEMO-1003", applicantType: "logistics_operator" as const, name: "Gill Rural Logistics", phone: "9814112203", district: "Sangrur", phoneVerifiedAt: new Date("2025-10-01T08:50:00Z"), applicationData: { email: "gill.demo@stubblex.in", machineType: "truck", machineCount: 5, serviceRadiusKm: 80, availabilityWindow: "October – February" } },
   { reference: "STX-DEMO-1004", applicantType: "buyer" as const, name: "Neha Sharma", phone: "9814112204", district: "Ludhiana", phoneVerifiedAt: new Date("2025-10-01T09:00:00Z"), applicationData: { organizationName: "Punjab BioHeat Ltd", expectedTonnes: 500 } },
 ] as const;
 
