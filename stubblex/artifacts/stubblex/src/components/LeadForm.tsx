@@ -137,9 +137,9 @@ export function LeadForm() {
         <h3 className="mt-5 text-2xl">{text("Application received", "ਅਰਜ਼ੀ ਮਿਲ ਗਈ", "आवेदन मिल गया")}</h3>
         <p className="mt-3 text-base text-muted-foreground">
           {text(
-            "We normally call within 2 working days. For farmers, an UnpackOS field operator will arrange a farm visit; a decision is usually shared within 3–5 working days after the visit, depending on local capacity and buyer demand.",
-            "ਅਸੀਂ ਆਮ ਤੌਰ 'ਤੇ 2 ਕੰਮਕਾਜੀ ਦਿਨਾਂ ਵਿੱਚ ਫ਼ੋਨ ਕਰਦੇ ਹਾਂ। ਕਿਸਾਨ ਲਈ UnpackOS ਫ਼ੀਲਡ ਓਪਰੇਟਰ ਖੇਤ ਦਾ ਦੌਰਾ ਤੈਅ ਕਰੇਗਾ; ਦੌਰੇ ਤੋਂ ਬਾਅਦ ਆਮ ਤੌਰ 'ਤੇ 3–5 ਕੰਮਕਾਜੀ ਦਿਨਾਂ ਵਿੱਚ ਫ਼ੈਸਲਾ ਦੱਸਿਆ ਜਾਂਦਾ ਹੈ, ਜੋ ਸਥਾਨਕ ਸਮਰੱਥਾ ਅਤੇ ਖਰੀਦਦਾਰ ਦੀ ਮੰਗ ਉੱਤੇ ਨਿਰਭਰ ਹੈ।",
-            "हम आम तौर पर 2 कार्य दिवस में फ़ोन करते हैं। किसान के लिए UnpackOS फील्ड ऑपरेटर खेत का दौरा तय करेगा; दौरे के बाद आम तौर पर 3–5 कार्य दिवस में निर्णय बताया जाता है, जो स्थानीय क्षमता और खरीदार की मांग पर निर्भर है।",
+            "We normally call within 2 working days. For farmers, an StubbleX field operator will arrange a farm visit; a decision is usually shared within 3–5 working days after the visit, depending on local capacity and buyer demand.",
+            "ਅਸੀਂ ਆਮ ਤੌਰ 'ਤੇ 2 ਕੰਮਕਾਜੀ ਦਿਨਾਂ ਵਿੱਚ ਫ਼ੋਨ ਕਰਦੇ ਹਾਂ। ਕਿਸਾਨ ਲਈ StubbleX ਫ਼ੀਲਡ ਓਪਰੇਟਰ ਖੇਤ ਦਾ ਦੌਰਾ ਤੈਅ ਕਰੇਗਾ; ਦੌਰੇ ਤੋਂ ਬਾਅਦ ਆਮ ਤੌਰ 'ਤੇ 3–5 ਕੰਮਕਾਜੀ ਦਿਨਾਂ ਵਿੱਚ ਫ਼ੈਸਲਾ ਦੱਸਿਆ ਜਾਂਦਾ ਹੈ, ਜੋ ਸਥਾਨਕ ਸਮਰੱਥਾ ਅਤੇ ਖਰੀਦਦਾਰ ਦੀ ਮੰਗ ਉੱਤੇ ਨਿਰਭਰ ਹੈ।",
+            "हम आम तौर पर 2 कार्य दिवस में फ़ोन करते हैं। किसान के लिए StubbleX फील्ड ऑपरेटर खेत का दौरा तय करेगा; दौरे के बाद आम तौर पर 3–5 कार्य दिवस में निर्णय बताया जाता है, जो स्थानीय क्षमता और खरीदार की मांग पर निर्भर है।",
           )}
         </p>
         <div className="mx-auto mt-5 max-w-sm rounded-md border border-border bg-secondary/60 p-4">
