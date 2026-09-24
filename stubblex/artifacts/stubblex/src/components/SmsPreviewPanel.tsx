@@ -70,7 +70,7 @@ export function SmsPreviewPanel({ batch, onDismiss }: { batch: Batch; onDismiss:
           </div>
           <div className="min-h-[310px] px-3 py-5">
             <div className="sms-bubble-shake max-w-[92%] rounded-2xl rounded-tl-sm bg-white px-4 py-3 text-[0.82rem] leading-relaxed text-black shadow-sm">
-              <span>UnpackOS: Tuhada {weight} tonne parali vikeya — {amount} FPO khaate vich aa gaye. Raseed: </span>
+              <span>StubbleX: Tuhada {weight} tonne parali vikeya — {amount} FPO khaate vich aa gaye. Raseed: </span>
               <a href={receiptUrl} target="_blank" rel="noreferrer" className="break-all font-medium text-blue-700 underline underline-offset-2">{receiptUrl}</a>
             </div>
             <p className="ml-2 mt-1 text-[0.6rem] text-black/45">{timeLabel}</p>
