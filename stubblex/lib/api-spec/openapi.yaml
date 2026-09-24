@@ -462,7 +462,7 @@ paths:
     post:
       operationId: createFarmerQuantityRequest
       tags: [onboarding]
-      summary: Submit a farmer quantity increase after a phone call
+      summary: Submit a farmer quantity adjustment after a phone call
       security:
         - cookieAuth: []
       requestBody:
@@ -497,7 +497,7 @@ paths:
     post:
       operationId: approveFarmerQuantityRequest
       tags: [onboarding]
-      summary: Approve a quantity increase and update the farmer total
+      summary: Approve a quantity adjustment and update the farmer total
       security:
         - cookieAuth: []
       parameters:
@@ -517,7 +517,7 @@ paths:
     post:
       operationId: rejectFarmerQuantityRequest
       tags: [onboarding]
-      summary: Reject a farmer quantity increase
+      summary: Reject a farmer quantity adjustment
       security:
         - cookieAuth: []
       parameters:
@@ -1192,7 +1192,7 @@ components:
       additionalProperties: false
       properties:
         farmerId: { type: integer, minimum: 1 }
-        additionalTonnes: { type: number, exclusiveMinimum: 0, maximum: 10000 }
+        additionalTonnes: { type: number, minimum: -10000, maximum: 10000, description: "Signed change in tonnes; positive increases and negative decreases the listing. Zero is rejected by the API." }
         source: { $ref: "#/components/schemas/QuantityChangeSource" }
         reason: { type: string, minLength: 3, maxLength: 1000 }
         fieldPhotoDataBase64: { type: [string, "null"], maxLength: 3000000 }
