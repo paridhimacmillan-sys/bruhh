@@ -31,10 +31,10 @@ const previewData: AdminControlData = {
   generatedAt: now,
   settings: { id: 1, seasonName: "Sangrur pilot", seasonTargetTonnes: 3400, farmerRateInrPerTonne: 400, saleRateInrPerTonne: 1700, commissionPct: 5, pickupPenaltyInr: 15000, seasonStart: "2025-10-15T00:00:00.000Z", seasonEnd: "2025-11-30T00:00:00.000Z", updatedAt: now },
   staff: [
-    { id: 1, name: "Amandeep Singh", phone: "9876500001", email: "admin@unpackos.in", role: "admin", active: true },
-    { id: 2, name: "Mehar Kaur", phone: "9876500002", email: "coordinator@unpackos.in", role: "coordinator", active: true },
-    { id: 3, name: "Jagmeet Singh", phone: "9876500003", email: "operator@unpackos.in", role: "operator", active: true },
-    { id: 5, name: "Gursharan Singh", phone: "9876500005", email: "aggregator@unpackos.in", role: "aggregator", active: true },
+    { id: 1, name: "Amandeep Singh", phone: "9876500001", email: "admin@stubblex.in", role: "admin", active: true },
+    { id: 2, name: "Mehar Kaur", phone: "9876500002", email: "coordinator@stubblex.in", role: "coordinator", active: true },
+    { id: 3, name: "Jagmeet Singh", phone: "9876500003", email: "operator@stubblex.in", role: "operator", active: true },
+    { id: 5, name: "Gursharan Singh", phone: "9876500005", email: "aggregator@stubblex.in", role: "aggregator", active: true },
   ],
   schedules: [
     { id: 431, passportId: "PB07-0431", farmerName: "Gurpreet Singh", farmerPhone: "9814001001", clusterName: "Sunam North", district: "Sangrur", weightTonnes: 42, pickupScheduledAt: "2025-10-18T08:30:00.000Z", pickupLockedAt: "2025-10-10T08:30:00.000Z", pickupNotes: "Morning collection slot", assignedOperatorId: 3, assignedAggregatorId: 5, operatorName: "Jagmeet Singh", aggregatorName: "Gursharan Singh", status: "registered" },
@@ -83,5 +83,5 @@ export const adminControlApi = {
   payment: (batchId: number, status: string, notes?: string) => developmentPreview() ? Promise.resolve({ status }) : api(`/admin/payments/${batchId}/review`, { method: "POST", body: JSON.stringify({ status, notes }) }),
   machine: (machineId: number, body: Record<string, unknown>) => developmentPreview() ? Promise.resolve(body) : api(`/admin/machines/${machineId}`, { method: "PATCH", body: JSON.stringify(body) }),
   settings: (body: Partial<AdminSettings>) => developmentPreview() ? Promise.resolve(body) : api("/admin/settings", { method: "PATCH", body: JSON.stringify(body) }),
-  sms: (batchId: number, kind: string, send: boolean) => developmentPreview() ? Promise.resolve({ message: `UnpackOS demo ${kind} message for batch ${batchId}`, phone: "9814001001", sent: send }) : api<{ message: string; phone: string; sent: boolean }>(`/admin/sms/${batchId}`, { method: "POST", body: JSON.stringify({ kind, send }) }),
+  sms: (batchId: number, kind: string, send: boolean) => developmentPreview() ? Promise.resolve({ message: `StubbleX demo ${kind} message for batch ${batchId}`, phone: "9814001001", sent: send }) : api<{ message: string; phone: string; sent: boolean }>(`/admin/sms/${batchId}`, { method: "POST", body: JSON.stringify({ kind, send }) }),
 };
