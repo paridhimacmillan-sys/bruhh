@@ -4,7 +4,7 @@ async function sendMsg91(templateId: string | undefined, phone: string, variable
   const authKey = process.env.MSG91_AUTH_KEY;
 
   if (!authKey || !templateId) {
-    console.info(`[UnpackOS SMS demo] ${phone}: ${fallbackMessage}`);
+    console.info(`[StubbleX SMS demo] ${phone}: ${fallbackMessage}`);
     return;
   }
 
@@ -44,7 +44,7 @@ export async function sendFarmerPaidSms(input: {
 }): Promise<void> {
   const amount = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 }).format(input.amount);
   const weight = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2 }).format(input.weight);
-  const message = `UnpackOS: Tuhada ${weight} tonne parali vikeya — ₹${amount} FPO khaate vich aa gaye. Raseed: ${input.shortlink}`;
+  const message = `StubbleX: Tuhada ${weight} tonne parali vikeya — ₹${amount} FPO khaate vich aa gaye. Raseed: ${input.shortlink}`;
 
   await sendMsg91(
     process.env.MSG91_FARMER_TEMPLATE_ID,
@@ -68,10 +68,10 @@ export async function sendOnboardingDecisionSms(input: {
   status: "approved" | "rejected" | "documents_pending" | "waitlisted";
 }): Promise<void> {
   const messages = {
-    approved: `UnpackOS: ${input.name}, your application ${input.reference} is approved. Approved staff can now sign in with their registered Google email.`,
-    rejected: `UnpackOS: Your application ${input.reference} could not be approved. Contact the UnpackOS team for details.`,
-    documents_pending: `UnpackOS: More documents are needed for application ${input.reference}. Please contact the UnpackOS team.`,
-    waitlisted: `UnpackOS: Application ${input.reference} is on the waitlist. We will contact you when capacity opens.`,
+    approved: `StubbleX: ${input.name}, your application ${input.reference} is approved. Approved staff can now sign in with their registered Google email.`,
+    rejected: `StubbleX: Your application ${input.reference} could not be approved. Contact the StubbleX team for details.`,
+    documents_pending: `StubbleX: More documents are needed for application ${input.reference}. Please contact the StubbleX team.`,
+    waitlisted: `StubbleX: Application ${input.reference} is on the waitlist. We will contact you when capacity opens.`,
   } as const;
   const message = messages[input.status];
   await sendMsg91(
@@ -92,7 +92,7 @@ export async function sendFarmerEnrollmentSms(input: {
   dashboardUrl: string;
 }): Promise<void> {
   const tonnes = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2 }).format(input.listedTonnes);
-  const message = `UnpackOS: ${input.name}, tuhadi ${tonnes} tonne parali listing manzoor hai. Field operator: ${input.operatorName} ${input.operatorPhone}. Tuhada dashboard: ${input.dashboardUrl}`;
+  const message = `StubbleX: ${input.name}, tuhadi ${tonnes} tonne parali listing manzoor hai. Field operator: ${input.operatorName} ${input.operatorPhone}. Tuhada dashboard: ${input.dashboardUrl}`;
   await sendMsg91(
     process.env.MSG91_FARMER_APPROVAL_TEMPLATE_ID,
     input.phone,
@@ -108,7 +108,7 @@ export async function sendFarmerQuantityUpdatedSms(input: {
 }): Promise<void> {
   const additional = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2 }).format(input.additionalTonnes);
   const total = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2 }).format(input.totalTonnes);
-  const message = `UnpackOS: Tuhadi parali listing ${additional} tonne vadha ditti gayi. Nava total: ${total} tonne. Antim bhugtan weighbridge de asal wazan te hovega.`;
+  const message = `StubbleX: Tuhadi parali listing ${additional} tonne vadha ditti gayi. Nava total: ${total} tonne. Antim bhugtan weighbridge de asal wazan te hovega.`;
   await sendMsg91(
     process.env.MSG91_QUANTITY_UPDATE_TEMPLATE_ID,
     input.phone,
