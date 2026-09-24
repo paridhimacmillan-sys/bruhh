@@ -106,13 +106,14 @@ export async function sendFarmerQuantityUpdatedSms(input: {
   additionalTonnes: number;
   totalTonnes: number;
 }): Promise<void> {
-  const additional = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2 }).format(input.additionalTonnes);
+  const change = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2 }).format(Math.abs(input.additionalTonnes));
   const total = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2 }).format(input.totalTonnes);
-  const message = `StubbleX: Tuhadi parali listing ${additional} tonne vadha ditti gayi. Nava total: ${total} tonne. Antim bhugtan weighbridge de asal wazan te hovega.`;
+  const direction = input.additionalTonnes > 0 ? "vadha ditti gayi" : "ghata ditti gayi";
+  const message = `StubbleX: Tuhadi parali listing ${change} tonne ${direction}. Nava total: ${total} tonne. Antim bhugtan weighbridge de asal wazan te hovega.`;
   await sendMsg91(
     process.env.MSG91_QUANTITY_UPDATE_TEMPLATE_ID,
     input.phone,
-    { additional, total, VAR1: additional, VAR2: total },
+    { additional: change, change, direction, total, VAR1: change, VAR2: total },
     message,
   );
 }
