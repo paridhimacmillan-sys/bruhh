@@ -619,7 +619,7 @@ router.post("/farmer-quantity-requests", requireAuth, async (req, res, next) => 
   const user = requireQuantityAccess(res);
   if (!user) return;
   const body = CreateFarmerQuantityRequestBody.safeParse(req.body);
-  if (!body.success) return void res.status(400).json({ message: "Enter a farmer, additional tonnes and a clear reason" });
+  if (!body.success || Math.abs(body.data.additionalTonnes) < 0.001) return void res.status(400).json({ message: "Enter a farmer, a non-zero quantity change and a clear reason" });
   if (Boolean(body.data.fieldPhotoDataBase64) !== Boolean(body.data.fieldPhotoMimeType)) {
     return void res.status(400).json({ message: "Field photo data and type must be provided together" });
   }
@@ -632,6 +632,8 @@ router.post("/farmer-quantity-requests", requireAuth, async (req, res, next) => 
     const [pending] = await db.select({ id: farmerQuantityRequestsTable.id }).from(farmerQuantityRequestsTable)
       .where(and(eq(farmerQuantityRequestsTable.farmerId, farmer.id), eq(farmerQuantityRequestsTable.status, "pending"))).limit(1);
     if (pending) return void res.status(409).json({ message: "This farmer already has a pending quantity request" });
+    const requestedTotalTonnes = farmer.listedTonnes + body.data.additionalTonnes;
+    if (requestedTotalTonnes <= 0) return void res.status(400).json({ message: "The adjusted farmer quantity must remain above zero" });
     const [sourceApplication] = await db.select({ id: onboardingApplicationsTable.id }).from(onboardingApplicationsTable)
       .where(and(eq(onboardingApplicationsTable.phone, farmer.phone), eq(onboardingApplicationsTable.applicantType, "farmer"), eq(onboardingApplicationsTable.status, "approved")))
       .orderBy(desc(onboardingApplicationsTable.reviewedAt)).limit(1);
@@ -641,14 +643,19 @@ router.post("/farmer-quantity-requests", requireAuth, async (req, res, next) => 
       requestedByUserId: user.id,
       previousTonnes: farmer.listedTonnes,
       additionalTonnes: body.data.additionalTonnes,
-      requestedTotalTonnes: farmer.listedTonnes + body.data.additionalTonnes,
+      requestedTotalTonnes,
       source: body.data.source,
       reason: body.data.reason.trim(),
       fieldPhotoDataBase64: body.data.fieldPhotoDataBase64 ?? null,
       fieldPhotoMimeType: body.data.fieldPhotoMimeType ?? null,
     }).returning();
     if (!created) throw new Error("Quantity request creation returned no record");
-    if (sourceApplication) await db.insert(onboardingEventsTable).values({ applicationId: sourceApplication.id, action: "quantity_increase_requested", actorUserId: user.id, note: `${farmer.listedTonnes} t + ${body.data.additionalTonnes} t = ${created.requestedTotalTonnes} t · ${body.data.source.replaceAll("_", " ")}` });
+    if (sourceApplication) await db.insert(onboardingEventsTable).values({
+      applicationId: sourceApplication.id,
+      action: body.data.additionalTonnes > 0 ? "quantity_increase_requested" : "quantity_decrease_requested",
+      actorUserId: user.id,
+      note: `${farmer.listedTonnes} t ${body.data.additionalTonnes > 0 ? "+" : "−"} ${Math.abs(body.data.additionalTonnes)} t = ${created.requestedTotalTonnes} t · ${body.data.source.replaceAll("_", " ")}`,
+    });
     const view = await loadQuantityRequestView(created.id);
     res.status(201).json(CreateFarmerQuantityRequestResponse.parse(view));
   } catch (error) { next(error); }
@@ -692,7 +699,7 @@ router.post("/farmer-quantity-requests/:requestId/approve", requireAuth, async (
       const [approved] = await tx.update(farmerQuantityRequestsTable).set({ status: "approved", reviewedByUserId: reviewer.id, reviewNotes: body.data.reviewNotes ?? null, reviewedAt: new Date() })
         .where(and(eq(farmerQuantityRequestsTable.id, request.id), eq(farmerQuantityRequestsTable.status, "pending"))).returning();
       if (!approved) return { status: 409 as const, message: "Quantity request was changed before approval" };
-      if (request.sourceApplicationId) await tx.insert(onboardingEventsTable).values({ applicationId: request.sourceApplicationId, action: "quantity_increase_approved", actorUserId: reviewer.id, note: `${request.previousTonnes} t → ${request.requestedTotalTonnes} t. ${body.data.reviewNotes ?? ""}`.trim() });
+      if (request.sourceApplicationId) await tx.insert(onboardingEventsTable).values({ applicationId: request.sourceApplicationId, action: request.additionalTonnes > 0 ? "quantity_increase_approved" : "quantity_decrease_approved", actorUserId: reviewer.id, note: `${request.previousTonnes} t → ${request.requestedTotalTonnes} t. ${body.data.reviewNotes ?? ""}`.trim() });
       return { status: 200 as const, request: approved, farmer };
     });
     if (!("request" in result) || !result.request || !result.farmer) return void res.status(result.status).json({ message: "message" in result ? result.message : "Quantity request approval failed" });
@@ -716,7 +723,7 @@ router.post("/farmer-quantity-requests/:requestId/reject", requireAuth, async (r
     const [rejected] = await db.update(farmerQuantityRequestsTable).set({ status: "rejected", reviewedByUserId: reviewer.id, reviewNotes: body.data.reason, reviewedAt: new Date() })
       .where(and(eq(farmerQuantityRequestsTable.id, request.id), eq(farmerQuantityRequestsTable.status, "pending"))).returning();
     if (!rejected) return void res.status(409).json({ message: "Quantity request was changed before rejection" });
-    if (request.sourceApplicationId) await db.insert(onboardingEventsTable).values({ applicationId: request.sourceApplicationId, action: "quantity_increase_rejected", actorUserId: reviewer.id, note: body.data.reason });
+    if (request.sourceApplicationId) await db.insert(onboardingEventsTable).values({ applicationId: request.sourceApplicationId, action: request.additionalTonnes > 0 ? "quantity_increase_rejected" : "quantity_decrease_rejected", actorUserId: reviewer.id, note: body.data.reason });
     const view = await loadQuantityRequestView(rejected.id);
     res.json(RejectFarmerQuantityRequestResponse.parse(view));
   } catch (error) { next(error); }
