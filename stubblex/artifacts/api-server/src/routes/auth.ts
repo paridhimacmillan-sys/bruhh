@@ -68,8 +68,8 @@ router.get("/auth/google", (req, res) => {
   const state = randomBytes(24).toString("base64url");
   const verifier = randomBytes(48).toString("base64url");
   const challenge = createHash("sha256").update(verifier).digest("base64url");
-  res.cookie("unpackos_google_state", state, secureCookie());
-  res.cookie("unpackos_google_verifier", verifier, secureCookie());
+  res.cookie("stubblex_google_state", state, secureCookie());
+  res.cookie("stubblex_google_verifier", verifier, secureCookie());
 
   const authorize = new URL("https://accounts.google.com/o/oauth2/v2/auth");
   authorize.searchParams.set("client_id", config.clientId);
@@ -88,11 +88,11 @@ router.get("/auth/google/callback", async (req, res, next) => {
   const state = typeof req.query.state === "string" ? req.query.state : "";
   const code = typeof req.query.code === "string" ? req.query.code : "";
   const cookies = req.cookies as Record<string, string> | undefined;
-  const expectedState = cookies?.unpackos_google_state ?? "";
-  const verifier = cookies?.unpackos_google_verifier ?? "";
+  const expectedState = cookies?.stubblex_google_state ?? "";
+  const verifier = cookies?.stubblex_google_verifier ?? "";
   const { maxAge: _maxAge, ...clearOptions } = secureCookie();
-  res.clearCookie("unpackos_google_state", clearOptions);
-  res.clearCookie("unpackos_google_verifier", clearOptions);
+  res.clearCookie("stubblex_google_state", clearOptions);
+  res.clearCookie("stubblex_google_verifier", clearOptions);
 
   if (!config) return void loginRedirect(res, "google_not_configured");
   if (!state || !expectedState || !safeEqual(state, expectedState) || !code || !verifier) return void loginRedirect(res, "invalid_login_state");
