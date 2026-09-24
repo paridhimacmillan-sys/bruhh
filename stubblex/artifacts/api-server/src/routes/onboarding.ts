@@ -70,12 +70,12 @@ function newReference(): string {
 
 function statusMessage(status: OnboardingApplication["status"]): string {
   return ({
-    new: "Application received. The UnpackOS team will review it.",
+    new: "Application received. The StubbleX team will review it.",
     contacted: "A coordinator has contacted or attempted to contact you.",
-    documents_pending: "Additional documents are required. Please contact the UnpackOS team.",
+    documents_pending: "Additional documents are required. Please contact the StubbleX team.",
     verified: "Your details have been verified and the final decision is pending.",
     approved: "Your application is approved.",
-    rejected: "Your application could not be approved. Contact UnpackOS for details.",
+    rejected: "Your application could not be approved. Contact StubbleX for details.",
     waitlisted: "Your application is verified but currently waitlisted.",
   })[status];
 }
@@ -119,7 +119,7 @@ function validateRoleDetails(applicantType: OnboardingApplication["applicantType
 function requireOnboardingAccess(res: Response): User | null {
   const user = res.locals.user as User;
   if (user.role !== "admin" && user.role !== "coordinator" && user.role !== "inspector") {
-    res.status(403).json({ message: "Onboarding access is limited to UnpackOS reviewers and inspectors" });
+    res.status(403).json({ message: "Onboarding access is limited to StubbleX reviewers and inspectors" });
     return null;
   }
   return user;
@@ -128,7 +128,7 @@ function requireOnboardingAccess(res: Response): User | null {
 function requireDecisionMaker(res: Response): User | null {
   const user = res.locals.user as User;
   if (user.role !== "admin" && user.role !== "coordinator") {
-    res.status(403).json({ message: "Only UnpackOS admins and coordinators can approve or reject applications" });
+    res.status(403).json({ message: "Only StubbleX admins and coordinators can approve or reject applications" });
     return null;
   }
   return user;
