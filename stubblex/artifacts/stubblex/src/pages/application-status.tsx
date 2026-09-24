@@ -14,7 +14,7 @@ export function ApplicationStatusPage() {
 
   return <main className="min-h-screen bg-background px-4 py-8 sm:py-14">
     <div className="mx-auto max-w-xl">
-      <a href="/" className="font-display text-2xl">Unpack<span className="text-primary">OS</span></a>
+      <a href="/" className="font-display text-2xl">Stubble<span className="text-primary">X</span></a>
       <section className="mt-8 rounded-lg border border-border bg-card p-6 shadow-sm sm:p-8">
         <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary"><FileSearch /></div>
         <h1 className="mt-5 font-display text-3xl">Check your application</h1>
@@ -33,7 +33,7 @@ export function ApplicationStatusPage() {
         <div className="mt-6 space-y-4 text-sm">
           <StatusStep icon={<CheckCircle2 />} label="Application submitted" complete />
           <StatusStep icon={<ShieldCheck />} label="Phone verified" complete />
-          <StatusStep icon={<FileSearch />} label="UnpackOS review and decision" complete={["verified", "approved", "rejected", "waitlisted"].includes(query.data.status)} />
+          <StatusStep icon={<FileSearch />} label="StubbleX review and decision" complete={["verified", "approved", "rejected", "waitlisted"].includes(query.data.status)} />
         </div>
       </section>}
     </div>
