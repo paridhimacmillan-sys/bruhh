@@ -25,7 +25,7 @@ export function InspectorDashboardPage() {
     href: "#inspection-queue",
     actionLabel: "Open application",
   }));
-  return <RoleDashboardShell allowedRoles={["inspector"]} eyebrow="Field verification" title="Inspector field desk" description="Record field observations, upload evidence, and submit recommendations. Final approval remains with UnpackOS administration.">{() => <>
+  return <RoleDashboardShell allowedRoles={["inspector"]} eyebrow="Field verification" title="Inspector field desk" description="Record field observations, upload evidence, and submit recommendations. Final approval remains with StubbleX administration.">{() => <>
     <DashboardStats items={[
       { label: "Open applications", value: value(summary?.openApplications), note: "Available for field verification", icon: MapPin },
       { label: "Inspections completed", value: value(summary?.completedInspections), note: "Recorded under your account", icon: ClipboardCheck },
