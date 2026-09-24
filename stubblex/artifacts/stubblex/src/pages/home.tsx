@@ -84,9 +84,9 @@ export function Home() {
       <header className="sticky top-0 z-50 border-b border-border/70 bg-background/85 backdrop-blur">
         <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-5 py-4 md:px-8">
           <a href="#top" className="font-display text-lg tracking-tight">
-            Unpack<span className="text-primary">OS</span>
+            Stubble<span className="text-primary">X</span>
             <span className="ml-2 hidden text-[0.65rem] uppercase tracking-[0.18em] text-muted-foreground sm:inline">
-              UnpackOS
+              StubbleX
             </span>
           </a>
           <nav className="hidden items-center gap-7 md:flex">
@@ -115,7 +115,7 @@ export function Home() {
                 {text("Stubble is not waste.", "ਪਰਾਲੀ ਕੂੜਾ ਨਹੀਂ।", "पराली कचरा नहीं।")}<br />{text("It is raw material with a receipt.", "ਇਹ ਰਸੀਦ ਵਾਲਾ ਕੱਚਾ ਮਾਲ ਹੈ।", "यह रसीद वाला कच्चा माल है।")}
               </h1>
               <p className="mt-6 max-w-xl text-base leading-relaxed text-muted-foreground md:text-lg">
-                {text("UnpackOS connects geolocated farmer clusters and FPOs with industries that need crop residue — coordinating baling and pickup in the 20-day harvest window and paying farmers at the weighbridge.", "UnpackOS ਸਥਾਨ-ਚਿੰਨ੍ਹਿਤ ਕਿਸਾਨ ਕਲੱਸਟਰਾਂ ਅਤੇ FPO ਨੂੰ ਪਰਾਲੀ ਦੀ ਲੋੜ ਵਾਲੇ ਉਦਯੋਗਾਂ ਨਾਲ ਜੋੜਦਾ ਹੈ—20 ਦਿਨਾਂ ਦੀ ਵਾਢੀ ਮਿਆਦ ਵਿੱਚ ਗੱਠਾਂ ਅਤੇ ਚੁੱਕਾਈ ਦਾ ਤਾਲਮੇਲ ਅਤੇ ਵੇਅਬ੍ਰਿਜ ਉੱਤੇ ਕਿਸਾਨ ਭੁਗਤਾਨ।", "UnpackOS स्थान-चिह्नित किसान क्लस्टरों और FPO को पराली की जरूरत वाले उद्योगों से जोड़ता है—20 दिन की कटाई अवधि में गांठ और उठान समन्वय तथा वेब्रिज पर किसान भुगतान।")}
+                {text("StubbleX connects geolocated farmer clusters and FPOs with industries that need crop residue — coordinating baling and pickup in the 20-day harvest window and paying farmers at the weighbridge.", "StubbleX ਸਥਾਨ-ਚਿੰਨ੍ਹਿਤ ਕਿਸਾਨ ਕਲੱਸਟਰਾਂ ਅਤੇ FPO ਨੂੰ ਪਰਾਲੀ ਦੀ ਲੋੜ ਵਾਲੇ ਉਦਯੋਗਾਂ ਨਾਲ ਜੋੜਦਾ ਹੈ—20 ਦਿਨਾਂ ਦੀ ਵਾਢੀ ਮਿਆਦ ਵਿੱਚ ਗੱਠਾਂ ਅਤੇ ਚੁੱਕਾਈ ਦਾ ਤਾਲਮੇਲ ਅਤੇ ਵੇਅਬ੍ਰਿਜ ਉੱਤੇ ਕਿਸਾਨ ਭੁਗਤਾਨ।", "StubbleX स्थान-चिह्नित किसान क्लस्टरों और FPO को पराली की जरूरत वाले उद्योगों से जोड़ता है—20 दिन की कटाई अवधि में गांठ और उठान समन्वय तथा वेब्रिज पर किसान भुगतान।")}
               </p>
               <div className="mt-8 flex flex-wrap gap-3">
                 <Button asChild size="lg"><a href="#farmers">{text("For farmers & FPOs", "ਕਿਸਾਨਾਂ ਅਤੇ FPO ਲਈ", "किसानों और FPO के लिए")}</a></Button>
@@ -157,7 +157,7 @@ export function Home() {
               <p className="eyebrow">{text("How it works", "ਕਿਵੇਂ ਚੱਲਦਾ ਹੈ", "कैसे काम करता है")}</p>
               <h2 className="mt-4 text-3xl md:text-4xl">{text("From field to shelf, in one ledger", "ਖੇਤ ਤੋਂ ਸ਼ੈਲਫ਼ ਤੱਕ, ਇੱਕ ਲੇਜ਼ਰ ਵਿੱਚ", "खेत से शेल्फ तक, एक लेज़र में")}</h2>
             </div>
-            <p className="max-w-sm text-sm text-muted-foreground">{text("UnpackOS owns no equipment. It sequences the people and assets already working the harvest, and records what happened.", "UnpackOS ਕੋਈ ਸਾਜ਼ੋ-ਸਾਮਾਨ ਨਹੀਂ ਰੱਖਦਾ। ਇਹ ਵਾਢੀ ਵਿੱਚ ਕੰਮ ਕਰਦੇ ਲੋਕਾਂ ਅਤੇ ਸਾਧਨਾਂ ਦਾ ਤਾਲਮੇਲ ਕਰਕੇ ਘਟਨਾਵਾਂ ਦਰਜ ਕਰਦਾ ਹੈ।", "UnpackOS कोई उपकरण नहीं रखता। यह कटाई में काम कर रहे लोगों और साधनों का समन्वय कर घटनाएँ दर्ज करता है।")}</p>
+            <p className="max-w-sm text-sm text-muted-foreground">{text("StubbleX owns no equipment. It sequences the people and assets already working the harvest, and records what happened.", "StubbleX ਕੋਈ ਸਾਜ਼ੋ-ਸਾਮਾਨ ਨਹੀਂ ਰੱਖਦਾ। ਇਹ ਵਾਢੀ ਵਿੱਚ ਕੰਮ ਕਰਦੇ ਲੋਕਾਂ ਅਤੇ ਸਾਧਨਾਂ ਦਾ ਤਾਲਮੇਲ ਕਰਕੇ ਘਟਨਾਵਾਂ ਦਰਜ ਕਰਦਾ ਹੈ।", "StubbleX कोई उपकरण नहीं रखता। यह कटाई में काम कर रहे लोगों और साधनों का समन्वय कर घटनाएँ दर्ज करता है।")}</p>
           </div>
           <ol className="mt-12 grid gap-px overflow-hidden rounded-lg border border-border bg-border sm:grid-cols-2 lg:grid-cols-4">
             {steps.map((s, i) => (
@@ -196,7 +196,7 @@ export function Home() {
             <div className="rounded-lg border border-border bg-card p-6 md:p-8">
               <p className="eyebrow">{text("Getting started", "ਸ਼ੁਰੂਆਤ", "शुरुआत")}</p>
               <ol className="mt-5 space-y-5">
-                {[text("Register with your phone number, village and approximate tonnes of stubble available.","ਫ਼ੋਨ ਨੰਬਰ, ਪਿੰਡ ਅਤੇ ਉਪਲਬਧ ਪਰਾਲੀ ਦੇ ਲਗਭਗ ਟਨ ਨਾਲ ਦਰਜ ਕਰੋ।","फ़ोन नंबर, गाँव और उपलब्ध पराली के लगभग टन के साथ दर्ज करें।"),text("Our team normally calls within 2 working days to understand your farm and arrange a visit.","ਸਾਡੀ ਟੀਮ ਆਮ ਤੌਰ 'ਤੇ 2 ਕੰਮਕਾਜੀ ਦਿਨਾਂ ਵਿੱਚ ਫ਼ੋਨ ਕਰਕੇ ਖੇਤ ਬਾਰੇ ਜਾਣਦੀ ਅਤੇ ਦੌਰਾ ਤੈਅ ਕਰਦੀ ਹੈ।","हमारी टीम आम तौर पर 2 कार्य दिवस में फ़ोन करके खेत की जानकारी लेती और दौरा तय करती है।"),text("An UnpackOS field operator visits the farm, checks or collects documents, maps the field and verifies the listed quantity.","UnpackOS ਫ਼ੀਲਡ ਓਪਰੇਟਰ ਖੇਤ ਦਾ ਦੌਰਾ ਕਰਦਾ, ਦਸਤਾਵੇਜ਼ ਜਾਂਚਦਾ ਜਾਂ ਲੈਂਦਾ, ਖੇਤ ਮੈਪ ਕਰਦਾ ਅਤੇ ਦਰਜ ਮਾਤਰਾ ਦੀ ਪੁਸ਼ਟੀ ਕਰਦਾ ਹੈ।","UnpackOS फील्ड ऑपरेटर खेत का दौरा करता, दस्तावेज़ जाँचता या लेता, खेत मैप करता और दर्ज मात्रा की पुष्टि करता है।"),text("A decision is usually shared within 3–5 working days after the visit, depending on local capacity and buyer demand.","ਦੌਰੇ ਤੋਂ ਬਾਅਦ ਆਮ ਤੌਰ 'ਤੇ 3–5 ਕੰਮਕਾਜੀ ਦਿਨਾਂ ਵਿੱਚ ਫ਼ੈਸਲਾ ਦੱਸਿਆ ਜਾਂਦਾ ਹੈ; ਇਹ ਸਥਾਨਕ ਸਮਰੱਥਾ ਅਤੇ ਖਰੀਦਦਾਰ ਦੀ ਮੰਗ ਉੱਤੇ ਨਿਰਭਰ ਹੈ।","दौरे के बाद आम तौर पर 3–5 कार्य दिवस में निर्णय बताया जाता है; यह स्थानीय क्षमता और खरीदार की मांग पर निर्भर है।"),text("If accepted, you receive the pickup date, rate and your operator's contact. Final tonnes are measured at the weighbridge and the receipt arrives by SMS.","ਮਨਜ਼ੂਰ ਹੋਣ 'ਤੇ ਚੁੱਕਾਈ ਦੀ ਤਾਰੀਖ਼, ਦਰ ਅਤੇ ਓਪਰੇਟਰ ਦਾ ਸੰਪਰਕ ਮਿਲਦਾ ਹੈ। ਅੰਤਿਮ ਟਨ ਵੇਅਬ੍ਰਿਜ ਉੱਤੇ ਮਾਪੇ ਜਾਂਦੇ ਹਨ ਅਤੇ ਰਸੀਦ SMS ਰਾਹੀਂ ਆਉਂਦੀ ਹੈ।","स्वीकृत होने पर पिकअप तारीख, दर और ऑपरेटर का संपर्क मिलता है। अंतिम टन वेब्रिज पर मापे जाते हैं और रसीद SMS से आती है।")].map((t, i) => (
+                {[text("Register with your phone number, village and approximate tonnes of stubble available.","ਫ਼ੋਨ ਨੰਬਰ, ਪਿੰਡ ਅਤੇ ਉਪਲਬਧ ਪਰਾਲੀ ਦੇ ਲਗਭਗ ਟਨ ਨਾਲ ਦਰਜ ਕਰੋ।","फ़ोन नंबर, गाँव और उपलब्ध पराली के लगभग टन के साथ दर्ज करें।"),text("Our team normally calls within 2 working days to understand your farm and arrange a visit.","ਸਾਡੀ ਟੀਮ ਆਮ ਤੌਰ 'ਤੇ 2 ਕੰਮਕਾਜੀ ਦਿਨਾਂ ਵਿੱਚ ਫ਼ੋਨ ਕਰਕੇ ਖੇਤ ਬਾਰੇ ਜਾਣਦੀ ਅਤੇ ਦੌਰਾ ਤੈਅ ਕਰਦੀ ਹੈ।","हमारी टीम आम तौर पर 2 कार्य दिवस में फ़ोन करके खेत की जानकारी लेती और दौरा तय करती है।"),text("An StubbleX field operator visits the farm, checks or collects documents, maps the field and verifies the listed quantity.","StubbleX ਫ਼ੀਲਡ ਓਪਰੇਟਰ ਖੇਤ ਦਾ ਦੌਰਾ ਕਰਦਾ, ਦਸਤਾਵੇਜ਼ ਜਾਂਚਦਾ ਜਾਂ ਲੈਂਦਾ, ਖੇਤ ਮੈਪ ਕਰਦਾ ਅਤੇ ਦਰਜ ਮਾਤਰਾ ਦੀ ਪੁਸ਼ਟੀ ਕਰਦਾ ਹੈ।","StubbleX फील्ड ऑपरेटर खेत का दौरा करता, दस्तावेज़ जाँचता या लेता, खेत मैप करता और दर्ज मात्रा की पुष्टि करता है।"),text("A decision is usually shared within 3–5 working days after the visit, depending on local capacity and buyer demand.","ਦੌਰੇ ਤੋਂ ਬਾਅਦ ਆਮ ਤੌਰ 'ਤੇ 3–5 ਕੰਮਕਾਜੀ ਦਿਨਾਂ ਵਿੱਚ ਫ਼ੈਸਲਾ ਦੱਸਿਆ ਜਾਂਦਾ ਹੈ; ਇਹ ਸਥਾਨਕ ਸਮਰੱਥਾ ਅਤੇ ਖਰੀਦਦਾਰ ਦੀ ਮੰਗ ਉੱਤੇ ਨਿਰਭਰ ਹੈ।","दौरे के बाद आम तौर पर 3–5 कार्य दिवस में निर्णय बताया जाता है; यह स्थानीय क्षमता और खरीदार की मांग पर निर्भर है।"),text("If accepted, you receive the pickup date, rate and your operator's contact. Final tonnes are measured at the weighbridge and the receipt arrives by SMS.","ਮਨਜ਼ੂਰ ਹੋਣ 'ਤੇ ਚੁੱਕਾਈ ਦੀ ਤਾਰੀਖ਼, ਦਰ ਅਤੇ ਓਪਰੇਟਰ ਦਾ ਸੰਪਰਕ ਮਿਲਦਾ ਹੈ। ਅੰਤਿਮ ਟਨ ਵੇਅਬ੍ਰਿਜ ਉੱਤੇ ਮਾਪੇ ਜਾਂਦੇ ਹਨ ਅਤੇ ਰਸੀਦ SMS ਰਾਹੀਂ ਆਉਂਦੀ ਹੈ।","स्वीकृत होने पर पिकअप तारीख, दर और ऑपरेटर का संपर्क मिलता है। अंतिम टन वेब्रिज पर मापे जाते हैं और रसीद SMS से आती है।")].map((t, i) => (
                   <li key={t} className="flex gap-4">
                     <span className="font-display text-sm text-muted-foreground">0{i + 1}</span>
                     <span className="text-sm leading-relaxed">{t}</span>
@@ -265,9 +265,9 @@ export function Home() {
               <h2 className="mt-4 text-3xl md:text-4xl">{text("Talk to us before the next harvest.", "ਅਗਲੀ ਵਾਢੀ ਤੋਂ ਪਹਿਲਾਂ ਸਾਡੇ ਨਾਲ ਗੱਲ ਕਰੋ।", "अगली कटाई से पहले हमसे बात करें।")}</h2>
               <p className="mt-5 text-sm leading-relaxed text-muted-foreground">{text("We are onboarding farmer clusters and FPOs in Punjab, industrial buyers of paddy residue, and logistics partners.", "ਅਸੀਂ ਪੰਜਾਬ ਦੇ ਕਿਸਾਨ ਕਲੱਸਟਰਾਂ, FPO, ਝੋਨੇ ਦੀ ਪਰਾਲੀ ਦੇ ਉਦਯੋਗਿਕ ਖਰੀਦਦਾਰਾਂ ਅਤੇ ਲੋਜਿਸਟਿਕਸ ਭਾਗੀਦਾਰਾਂ ਨੂੰ ਜੋੜ ਰਹੇ ਹਾਂ।", "हम पंजाब के किसान क्लस्टरों, FPO, धान-पराली के औद्योगिक खरीदारों और लॉजिस्टिक्स भागीदारों को जोड़ रहे हैं।")}</p>
               <div className="mt-8 space-y-4 text-sm">
-                <p><span className="text-muted-foreground">{text("Farmers & FPOs", "ਕਿਸਾਨ ਅਤੇ FPO", "किसान और FPO")}</span><br />clusters@unpackos.in</p>
-                <p><span className="text-muted-foreground">{text("Buyers & manufacturers", "ਖਰੀਦਦਾਰ ਅਤੇ ਨਿਰਮਾਤਾ", "खरीदार और निर्माता")}</span><br />supply@unpackos.in</p>
-                <p><span className="text-muted-foreground">{text("Investors & partners", "ਨਿਵੇਸ਼ਕ ਅਤੇ ਭਾਗੀਦਾਰ", "निवेशक और भागीदार")}</span><br />partners@unpackos.in</p>
+                <p><span className="text-muted-foreground">{text("Farmers & FPOs", "ਕਿਸਾਨ ਅਤੇ FPO", "किसान और FPO")}</span><br />clusters@stubblex.in</p>
+                <p><span className="text-muted-foreground">{text("Buyers & manufacturers", "ਖਰੀਦਦਾਰ ਅਤੇ ਨਿਰਮਾਤਾ", "खरीदार और निर्माता")}</span><br />supply@stubblex.in</p>
+                <p><span className="text-muted-foreground">{text("Investors & partners", "ਨਿਵੇਸ਼ਕ ਅਤੇ ਭਾਗੀਦਾਰ", "निवेशक और भागीदार")}</span><br />partners@stubblex.in</p>
               </div>
             </div>
             <LeadForm />
@@ -277,7 +277,7 @@ export function Home() {
 
       <footer className="border-t border-border bg-secondary py-10">
         <div className="mx-auto flex w-full max-w-6xl flex-col gap-3 px-5 text-sm text-muted-foreground md:flex-row md:items-center md:justify-between md:px-8">
-          <p className="font-display text-base text-foreground">Unpack<span className="text-primary">OS</span></p>
+          <p className="font-display text-base text-foreground">Stubble<span className="text-primary">X</span></p>
           <p className="text-xs">{text("Early-stage concept site", "ਸ਼ੁਰੂਆਤੀ ਸੰਕਲਪ ਸਾਈਟ", "प्रारंभिक अवधारणा साइट")} · Punjab, India · © {new Date().getFullYear()}</p>
         </div>
       </footer>
