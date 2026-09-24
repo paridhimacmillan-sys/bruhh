@@ -116,7 +116,7 @@ function LanguageChooser() {
   return (
     <main className="flex min-h-screen items-center justify-center bg-background px-5 py-10">
       <section className="w-full max-w-xl text-center" aria-labelledby="language-heading">
-        <div className="font-display text-2xl tracking-tight">Unpack<span className="text-primary">OS</span></div>
+        <div className="font-display text-2xl tracking-tight">Stubble<span className="text-primary">X</span></div>
         <p className="eyebrow mt-4">Punjab crop-residue marketplace</p>
         <h1 id="language-heading" className="mt-7 font-display text-3xl leading-tight sm:text-4xl">Choose your language · ਆਪਣੀ ਭਾਸ਼ਾ ਚੁਣੋ · अपनी भाषा चुनें</h1>
         <div className="mt-9 grid gap-3 sm:grid-cols-3">
