@@ -26,7 +26,7 @@ const machineStatuses = ["available", "assigned", "maintenance", "offline"] as c
 function requireAdmin(res: Parameters<typeof requireAuth>[1]): User | null {
   const user = res.locals.user as User;
   if (user.role !== "admin") {
-    res.status(403).json({ message: "Only UnpackOS administrators can use the control centre" });
+    res.status(403).json({ message: "Only StubbleX administrators can use the control centre" });
     return null;
   }
   return user;
@@ -251,10 +251,10 @@ router.post("/admin/sms/:batchId", requireAuth, async (req, res, next) => {
     if (!row) return void res.status(404).json({ message: "Batch not found" });
     const pickup = row.batch.pickupScheduledAt ? new Intl.DateTimeFormat("en-IN", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Kolkata" }).format(row.batch.pickupScheduledAt) : "to be confirmed";
     const message = kind === "payment"
-      ? `UnpackOS: Your payment of ₹${new Intl.NumberFormat("en-IN").format(row.batch.farmerPaidInr)} for ${row.batch.weightTonnes} tonnes has been recorded. Receipt: ${(process.env.PUBLIC_BASE_URL ?? "").replace(/\/$/, "")}/r/${row.batch.id}?lang=pa`
+      ? `StubbleX: Your payment of ₹${new Intl.NumberFormat("en-IN").format(row.batch.farmerPaidInr)} for ${row.batch.weightTonnes} tonnes has been recorded. Receipt: ${(process.env.PUBLIC_BASE_URL ?? "").replace(/\/$/, "")}/r/${row.batch.id}?lang=pa`
       : kind === "registration"
-        ? `UnpackOS: Your stubble collection is registered. Our field operator will contact you shortly.`
-        : `UnpackOS: Pickup for your stubble is confirmed for ${pickup}. The confirmed date cannot be changed; a missed pickup may attract a ₹15,000 charge.`;
+        ? `StubbleX: Your stubble collection is registered. Our field operator will contact you shortly.`
+        : `StubbleX: Pickup for your stubble is confirmed for ${pickup}. The confirmed date cannot be changed; a missed pickup may attract a ₹15,000 charge.`;
     if (shouldSend) await sendAdminFarmerSms({ phone: row.farmer.phone, kind, message });
     await audit(admin.id, shouldSend ? "farmer_sms_sent" : "farmer_sms_previewed", "batch", String(batchId), { kind, phone: row.farmer.phone });
     res.json({ message, phone: row.farmer.phone, sent: shouldSend });
