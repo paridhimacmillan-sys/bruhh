@@ -1,149 +1,103 @@
 import { Router, type IRouter } from "express";
-import { desc, eq, or } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
+import {
+  ListOrdersResponse,
+  UpdateOrderStatusBody,
+  UpdateOrderStatusParams,
+  UpdateOrderStatusResponse,
+} from "@workspace/api-zod";
 import {
   batchesTable,
   db,
-  machinesTable,
-  onboardingApplicationsTable,
-  onboardingInspectionsTable,
+  lotBatchesTable,
+  lotsTable,
   ordersTable,
-  usersTable,
   type User,
 } from "@workspace/db";
 import { requireAuth } from "../lib/session";
 import { writeAudit } from "../lib/audit";
 
 const router: IRouter = Router();
-const roles = ["admin", "coordinator", "inspector", "operator", "aggregator"] as const;
-type StaffRole = (typeof roles)[number];
 
-function publicStaff(user: typeof usersTable.$inferSelect) {
-  return { id: user.id, name: user.name, phone: user.phone, email: user.email, role: user.role, active: user.active, createdAt: user.createdAt };
+async function orderRecords() {
+  const rows = await db
+    .select({ order: ordersTable, lotTonnes: lotsTable.tonnes })
+    .from(ordersTable)
+    .innerJoin(lotsTable, eq(ordersTable.lotId, lotsTable.id))
+    .orderBy(desc(ordersTable.createdAt));
+  return rows.map(({ order, lotTonnes }) => ({ ...order, lotTonnes }));
 }
 
-function isAdmin(res: Parameters<typeof requireAuth>[1]): User | null {
+router.get("/orders", requireAuth, async (_req, res, next) => {
   const user = res.locals.user as User;
-  if (user.role !== "admin") {
-    res.status(403).json({ message: "Only StubbleX administrators can manage staff" });
-    return null;
-  }
-  return user;
-}
-
-function cleanEmail(value: unknown): string {
-  return typeof value === "string" ? value.trim().toLowerCase() : "";
-}
-
-function cleanPhone(value: unknown): string {
-  const digits = typeof value === "string" ? value.replace(/\D/g, "") : "";
-  return digits.length === 12 && digits.startsWith("91") ? digits.slice(2) : digits;
-}
-
-function cleanRole(value: unknown): StaffRole | null {
-  return typeof value === "string" && roles.includes(value as StaffRole) ? value as StaffRole : null;
-}
-
-router.get("/staff", requireAuth, async (_req, res, next) => {
-  if (!isAdmin(res)) return;
-  try {
-    const staff = await db.select().from(usersTable).orderBy(usersTable.name);
-    res.json(staff.map(publicStaff));
-  } catch (error) { next(error); }
-});
-
-router.post("/staff", requireAuth, async (req, res, next) => {
-  if (!isAdmin(res)) return;
-  const name = typeof req.body.name === "string" ? req.body.name.trim() : "";
-  const email = cleanEmail(req.body.email);
-  const phone = cleanPhone(req.body.phone);
-  const role = cleanRole(req.body.role);
-  if (name.length < 2 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !/^[6-9]\d{9}$/.test(phone) || !role) {
-    return void res.status(400).json({ message: "Enter a name, valid Google email, 10-digit Indian phone number, and staff role" });
+  if (user.role !== "admin" && user.role !== "coordinator") {
+    return void res.status(403).json({ message: "Buyer orders are limited to StubbleX administrators and coordinators" });
   }
   try {
-    const [duplicate] = await db.select().from(usersTable).where(or(eq(usersTable.email, email), eq(usersTable.phone, phone))).limit(1);
-    if (duplicate) return void res.status(409).json({ message: duplicate.email === email ? "That Google email is already registered" : "That phone number is already registered" });
-    const [created] = await db.insert(usersTable).values({ name, email, phone, role, active: true }).returning();
-    if (!created) throw new Error("Staff account creation returned no record");
-    await writeAudit({ actorUserId: (res.locals.user as User).id, action: "staff_created", entityType: "user", entityId: created.id, details: { name, email, role } });
-    res.status(201).json(publicStaff(created));
-  } catch (error) { next(error); }
+    res.json(ListOrdersResponse.parse(await orderRecords()));
+  } catch (error) {
+    next(error);
+  }
 });
 
-router.patch("/staff/:staffId", requireAuth, async (req, res, next) => {
-  const admin = isAdmin(res);
-  if (!admin) return;
-  const staffId = Number(req.params.staffId);
-  if (!Number.isInteger(staffId) || staffId < 1) return void res.status(400).json({ message: "Invalid staff member" });
-  try {
-    const [current] = await db.select().from(usersTable).where(eq(usersTable.id, staffId)).limit(1);
-    if (!current) return void res.status(404).json({ message: "Staff member not found" });
-    const role = req.body.role === undefined ? current.role : cleanRole(req.body.role);
-    const active = typeof req.body.active === "boolean" ? req.body.active : current.active;
-    if (!role) return void res.status(400).json({ message: "Invalid staff role" });
-    if (current.id === admin.id && (role !== "admin" || !active)) return void res.status(409).json({ message: "You cannot remove or deactivate your own admin access" });
-    const [updated] = await db.update(usersTable).set({ role, active }).where(eq(usersTable.id, staffId)).returning();
-    if (!updated) throw new Error("Staff update returned no record");
-    await writeAudit({ actorUserId: admin.id, action: "staff_access_updated", entityType: "user", entityId: staffId, details: { previousRole: current.role, role, previousActive: current.active, active } });
-    res.json(publicStaff(updated));
-  } catch (error) { next(error); }
-});
+router.patch("/orders/:orderId/status", requireAuth, async (req, res, next) => {
+  const params = UpdateOrderStatusParams.safeParse(req.params);
+  const body = UpdateOrderStatusBody.safeParse(req.body);
+  if (!params.success || !body.success) return void res.status(400).json({ message: "Invalid order update" });
 
-router.get("/role-dashboard", requireAuth, async (_req, res, next) => {
   const user = res.locals.user as User;
+  if (user.role !== "admin" && user.role !== "coordinator") {
+    return void res.status(403).json({ message: "Only coordinators can decide orders" });
+  }
+
   try {
-    if (user.role === "admin" || user.role === "coordinator") {
-      const [staff, applications, batches, orders] = await Promise.all([
-        db.select().from(usersTable),
-        db.select().from(onboardingApplicationsTable),
-        db.select().from(batchesTable),
-        db.select().from(ordersTable),
-      ]);
-      return void res.json({
-        role: user.role,
-        staffCount: staff.filter((item) => item.active).length,
-        pendingApplications: applications.filter((item) => !["approved", "rejected"].includes(item.status)).length,
-        totalTonnes: batches.reduce((sum, batch) => sum + batch.weightTonnes, 0),
-        farmerPaidInr: batches.reduce((sum, batch) => sum + batch.farmerPaidInr, 0),
-        deliveredBatches: batches.filter((batch) => batch.status === "delivered").length,
-        requestedOrders: orders.filter((order) => order.status === "requested").length,
-      });
-    }
-    if (user.role === "inspector") {
-      const [applications, inspections] = await Promise.all([
-        db.select().from(onboardingApplicationsTable).orderBy(desc(onboardingApplicationsTable.appliedAt)),
-        db.select().from(onboardingInspectionsTable).where(eq(onboardingInspectionsTable.inspectorUserId, user.id)),
-      ]);
-      return void res.json({
-        role: user.role,
-        openApplications: applications.filter((item) => !["approved", "rejected"].includes(item.status)).length,
-        completedInspections: inspections.length,
-        recommendedInspections: inspections.filter((item) => item.recommendation === "recommended").length,
-      });
-    }
-    if (user.role === "operator") {
-      const batches = await db.select().from(batchesTable).where(eq(batchesTable.assignedOperatorId, user.id));
-      return void res.json({
-        role: user.role,
-        assignedBatches: batches.length,
-        assignedTonnes: batches.reduce((sum, batch) => sum + batch.weightTonnes, 0),
-        activeCollections: batches.filter((batch) => batch.status === "registered" || batch.status === "baled").length,
-        completedCollections: batches.filter((batch) => batch.status === "paid" || batch.status === "delivered").length,
-      });
-    }
-    const [machines, batches] = await Promise.all([
-      db.select().from(machinesTable).where(eq(machinesTable.ownerUserId, user.id)),
-      db.select().from(batchesTable).where(eq(batchesTable.assignedOperatorId, user.id)),
-    ]);
-    res.json({
-      role: user.role,
-      machines,
-      machineCount: machines.reduce((sum, machine) => sum + machine.machineCount, 0),
-      assignedJobs: batches.length,
-      assignedTonnes: batches.reduce((sum, batch) => sum + batch.weightTonnes, 0),
-      completedJobs: batches.filter((batch) => batch.status === "delivered").length,
+    const result = await db.transaction(async (tx) => {
+      const [row] = await tx
+        .select({ order: ordersTable, lotTonnes: lotsTable.tonnes })
+        .from(ordersTable)
+        .innerJoin(lotsTable, eq(ordersTable.lotId, lotsTable.id))
+        .where(eq(ordersTable.id, params.data.orderId))
+        .limit(1);
+      if (!row) return null;
+
+      if (body.data.status === "delivered" && row.order.status !== "confirmed") {
+        return { error: "Confirm the order before marking it delivered" } as const;
+      }
+
+      const [updated] = await tx
+        .update(ordersTable)
+        .set({ status: body.data.status, updatedAt: new Date() })
+        .where(eq(ordersTable.id, row.order.id))
+        .returning();
+
+      const allOrders = await tx.select().from(ordersTable).where(eq(ordersTable.lotId, row.order.lotId));
+      const confirmed = allOrders.filter((order) => order.status === "confirmed").reduce((sum, order) => sum + order.tonnes, 0);
+      const delivered = allOrders.filter((order) => order.status === "delivered").reduce((sum, order) => sum + order.tonnes, 0);
+      const active = allOrders.some((order) => order.status === "requested" || order.status === "confirmed");
+      const lotStatus = delivered >= row.lotTonnes ? "sold" : confirmed >= row.lotTonnes ? "committed" : active ? "requested" : "available";
+      await tx.update(lotsTable).set({ status: lotStatus }).where(eq(lotsTable.id, row.order.lotId));
+
+      if (body.data.status === "delivered") {
+        const linked = await tx.select().from(lotBatchesTable).where(eq(lotBatchesTable.lotId, row.order.lotId));
+        for (const link of linked) {
+          await tx.update(batchesTable).set({
+            buyerName: row.order.company,
+            status: "delivered",
+            deliveredAt: new Date(),
+          }).where(eq(batchesTable.id, link.batchId));
+        }
+      }
+
+      return { order: { ...updated, lotTonnes: row.lotTonnes } } as const;
     });
-  } catch (error) { next(error); }
+
+    if (!result) return void res.status(404).json({ message: "Order not found" });
+    if ("error" in result) return void res.status(409).json({ message: result.error });
+    await writeAudit({ actorUserId: user.id, action: "order_status_updated", entityType: "order", entityId: result.order.id, details: { lotId: result.order.lotId, company: result.order.company, status: result.order.status, tonnes: result.order.tonnes } });
+    res.json(UpdateOrderStatusResponse.parse(result.order));
+  } catch (error) {
+    next(error);
+  }
 });
 
 export default router;
