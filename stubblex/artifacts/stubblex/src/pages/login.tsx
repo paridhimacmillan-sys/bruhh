@@ -9,7 +9,7 @@ const loginErrors: Record<string, string> = {
   invalid_login_state: "That login attempt expired. Please try again.",
   google_exchange_failed: "Google could not complete the login. Please try again.",
   unverified_google_account: "Use a verified Google account.",
-  not_approved: "This Google email has not been approved for UnpackOS staff access.",
+  not_approved: "This Google email has not been approved for StubbleX staff access.",
   google_account_mismatch: "This staff account is linked to a different Google account.",
 };
 
@@ -33,7 +33,7 @@ export function LoginPage() {
     <div className="min-h-screen bg-background">
       <header className="border-b border-border/70">
         <div className="mx-auto flex w-full max-w-lg items-center justify-between px-5 py-4">
-          <Link href="/" className="font-display text-lg tracking-tight" aria-label="UnpackOS home">Unpack<span className="text-primary">OS</span></Link>
+          <Link href="/" className="font-display text-lg tracking-tight" aria-label="StubbleX home">Stubble<span className="text-primary">X</span></Link>
           <div className="flex items-center gap-2"><span className="eyebrow hidden sm:inline">{text("Staff access", "ਸਟਾਫ਼ ਪਹੁੰਚ", "स्टाफ़ प्रवेश")}</span><LanguageToggle /></div>
         </div>
       </header>
@@ -43,8 +43,8 @@ export function LoginPage() {
           <div className="rounded-[1.5rem] border border-border px-5 py-8 sm:px-8 sm:py-10">
             <div className="flex h-11 w-11 items-center justify-center rounded-full bg-straw text-straw-foreground"><ShieldCheck className="h-5 w-5" /></div>
             <p className="eyebrow mt-7">{text("Approved staff only", "ਸਿਰਫ਼ ਮਨਜ਼ੂਰਸ਼ੁਦਾ ਸਟਾਫ਼", "केवल स्वीकृत स्टाफ़")}</p>
-            <h1 className="mt-3 font-display text-4xl leading-tight">{text("Sign in to UnpackOS", "UnpackOS ਵਿੱਚ ਸਾਈਨ ਇਨ ਕਰੋ", "UnpackOS में साइन इन करें")}</h1>
-            <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{text("Use the Google account email approved by your UnpackOS administrator.", "ਆਪਣੇ UnpackOS ਐਡਮਿਨ ਵੱਲੋਂ ਮਨਜ਼ੂਰ Google ਈਮੇਲ ਵਰਤੋ।", "अपने UnpackOS एडमिन द्वारा स्वीकृत Google ईमेल का उपयोग करें।")}</p>
+            <h1 className="mt-3 font-display text-4xl leading-tight">{text("Sign in to StubbleX", "StubbleX ਵਿੱਚ ਸਾਈਨ ਇਨ ਕਰੋ", "StubbleX में साइन इन करें")}</h1>
+            <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{text("Use the Google account email approved by your StubbleX administrator.", "ਆਪਣੇ StubbleX ਐਡਮਿਨ ਵੱਲੋਂ ਮਨਜ਼ੂਰ Google ਈਮੇਲ ਵਰਤੋ।", "अपने StubbleX एडमिन द्वारा स्वीकृत Google ईमेल का उपयोग करें।")}</p>
 
             {errorCode && <p role="alert" className="mt-5 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{loginErrors[errorCode] ?? "Sign-in was not completed. Please try again."}</p>}
 
@@ -53,7 +53,7 @@ export function LoginPage() {
             </a>
 
             <div className="mt-7 space-y-3 border-t border-border pt-5 text-xs leading-relaxed text-muted-foreground">
-              <p className="flex items-start gap-2"><CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />No passwords or paid SMS codes are handled by UnpackOS.</p>
+              <p className="flex items-start gap-2"><CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />No passwords or paid SMS codes are handled by StubbleX.</p>
               <p className="flex items-start gap-2"><CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />Your email must already be present in the approved staff list.</p>
             </div>
             <Link href="/" className="mt-7 inline-flex items-center gap-1.5 text-xs text-muted-foreground"><ArrowLeft className="h-3.5 w-3.5" />Back to public website</Link>
