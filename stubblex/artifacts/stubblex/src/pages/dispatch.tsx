@@ -236,8 +236,8 @@ export function DispatchPage() {
     <div className="min-h-screen bg-background">
       <header className="border-b border-border/70 bg-background/90 backdrop-blur">
         <div className="mx-auto flex w-full max-w-7xl items-center justify-between px-5 py-4 md:px-8">
-          <Link href="/" className="font-display text-lg tracking-tight" aria-label="UnpackOS home">
-            Unpack<span className="text-primary">OS</span>
+          <Link href="/" className="font-display text-lg tracking-tight" aria-label="StubbleX home">
+            Stubble<span className="text-primary">X</span>
           </Link>
           <div className="flex items-center gap-3">
             <div className="hidden text-right sm:block">
