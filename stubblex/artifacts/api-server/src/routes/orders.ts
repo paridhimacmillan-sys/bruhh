@@ -31,7 +31,7 @@ async function orderRecords() {
 router.get("/orders", requireAuth, async (_req, res, next) => {
   const user = res.locals.user as User;
   if (user.role !== "admin" && user.role !== "coordinator") {
-    return void res.status(403).json({ message: "Buyer orders are limited to UnpackOS administrators and coordinators" });
+    return void res.status(403).json({ message: "Buyer orders are limited to StubbleX administrators and coordinators" });
   }
   try {
     res.json(ListOrdersResponse.parse(await orderRecords()));
