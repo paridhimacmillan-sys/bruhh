@@ -41,7 +41,7 @@ export function RoleDashboardShell({ allowedRoles, eyebrow, title, description, 
   const logout = useAuthLogout({ mutation: { onSuccess: () => { queryClient.clear(); navigate("/login", { replace: true }); } } });
   const preview = import.meta.env.DEV && new URLSearchParams(window.location.search).get("preview") === "1";
   const previewRole = window.location.pathname.split("/")[1] as UserRole;
-  const previewUser: AuthUser = { id: 1, name: `${previewRole[0]?.toUpperCase()}${previewRole.slice(1)} Preview`, email: `${previewRole}@unpackos.in`, phone: "9876500001", role: previewRole };
+  const previewUser: AuthUser = { id: 1, name: `${previewRole[0]?.toUpperCase()}${previewRole.slice(1)} Preview`, email: `${previewRole}@stubblex.in`, phone: "9876500001", role: previewRole };
   const activeUser = preview ? previewUser : user;
 
   useEffect(() => {
@@ -55,7 +55,7 @@ export function RoleDashboardShell({ allowedRoles, eyebrow, title, description, 
 
   return <div className="min-h-screen bg-background lg:grid lg:grid-cols-[220px_1fr]">
     <aside className="border-b border-border bg-primary px-5 py-5 text-primary-foreground lg:min-h-screen lg:border-b-0 lg:border-r lg:px-6 lg:py-7">
-      <Link href="/" className="font-display text-2xl">UnpackOS</Link>
+      <Link href="/" className="font-display text-2xl">StubbleX</Link>
       <p className="mt-1 text-[0.65rem] uppercase tracking-[0.18em] text-primary-foreground/65">{activeUser.role} workspace</p>
       <nav className="mt-5 flex gap-2 overflow-x-auto lg:mt-10 lg:grid" aria-label="Staff navigation">
         {navByRole[activeUser.role].map(({ href, label, icon: Icon }) => <Link key={href} href={href} className={`flex min-w-fit items-center gap-2 rounded-md px-3 py-2.5 text-sm ${window.location.pathname === href ? "bg-straw text-straw-foreground" : "text-primary-foreground/80 hover:bg-primary-foreground/10"}`}><Icon className="h-4 w-4" />{label}</Link>)}
