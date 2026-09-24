@@ -52,7 +52,7 @@ router.patch("/batches/:passportId/status", requireAuth, async (req, res, next) 
   try {
     const user = res.locals.user as User;
     if (user.role !== "admin" && user.role !== "coordinator" && user.role !== "operator") {
-      return void res.status(403).json({ message: "Only field operators and UnpackOS coordinators can update collection status" });
+      return void res.status(403).json({ message: "Only field operators and StubbleX coordinators can update collection status" });
     }
     const [record] = await db
       .select({ batch: batchesTable, farmerPhone: farmersTable.phone })
