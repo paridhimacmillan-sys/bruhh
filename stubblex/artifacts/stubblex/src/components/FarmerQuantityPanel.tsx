@@ -27,6 +27,10 @@ function formatTonnes(value: number) {
   return `${new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2 }).format(value)} t`;
 }
 
+function formatSignedTonnes(value: number) {
+  return `${value > 0 ? "+" : value < 0 ? "−" : ""}${formatTonnes(Math.abs(value))}`;
+}
+
 function formatDate(value: string) {
   return new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" }).format(new Date(value));
 }
@@ -60,6 +64,9 @@ export function FarmerQuantityPanel({ canDecide, currentUserId }: { canDecide: b
   const reject = useRejectFarmerQuantityRequest({ mutation: { onSuccess: async () => { await refresh(); setReviewing(null); setDecisionNote(""); } } });
 
   const selectedFarmer = farmers.find((farmer) => farmer.id === Number(farmerId));
+  const quantityChange = Number(additionalTonnes);
+  const requestedTotal = selectedFarmer && Number.isFinite(quantityChange) ? selectedFarmer.listedTonnes + quantityChange : null;
+  const validChange = Number.isFinite(quantityChange) && Math.abs(quantityChange) >= 0.1 && requestedTotal !== null && requestedTotal > 0;
   const pending = requests.filter((request) => request.status === "pending").length;
   const approvedTonnes = requests.filter((request) => request.status === "approved").reduce((sum, request) => sum + request.additionalTonnes, 0);
   const ordered = useMemo(() => [...requests].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()), [requests]);
@@ -89,7 +96,7 @@ export function FarmerQuantityPanel({ canDecide, currentUserId }: { canDecide: b
 
   function submitRequest() {
     const tonnes = Number(additionalTonnes);
-    if (!farmerId || !Number.isFinite(tonnes) || tonnes <= 0 || reason.trim().length < 3) return;
+    if (!farmerId || !Number.isFinite(tonnes) || Math.abs(tonnes) < 0.1 || !selectedFarmer || selectedFarmer.listedTonnes + tonnes <= 0 || reason.trim().length < 3) return;
     create.mutate({ data: {
       farmerId: Number(farmerId), additionalTonnes: tonnes, source, reason: reason.trim(),
       fieldPhotoDataBase64: photo?.data ?? null, fieldPhotoMimeType: photo?.mimeType ?? null,
@@ -102,14 +109,14 @@ export function FarmerQuantityPanel({ canDecide, currentUserId }: { canDecide: b
     <div className="grid gap-3 border-b border-border p-5 sm:grid-cols-3">
       <Summary icon={<Phone />} label="Assigned farmers" value={String(farmers.length)} />
       <Summary icon={<Clock3 />} label="Pending approval" value={String(pending)} />
-      <Summary icon={<CheckCircle2 />} label="Approved additions" value={formatTonnes(approvedTonnes)} />
+      <Summary icon={<CheckCircle2 />} label="Net approved change" value={formatSignedTonnes(approvedTonnes)} />
     </div>
 
     <div className="grid lg:grid-cols-[0.78fr_1.22fr]">
       <section className="border-b border-border p-5 lg:border-b-0 lg:border-r">
         <p className="eyebrow">Phone-assisted update</p>
-        <h3 className="mt-2 font-display text-2xl">Add more stubble</h3>
-        <p className="mt-2 text-sm leading-relaxed text-muted-foreground">Use this after a farmer calls about additional land, a new field or a revised estimate. The farmer does not need to log in.</p>
+        <h3 className="mt-2 font-display text-2xl">Adjust farmer volume</h3>
+        <p className="mt-2 text-sm leading-relaxed text-muted-foreground">Use a positive number to add stubble or a negative number to reduce an estimate after verification. The farmer does not need to log in.</p>
         {farmers.length === 0 ? <p className="mt-6 rounded-md bg-secondary p-4 text-sm text-muted-foreground">No approved farmers are assigned to you.</p> : <div className="mt-6 space-y-4">
           <label className="block text-xs font-medium">Farmer
             <select className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={farmerId} onChange={(event) => setFarmerId(event.target.value)}>
@@ -118,16 +125,16 @@ export function FarmerQuantityPanel({ canDecide, currentUserId }: { canDecide: b
             </select>
           </label>
           {selectedFarmer && <div className="rounded-md bg-secondary/60 p-3 text-xs"><p className="font-medium">Current listing: {formatTonnes(selectedFarmer.listedTonnes)}</p><p className="mt-1 text-muted-foreground">{selectedFarmer.phone} · {selectedFarmer.clusterName}, {selectedFarmer.district}</p></div>}
-          <label className="block text-xs font-medium">Additional tonnes<Input className="mt-1" type="number" min="0.1" step="0.1" value={additionalTonnes} onChange={(event) => setAdditionalTonnes(event.target.value)} placeholder="5" /></label>
-          <label className="block text-xs font-medium">Why is the quantity increasing?
+          <label className="block text-xs font-medium">Change in tonnes<Input className="mt-1" type="number" min="-10000" max="10000" step="0.1" value={additionalTonnes} onChange={(event) => setAdditionalTonnes(event.target.value)} placeholder="5 or -3" /><span className="mt-1 block font-normal text-muted-foreground">Example: enter 5 to add 5 t, or -3 to remove 3 t.</span></label>
+          <label className="block text-xs font-medium">Why is the quantity changing?
             <select className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={source} onChange={(event) => setSource(event.target.value as QuantityChangeSource)}>
               <option value="revised_estimate">Revised estimate</option><option value="additional_land">Additional land</option><option value="new_field">New field</option>
             </select>
           </label>
-          <label className="block text-xs font-medium">Operator note<Textarea className="mt-1" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Farmer called; 5 additional tonnes expected from adjoining field…" /></label>
+          <label className="block text-xs font-medium">Operator note<Textarea className="mt-1" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Field revisited; verified estimate changed from 20 t to 17 t…" /></label>
           <label className="block rounded-md border border-dashed border-border p-3 text-xs font-medium"><span className="flex items-center gap-2"><Camera className="h-4 w-4" /> Geotagged field photo (optional)</span><Input className="mt-2" type="file" accept="image/jpeg,image/png" onChange={(event) => void preparePhoto(event.target.files?.[0])} />{photo && <span className="mt-2 block text-primary">Photo ready</span>}{photoError && <span className="mt-2 block text-destructive">{photoError}</span>}</label>
-          {selectedFarmer && additionalTonnes && Number(additionalTonnes) > 0 && <p className="rounded-md border border-primary/20 bg-primary/10 p-3 text-sm">Requested total: <strong>{formatTonnes(selectedFarmer.listedTonnes + Number(additionalTonnes))}</strong></p>}
-          <Button className="w-full" disabled={create.isPending || !farmerId || Number(additionalTonnes) <= 0 || reason.trim().length < 3} onClick={submitRequest}><Plus className="mr-2 h-4 w-4" /> Submit increase request</Button>
+          {selectedFarmer && additionalTonnes && Number.isFinite(quantityChange) && <p className={`rounded-md border p-3 text-sm ${requestedTotal !== null && requestedTotal > 0 ? "border-primary/20 bg-primary/10" : "border-destructive/30 bg-destructive/10 text-destructive"}`}>Requested total: <strong>{requestedTotal !== null ? formatTonnes(requestedTotal) : "—"}</strong>{requestedTotal !== null && requestedTotal <= 0 && <span className="mt-1 block">The total must remain above zero.</span>}</p>}
+          <Button className="w-full" disabled={create.isPending || !farmerId || !validChange || reason.trim().length < 3} onClick={submitRequest}><Plus className="mr-2 h-4 w-4" /> Submit volume adjustment</Button>
           {create.isError && <p className="text-sm text-destructive">{(create.error as { data?: { message?: string } }).data?.message ?? "Unable to create request."}</p>}
         </div>}
       </section>
@@ -136,7 +143,7 @@ export function FarmerQuantityPanel({ canDecide, currentUserId }: { canDecide: b
         <div className="flex items-center justify-between"><div><p className="eyebrow">Audit history</p><h3 className="mt-2 font-display text-2xl">Quantity requests</h3></div><History className="h-5 w-5 text-primary" /></div>
         {ordered.length === 0 ? <p className="mt-8 text-sm text-muted-foreground">No quantity changes have been requested.</p> : <div className="mt-5 space-y-3">{ordered.map((request) => <article key={request.id} className="rounded-lg border border-border p-4">
           <div className="flex items-start justify-between gap-3"><div><p className="font-medium">{request.farmerName}</p><p className="mt-1 text-xs text-muted-foreground">{request.farmerPhone} · requested by {request.requestedByName}</p></div><span className={`rounded-full border px-2.5 py-1 text-[0.65rem] font-medium capitalize ${statusStyles[request.status]}`}>{request.status}</span></div>
-          <div className="mt-4 grid grid-cols-3 gap-2 rounded-md bg-secondary/55 p-3 text-center"><div><p className="text-[0.65rem] text-muted-foreground">Previous</p><p className="mt-1 text-sm font-medium">{formatTonnes(request.previousTonnes)}</p></div><div><p className="text-[0.65rem] text-muted-foreground">Added</p><p className="mt-1 text-sm font-medium text-primary">+{formatTonnes(request.additionalTonnes)}</p></div><div><p className="text-[0.65rem] text-muted-foreground">Requested total</p><p className="mt-1 text-sm font-medium">{formatTonnes(request.requestedTotalTonnes)}</p></div></div>
+          <div className="mt-4 grid grid-cols-3 gap-2 rounded-md bg-secondary/55 p-3 text-center"><div><p className="text-[0.65rem] text-muted-foreground">Previous</p><p className="mt-1 text-sm font-medium">{formatTonnes(request.previousTonnes)}</p></div><div><p className="text-[0.65rem] text-muted-foreground">Change</p><p className={`mt-1 text-sm font-medium ${request.additionalTonnes >= 0 ? "text-primary" : "text-destructive"}`}>{formatSignedTonnes(request.additionalTonnes)}</p></div><div><p className="text-[0.65rem] text-muted-foreground">Requested total</p><p className="mt-1 text-sm font-medium">{formatTonnes(request.requestedTotalTonnes)}</p></div></div>
           <p className="mt-3 text-sm"><span className="capitalize text-muted-foreground">{request.source.replaceAll("_", " ")}:</span> {request.reason}</p>
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground"><span>{formatDate(request.createdAt)}</span><div className="flex gap-2">{request.hasFieldPhoto && <Button size="sm" variant="outline" onClick={() => void viewPhoto(request.id)}>View field photo</Button>}{canDecide && request.status === "pending" && <Button size="sm" variant="outline" onClick={() => { setReviewing(request); setDecisionNote(""); }}>Review</Button>}</div></div>
           {request.reviewedByName && <p className="mt-3 border-t border-border pt-3 text-xs text-muted-foreground">{request.status === "approved" ? "Approved" : "Rejected"} by {request.reviewedByName}{request.reviewNotes ? ` · ${request.reviewNotes}` : ""}</p>}
@@ -144,7 +151,7 @@ export function FarmerQuantityPanel({ canDecide, currentUserId }: { canDecide: b
       </section>
     </div>
 
-    {reviewing && <div className="border-t border-border bg-secondary/35 p-5"><div className="mx-auto max-w-xl"><p className="eyebrow">Coordinator decision</p><h3 className="mt-2 font-display text-2xl">Review {reviewing.farmerName}: +{formatTonnes(reviewing.additionalTonnes)}</h3>{reviewing.requestedByUserId === currentUserId ? <p className="mt-4 rounded-md border border-straw bg-straw/35 p-4 text-sm text-straw-foreground">You submitted this request, so another coordinator or admin must decide it.</p> : <><label className="mt-4 block text-xs font-medium">Decision note<Textarea className="mt-1" value={decisionNote} onChange={(event) => setDecisionNote(event.target.value)} placeholder="Evidence checked, capacity confirmed…" /></label><div className="mt-4 flex gap-3"><Button className="flex-1" disabled={approve.isPending} onClick={() => approve.mutate({ requestId: reviewing.id, data: { reviewNotes: decisionNote || null } })}><CheckCircle2 className="mr-2 h-4 w-4" /> Approve</Button><Button className="flex-1" variant="outline" disabled={reject.isPending || decisionNote.trim().length < 3} onClick={() => reject.mutate({ requestId: reviewing.id, data: { reason: decisionNote } })}><XCircle className="mr-2 h-4 w-4" /> Reject</Button></div></>}<Button className="mt-3 w-full" variant="ghost" onClick={() => setReviewing(null)}>Cancel</Button></div></div>}
+    {reviewing && <div className="border-t border-border bg-secondary/35 p-5"><div className="mx-auto max-w-xl"><p className="eyebrow">Coordinator decision</p><h3 className="mt-2 font-display text-2xl">Review {reviewing.farmerName}: {formatSignedTonnes(reviewing.additionalTonnes)}</h3>{reviewing.requestedByUserId === currentUserId ? <p className="mt-4 rounded-md border border-straw bg-straw/35 p-4 text-sm text-straw-foreground">You submitted this request, so another coordinator or admin must decide it.</p> : <><label className="mt-4 block text-xs font-medium">Decision note<Textarea className="mt-1" value={decisionNote} onChange={(event) => setDecisionNote(event.target.value)} placeholder="Evidence checked, capacity confirmed…" /></label><div className="mt-4 flex gap-3"><Button className="flex-1" disabled={approve.isPending} onClick={() => approve.mutate({ requestId: reviewing.id, data: { reviewNotes: decisionNote || null } })}><CheckCircle2 className="mr-2 h-4 w-4" /> Approve</Button><Button className="flex-1" variant="outline" disabled={reject.isPending || decisionNote.trim().length < 3} onClick={() => reject.mutate({ requestId: reviewing.id, data: { reason: decisionNote } })}><XCircle className="mr-2 h-4 w-4" /> Reject</Button></div></>}<Button className="mt-3 w-full" variant="ghost" onClick={() => setReviewing(null)}>Cancel</Button></div></div>}
   </div>;
 }
 
