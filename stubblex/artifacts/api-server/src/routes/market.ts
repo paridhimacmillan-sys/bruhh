@@ -47,13 +47,22 @@ async function publicLots(lotId?: string) {
     .innerJoin(batchesTable, eq(lotBatchesTable.batchId, batchesTable.id))
     .where(inArray(lotBatchesTable.lotId, rows.map(({ lot }) => lot.id)));
 
+  const orders = await db
+    .select({ lotId: ordersTable.lotId, tonnes: ordersTable.tonnes, status: ordersTable.status })
+    .from(ordersTable)
+    .where(inArray(ordersTable.lotId, rows.map(({ lot }) => lot.id)));
+
   return rows.map(({ lot, ...location }) => {
     const linked = links.filter((link) => link.lotId === lot.id);
+    const reservedTonnes = orders
+      .filter((order) => order.lotId === lot.id && order.status !== "rejected")
+      .reduce((sum, order) => sum + order.tonnes, 0);
+    const availableTonnes = Math.max(lot.tonnes - reservedTonnes, 0);
     const baledAt = linked.reduce(
       (latest, link) => link.baledAt > latest ? link.baledAt : latest,
       linked[0]?.baledAt ?? lot.listedAt,
     );
-    return { ...lot, ...location, baledAt, passportIds: linked.map((link) => link.passportId) };
+    return { ...lot, tonnes: availableTonnes, ...location, baledAt, passportIds: linked.map((link) => link.passportId) };
   });
 }
 
